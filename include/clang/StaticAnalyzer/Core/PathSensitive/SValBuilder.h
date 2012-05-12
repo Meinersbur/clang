@@ -16,6 +16,8 @@
 #define LLVM_CLANG_GR_SVALBUILDER
 
 #include "clang/AST/Expr.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/BasicValueFactory.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/MemRegion.h"
@@ -105,12 +107,9 @@ public:
   /// that value is returned. Otherwise, returns NULL.
   virtual const llvm::APSInt *getKnownValue(ProgramStateRef state, SVal val) = 0;
   
-  /// Handles generation of the value in case the builder is not smart enough to
-  /// handle the given binary expression. Depending on the state, decides to
-  /// either keep the expression or forget the history and generate an
-  /// UnknownVal.
-  SVal makeGenericVal(ProgramStateRef state, BinaryOperator::Opcode op,
-                          NonLoc lhs, NonLoc rhs, QualType resultTy);
+  /// Constructs a symbolic expression for two non-location values.
+  SVal makeSymExprValNN(ProgramStateRef state, BinaryOperator::Opcode op,
+                      NonLoc lhs, NonLoc rhs, QualType resultTy);
 
   SVal evalBinOp(ProgramStateRef state, BinaryOperator::Opcode op,
                  SVal lhs, SVal rhs, QualType type);
@@ -143,16 +142,16 @@ public:
   // Forwarding methods to SymbolManager.
 
   const SymbolConjured* getConjuredSymbol(const Stmt *stmt,
-					  const LocationContext *LCtx,
-					  QualType type,
+                                          const LocationContext *LCtx,
+                                          QualType type,
                                           unsigned visitCount,
                                           const void *symbolTag = 0) {
     return SymMgr.getConjuredSymbol(stmt, LCtx, type, visitCount, symbolTag);
   }
 
   const SymbolConjured* getConjuredSymbol(const Expr *expr,
-					  const LocationContext *LCtx,
-					  unsigned visitCount,
+                                          const LocationContext *LCtx,
+                                          unsigned visitCount,
                                           const void *symbolTag = 0) {
     return SymMgr.getConjuredSymbol(expr, LCtx, visitCount, symbolTag);
   }
@@ -171,13 +170,18 @@ public:
   /// conjured symbols should be used sparingly.
   DefinedOrUnknownSVal getConjuredSymbolVal(const void *symbolTag,
                                             const Expr *expr,
-					    const LocationContext *LCtx,
-					    unsigned count);
+                                            const LocationContext *LCtx,
+                                            unsigned count);
   DefinedOrUnknownSVal getConjuredSymbolVal(const void *symbolTag,
                                             const Expr *expr,
-					    const LocationContext *LCtx,
-					    QualType type,
+                                            const LocationContext *LCtx,
+                                            QualType type,
                                             unsigned count);
+  
+  DefinedOrUnknownSVal getConjuredSymbolVal(const Stmt *stmt,
+                                            const LocationContext *LCtx,
+                                            QualType type,
+                                            unsigned visitCount);
 
   DefinedOrUnknownSVal getDerivedRegionValueSymbolVal(
       SymbolRef parentSymbol, const TypedValueRegion *region);
@@ -215,6 +219,10 @@ public:
     return nonloc::ConcreteInt(
         BasicVals.getValue(integer->getValue(),
                      integer->getType()->isUnsignedIntegerOrEnumerationType()));
+  }
+  
+  nonloc::ConcreteInt makeBoolVal(const ObjCBoolLiteralExpr *boolean) {
+    return makeTruthVal(boolean->getValue(), boolean->getType());
   }
 
   nonloc::ConcreteInt makeBoolVal(const CXXBoolLiteralExpr *boolean);

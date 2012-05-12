@@ -115,10 +115,61 @@ void Preprocessor::HandlePragmaDirective(unsigned Introducer) {
     DiscardUntilEndOfDirective();
 }
 
+namespace {
+/// \brief Helper class for \see Preprocessor::Handle_Pragma.
+class LexingFor_PragmaRAII {
+  Preprocessor &PP;
+  bool InMacroArgPreExpansion;
+  bool Failed;
+  Token &OutTok;
+  Token PragmaTok;
+
+public:
+  LexingFor_PragmaRAII(Preprocessor &PP, bool InMacroArgPreExpansion,
+                       Token &Tok)
+    : PP(PP), InMacroArgPreExpansion(InMacroArgPreExpansion),
+      Failed(false), OutTok(Tok) {
+    if (InMacroArgPreExpansion) {
+      PragmaTok = OutTok;
+      PP.EnableBacktrackAtThisPos();
+    }
+  }
+
+  ~LexingFor_PragmaRAII() {
+    if (InMacroArgPreExpansion) {
+      if (Failed) {
+        PP.CommitBacktrackedTokens();
+      } else {
+        PP.Backtrack();
+        OutTok = PragmaTok;
+      }
+    }
+  }
+
+  void failed() {
+    Failed = true;
+  }
+};
+}
+
 /// Handle_Pragma - Read a _Pragma directive, slice it up, process it, then
 /// return the first token after the directive.  The _Pragma token has just
 /// been read into 'Tok'.
 void Preprocessor::Handle_Pragma(Token &Tok) {
+
+  // This works differently if we are pre-expanding a macro argument.
+  // In that case we don't actually "activate" the pragma now, we only lex it
+  // until we are sure it is lexically correct and then we backtrack so that
+  // we activate the pragma whenever we encounter the tokens again in the token
+  // stream. This ensures that we will activate it in the correct location
+  // or that we will ignore it if it never enters the token stream, e.g:
+  //
+  //     #define EMPTY(x)
+  //     #define INACTIVE(x) EMPTY(x)
+  //     INACTIVE(_Pragma("clang diagnostic ignored \"-Wconversion\""))
+
+  LexingFor_PragmaRAII _PragmaLexing(*this, InMacroArgPreExpansion, Tok);
+
   // Remember the pragma token location.
   SourceLocation PragmaLoc = Tok.getLocation();
 
@@ -126,27 +177,45 @@ void Preprocessor::Handle_Pragma(Token &Tok) {
   Lex(Tok);
   if (Tok.isNot(tok::l_paren)) {
     Diag(PragmaLoc, diag::err__Pragma_malformed);
-    return;
+    return _PragmaLexing.failed();
   }
 
   // Read the '"..."'.
   Lex(Tok);
   if (Tok.isNot(tok::string_literal) && Tok.isNot(tok::wide_string_literal)) {
     Diag(PragmaLoc, diag::err__Pragma_malformed);
-    return;
+    // Skip this token, and the ')', if present.
+    if (Tok.isNot(tok::r_paren))
+      Lex(Tok);
+    if (Tok.is(tok::r_paren))
+      Lex(Tok);
+    return _PragmaLexing.failed();
+  }
+
+  if (Tok.hasUDSuffix()) {
+    Diag(Tok, diag::err_invalid_string_udl);
+    // Skip this token, and the ')', if present.
+    Lex(Tok);
+    if (Tok.is(tok::r_paren))
+      Lex(Tok);
+    return _PragmaLexing.failed();
   }
 
   // Remember the string.
-  std::string StrVal = getSpelling(Tok);
+  Token StrTok = Tok;
 
   // Read the ')'.
   Lex(Tok);
   if (Tok.isNot(tok::r_paren)) {
     Diag(PragmaLoc, diag::err__Pragma_malformed);
-    return;
+    return _PragmaLexing.failed();
   }
 
+  if (InMacroArgPreExpansion)
+    return;
+
   SourceLocation RParenLoc = Tok.getLocation();
+  std::string StrVal = getSpelling(StrTok);
 
   // The _Pragma is lexically sound.  Destringize according to C99 6.10.9.1:
   // "The string literal is destringized by deleting the L prefix, if present,
@@ -442,6 +511,8 @@ void Preprocessor::HandlePragmaComment(Token &Tok) {
     // "foo " "bar" "Baz"
     SmallVector<Token, 4> StrToks;
     while (Tok.is(tok::string_literal)) {
+      if (Tok.hasUDSuffix())
+        Diag(Tok, diag::err_invalid_string_udl);
       StrToks.push_back(Tok);
       Lex(Tok);
     }
@@ -518,6 +589,8 @@ void Preprocessor::HandlePragmaMessage(Token &Tok) {
   // "foo " "bar" "Baz"
   SmallVector<Token, 4> StrToks;
   while (Tok.is(tok::string_literal)) {
+    if (Tok.hasUDSuffix())
+      Diag(Tok, diag::err_invalid_string_udl);
     StrToks.push_back(Tok);
     Lex(Tok);
   }
@@ -574,6 +647,11 @@ IdentifierInfo *Preprocessor::ParsePragmaPushOrPopMacro(Token &Tok) {
   if (Tok.isNot(tok::string_literal)) {
     Diag(PragmaTok.getLocation(), diag::err_pragma_push_pop_macro_malformed)
       << getSpelling(PragmaTok);
+    return 0;
+  }
+
+  if (Tok.hasUDSuffix()) {
+    Diag(Tok, diag::err_invalid_string_udl);
     return 0;
   }
 
@@ -1207,7 +1285,7 @@ void Preprocessor::RegisterBuiltinPragmas() {
   AddPragmaHandler("STDC", new PragmaSTDC_UnknownHandler());
 
   // MS extensions.
-  if (Features.MicrosoftExt) {
+  if (LangOpts.MicrosoftExt) {
     AddPragmaHandler(new PragmaCommentHandler());
     AddPragmaHandler(new PragmaIncludeAliasHandler());
   }

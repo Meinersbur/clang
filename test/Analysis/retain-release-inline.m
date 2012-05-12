@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -analyzer-inline-call -verify %s
+// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -analyze -analyzer-checker=core,osx.coreFoundation.CFRetainRelease,osx.cocoa.ClassRelease,osx.cocoa.RetainCount -analyzer-store=region -fblocks -analyzer-ipa=inlining -verify %s
 
 //===----------------------------------------------------------------------===//
 // The following code is reduced using delta-debugging from Mac OS X headers:
@@ -314,3 +314,34 @@ void test_test_return_retained() {
   [x retain];
   [x release];
 }
+
+//===----------------------------------------------------------------------===//
+// Test not applying "double effects" from inlining and RetainCountChecker summaries.
+// If we inline a call, we should already see its retain/release semantics.
+//===----------------------------------------------------------------------===//
+
+__attribute__((cf_returns_retained)) CFStringRef test_return_inline(CFStringRef x) {
+  CFRetain(x);
+  return x;
+}
+
+void test_test_return_inline(char *bytes) {
+  CFStringRef str = CFStringCreateWithCStringNoCopy(0, bytes, NSNEXTSTEPStringEncoding, 0);
+  // After this call, 'str' really has +2 reference count.
+  CFStringRef str2 = test_return_inline(str);
+  // After this call, 'str' really has a +1 reference count.
+  CFRelease(str);
+  // After this call, 'str2' and 'str' has a +0 reference count.
+  CFRelease(str2);
+}
+
+void test_test_return_inline_2(char *bytes) {
+  CFStringRef str = CFStringCreateWithCStringNoCopy(0, bytes, NSNEXTSTEPStringEncoding, 0); // expected-warning {{leak}}
+  // After this call, 'str' really has +2 reference count.
+  CFStringRef str2 = test_return_inline(str);
+  // After this call, 'str' really has a +1 reference count.
+  CFRelease(str);
+}
+
+
+

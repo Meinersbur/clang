@@ -74,12 +74,14 @@ ASTContext::CanonicalTemplateTemplateParm::Profile(llvm::FoldingSetNodeID &ID,
     if (NonTypeTemplateParmDecl *NTTP = dyn_cast<NonTypeTemplateParmDecl>(*P)) {
       ID.AddInteger(1);
       ID.AddBoolean(NTTP->isParameterPack());
-      ID.AddPointer(NTTP->getType().getAsOpaquePtr());
+      ID.AddPointer(NTTP->getType().getCanonicalType().getAsOpaquePtr());
       if (NTTP->isExpandedParameterPack()) {
         ID.AddBoolean(true);
         ID.AddInteger(NTTP->getNumExpansionTypes());
-        for (unsigned I = 0, N = NTTP->getNumExpansionTypes(); I != N; ++I)
-          ID.AddPointer(NTTP->getExpansionType(I).getAsOpaquePtr());
+        for (unsigned I = 0, N = NTTP->getNumExpansionTypes(); I != N; ++I) {
+          QualType T = NTTP->getExpansionType(I);
+          ID.AddPointer(T.getCanonicalType().getAsOpaquePtr());
+        }
       } else 
         ID.AddBoolean(false);
       continue;
@@ -259,12 +261,6 @@ ASTContext::~ASTContext() {
   for (unsigned I = 0, N = Deallocations.size(); I != N; ++I)
     Deallocations[I].first(Deallocations[I].second);
   
-  // Release all of the memory associated with overridden C++ methods.
-  for (llvm::DenseMap<const CXXMethodDecl *, CXXMethodVector>::iterator 
-         OM = OverriddenMethods.begin(), OMEnd = OverriddenMethods.end();
-       OM != OMEnd; ++OM)
-    OM->second.Destroy();
-  
   // ASTRecordLayout objects in ASTRecordLayouts must always be destroyed
   // because they can contain DenseMaps.
   for (llvm::DenseMap<const ObjCContainerDecl*,
@@ -332,14 +328,14 @@ void ASTContext::PrintStats() const {
   llvm::errs() << NumImplicitCopyConstructorsDeclared << "/"
                << NumImplicitCopyConstructors
                << " implicit copy constructors created\n";
-  if (getLangOptions().CPlusPlus)
+  if (getLangOpts().CPlusPlus)
     llvm::errs() << NumImplicitMoveConstructorsDeclared << "/"
                  << NumImplicitMoveConstructors
                  << " implicit move constructors created\n";
   llvm::errs() << NumImplicitCopyAssignmentOperatorsDeclared << "/"
                << NumImplicitCopyAssignmentOperators
                << " implicit copy assignment operators created\n";
-  if (getLangOptions().CPlusPlus)
+  if (getLangOpts().CPlusPlus)
     llvm::errs() << NumImplicitMoveAssignmentOperatorsDeclared << "/"
                  << NumImplicitMoveAssignmentOperators
                  << " implicit move assignment operators created\n";
@@ -440,6 +436,8 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
   } else // C99
     WCharTy = getFromTargetType(Target.getWCharType());
 
+  WIntTy = getFromTargetType(Target.getWIntType());
+
   if (LangOpts.CPlusPlus) // C++0x 3.9.1p5, extension for C++
     InitBuiltinType(Char16Ty,           BuiltinType::Char16);
   else // C99
@@ -483,7 +481,11 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
   InitBuiltinType(ObjCBuiltinIdTy, BuiltinType::ObjCId);
   InitBuiltinType(ObjCBuiltinClassTy, BuiltinType::ObjCClass);
   InitBuiltinType(ObjCBuiltinSelTy, BuiltinType::ObjCSel);
-
+  
+  // Builtin type for __objc_yes and __objc_no
+  ObjCBuiltinBoolTy = (Target.useSignedCharForObjCBool() ?
+                       SignedCharTy : BoolTy);
+  
   ObjCConstantStringType = QualType();
 
   // void * type
@@ -816,14 +818,24 @@ ASTContext::getTypeInfoInChars(QualType T) const {
   return getTypeInfoInChars(T.getTypePtr());
 }
 
-/// getTypeSize - Return the size of the specified type, in bits.  This method
-/// does not work on incomplete types.
+std::pair<uint64_t, unsigned> ASTContext::getTypeInfo(const Type *T) const {
+  TypeInfoMap::iterator it = MemoizedTypeInfo.find(T);
+  if (it != MemoizedTypeInfo.end())
+    return it->second;
+
+  std::pair<uint64_t, unsigned> Info = getTypeInfoImpl(T);
+  MemoizedTypeInfo.insert(std::make_pair(T, Info));
+  return Info;
+}
+
+/// getTypeInfoImpl - Return the size of the specified type, in bits.  This
+/// method does not work on incomplete types.
 ///
 /// FIXME: Pointers into different addr spaces could have different sizes and
 /// alignment requirements: getPointerInfo should take an AddrSpace, this
 /// should take a QualType, &c.
 std::pair<uint64_t, unsigned>
-ASTContext::getTypeInfo(const Type *T) const {
+ASTContext::getTypeInfoImpl(const Type *T) const {
   uint64_t Width=0;
   unsigned Align=8;
   switch (T->getTypeClass()) {
@@ -852,7 +864,8 @@ ASTContext::getTypeInfo(const Type *T) const {
 
     std::pair<uint64_t, unsigned> EltInfo = getTypeInfo(CAT->getElementType());
     uint64_t Size = CAT->getSize().getZExtValue();
-    assert((Size == 0 || EltInfo.first <= (uint64_t)(-1)/Size) && "Overflow in array type bit size evaluation");
+    assert((Size == 0 || EltInfo.first <= (uint64_t)(-1)/Size) && 
+           "Overflow in array type bit size evaluation");
     Width = EltInfo.first*Size;
     Align = EltInfo.second;
     Width = llvm::RoundUpToAlignment(Width, Align);
@@ -1155,7 +1168,8 @@ unsigned ASTContext::getPreferredTypeAlign(const Type *T) const {
   if (const ComplexType* CT = T->getAs<ComplexType>())
     T = CT->getElementType().getTypePtr();
   if (T->isSpecificBuiltinType(BuiltinType::Double) ||
-      T->isSpecificBuiltinType(BuiltinType::LongLong))
+      T->isSpecificBuiltinType(BuiltinType::LongLong) ||
+      T->isSpecificBuiltinType(BuiltinType::ULongLong))
     return std::max(ABIAlign, (unsigned)getTypeSize(T));
 
   return ABIAlign;
@@ -1175,7 +1189,7 @@ void ASTContext::DeepCollectObjCIvars(const ObjCInterfaceDecl *OI,
   if (!leafClass) {
     for (ObjCInterfaceDecl::ivar_iterator I = OI->ivar_begin(),
          E = OI->ivar_end(); I != E; ++I)
-      Ivars.push_back(*I);
+      Ivars.push_back(&*I);
   } else {
     ObjCInterfaceDecl *IDecl = const_cast<ObjCInterfaceDecl *>(OI);
     for (const ObjCIvarDecl *Iv = IDecl->all_declared_ivar_begin(); Iv; 
@@ -2182,6 +2196,8 @@ ASTContext::getFunctionType(QualType ResultTy,
     Size += EPI.NumExceptions * sizeof(QualType);
   else if (EPI.ExceptionSpecType == EST_ComputedNoexcept) {
     Size += sizeof(Expr*);
+  } else if (EPI.ExceptionSpecType == EST_Uninstantiated) {
+    Size += 2 * sizeof(FunctionDecl*);
   }
   if (EPI.ConsumedArguments)
     Size += NumArgs * sizeof(bool);
@@ -3180,7 +3196,7 @@ bool ASTContext::UnwrapSimilarPointerTypes(QualType &T1, QualType &T2) {
     return true;
   }
   
-  if (getLangOptions().ObjC1) {
+  if (getLangOpts().ObjC1) {
     const ObjCObjectPointerType *T1OPType = T1->getAs<ObjCObjectPointerType>(),
                                 *T2OPType = T2->getAs<ObjCObjectPointerType>();
     if (T1OPType && T2OPType) {
@@ -3302,8 +3318,11 @@ ASTContext::getCanonicalTemplateArgument(const TemplateArgument &Arg) const {
     case TemplateArgument::Expression:
       return Arg;
 
-    case TemplateArgument::Declaration:
-      return TemplateArgument(Arg.getAsDecl()->getCanonicalDecl());
+    case TemplateArgument::Declaration: {
+      if (Decl *D = Arg.getAsDecl())
+          return TemplateArgument(D->getCanonicalDecl());
+      return TemplateArgument((Decl*)0);
+    }
 
     case TemplateArgument::Template:
       return TemplateArgument(getCanonicalTemplateName(Arg.getAsTemplate()));
@@ -3759,7 +3778,7 @@ static RecordDecl *
 CreateRecordDecl(const ASTContext &Ctx, RecordDecl::TagKind TK,
                  DeclContext *DC, IdentifierInfo *Id) {
   SourceLocation Loc;
-  if (Ctx.getLangOptions().CPlusPlus)
+  if (Ctx.getLangOpts().CPlusPlus)
     return CXXRecordDecl::Create(Ctx, TK, DC, Loc, Loc, Id);
   else
     return RecordDecl::Create(Ctx, TK, DC, Loc, Loc, Id);
@@ -3894,7 +3913,7 @@ QualType ASTContext::getBlockDescriptorExtendedType() const {
 bool ASTContext::BlockRequiresCopying(QualType Ty) const {
   if (Ty->isObjCRetainableType())
     return true;
-  if (getLangOptions().CPlusPlus) {
+  if (getLangOpts().CPlusPlus) {
     if (const RecordType *RT = Ty->getAs<RecordType>()) {
       CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
       return RD->hasConstCopyConstructor();
@@ -4190,7 +4209,7 @@ bool ASTContext::getObjCEncodingForMethodDecl(const ObjCMethodDecl *Decl,
 /// kPropertyGetter = 'G',     // followed by getter selector name
 /// kPropertySetter = 'S',     // followed by setter selector name
 /// kPropertyInstanceVariable = 'V'  // followed by instance variable  name
-/// kPropertyType = 't'              // followed by old-style type encoding.
+/// kPropertyType = 'T'              // followed by old-style type encoding.
 /// kPropertyWeak = 'W'              // 'weak' property
 /// kPropertyStrong = 'P'            // property GC'able
 /// kPropertyNonAtomic = 'N'         // property non-atomic
@@ -4210,7 +4229,7 @@ void ASTContext::getObjCEncodingForPropertyDecl(const ObjCPropertyDecl *PD,
       for (ObjCCategoryImplDecl::propimpl_iterator
              i = CID->propimpl_begin(), e = CID->propimpl_end();
            i != e; ++i) {
-        ObjCPropertyImplDecl *PID = *i;
+        ObjCPropertyImplDecl *PID = &*i;
         if (PID->getPropertyDecl() == PD) {
           if (PID->getPropertyImplementation()==ObjCPropertyImplDecl::Dynamic) {
             Dynamic = true;
@@ -4224,7 +4243,7 @@ void ASTContext::getObjCEncodingForPropertyDecl(const ObjCPropertyDecl *PD,
       for (ObjCCategoryImplDecl::propimpl_iterator
              i = OID->propimpl_begin(), e = OID->propimpl_end();
            i != e; ++i) {
-        ObjCPropertyImplDecl *PID = *i;
+        ObjCPropertyImplDecl *PID = &*i;
         if (PID->getPropertyDecl() == PD) {
           if (PID->getPropertyImplementation()==ObjCPropertyImplDecl::Dynamic) {
             Dynamic = true;
@@ -4370,7 +4389,7 @@ static void EncodeBitField(const ASTContext *Ctx, std::string& S,
   // information is not especially sensible, but we're stuck with it for
   // compatibility with GCC, although providing it breaks anything that
   // actually uses runtime introspection and wants to work on both runtimes...
-  if (!Ctx->getLangOptions().NeXTRuntime) {
+  if (!Ctx->getLangOpts().NeXTRuntime) {
     const RecordDecl *RD = FD->getParent();
     const ASTRecordLayout &RL = Ctx->getASTRecordLayout(RD);
     S += llvm::utostr(RL.getFieldOffset(FD->getFieldIndex()));
@@ -4546,7 +4565,7 @@ void ASTContext::getObjCEncodingForTypeImpl(QualType T, std::string& S,
           // Special case bit-fields.
           if (Field->isBitField()) {
             getObjCEncodingForTypeImpl(Field->getType(), S, false, true,
-                                       (*Field));
+                                       &*Field);
           } else {
             QualType qt = Field->getType();
             getLegacyIntegralTypeEncoding(qt);
@@ -4742,7 +4761,7 @@ void ASTContext::getObjCEncodingForStructureImpl(RecordDecl *RDecl,
        Field != FieldEnd; ++Field, ++i) {
     uint64_t offs = layout.getFieldOffset(i);
     FieldOrBaseOffsets.insert(FieldOrBaseOffsets.upper_bound(offs),
-                              std::make_pair(offs, *Field));
+                              std::make_pair(offs, &*Field));
   }
 
   if (CXXRec && includeVBases) {
@@ -4770,11 +4789,8 @@ void ASTContext::getObjCEncodingForStructureImpl(RecordDecl *RDecl,
   std::multimap<uint64_t, NamedDecl *>::iterator
     CurLayObj = FieldOrBaseOffsets.begin();
 
-  if ((CurLayObj != FieldOrBaseOffsets.end() && CurLayObj->first != 0) ||
-      (CurLayObj == FieldOrBaseOffsets.end() &&
-         CXXRec && CXXRec->isDynamicClass())) {
-    assert(CXXRec && CXXRec->isDynamicClass() &&
-           "Offset 0 was empty but no VTable ?");
+  if (CXXRec && CXXRec->isDynamicClass() &&
+      (CurLayObj == FieldOrBaseOffsets.end() || CurLayObj->first != 0)) {
     if (FD) {
       S += "\"_vptr$";
       std::string recname = CXXRec->getNameAsString();
@@ -5108,10 +5124,10 @@ CanQualType ASTContext::getFromTargetType(unsigned Type) const {
 /// garbage collection attribute.
 ///
 Qualifiers::GC ASTContext::getObjCGCAttrKind(QualType Ty) const {
-  if (getLangOptions().getGC() == LangOptions::NonGC)
+  if (getLangOpts().getGC() == LangOptions::NonGC)
     return Qualifiers::GCNone;
 
-  assert(getLangOptions().ObjC1);
+  assert(getLangOpts().ObjC1);
   Qualifiers::GC GCAttrs = Ty.getObjCGCAttr();
 
   // Default behaviour under objective-C's gc is for ObjC pointers
@@ -5605,7 +5621,7 @@ bool ASTContext::canBindObjCObjectType(QualType To, QualType From) {
 /// same. See 6.7.[2,3,5] for additional rules.
 bool ASTContext::typesAreCompatible(QualType LHS, QualType RHS,
                                     bool CompareUnqualified) {
-  if (getLangOptions().CPlusPlus)
+  if (getLangOpts().CPlusPlus)
     return hasSameType(LHS, RHS);
   
   return !mergeTypes(LHS, RHS, false, CompareUnqualified).isNull();
@@ -6558,7 +6574,7 @@ GVALinkage ASTContext::GetGVALinkageForFunction(const FunctionDecl *FD) {
   if (!FD->isInlined())
     return External;
     
-  if (!getLangOptions().CPlusPlus || FD->hasAttr<GNUInlineAttr>()) {
+  if (!getLangOpts().CPlusPlus || FD->hasAttr<GNUInlineAttr>()) {
     // GNU or C99 inline semantics. Determine whether this symbol should be
     // externally visible.
     if (FD->isInlineDefinitionExternallyVisible())
@@ -6590,7 +6606,7 @@ GVALinkage ASTContext::GetGVALinkageForVariable(const VarDecl *VD) {
     TSK = VD->getTemplateSpecializationKind();
 
   Linkage L = VD->getLinkage();
-  if (L == ExternalLinkage && getLangOptions().CPlusPlus &&
+  if (L == ExternalLinkage && getLangOpts().CPlusPlus &&
       VD->getType()->getLinkage() == UniqueExternalLinkage)
     L = UniqueExternalLinkage;
 

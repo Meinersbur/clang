@@ -109,6 +109,11 @@ void StmtProfiler::VisitLabelStmt(const LabelStmt *S) {
   VisitDecl(S->getDecl());
 }
 
+void StmtProfiler::VisitAttributedStmt(const AttributedStmt *S) {
+  VisitStmt(S);
+  // TODO: maybe visit attributes?
+}
+
 void StmtProfiler::VisitIfStmt(const IfStmt *S) {
   VisitStmt(S);
   VisitDecl(S->getConditionVariable());
@@ -460,13 +465,6 @@ void StmtProfiler::VisitBlockExpr(const BlockExpr *S) {
   VisitDecl(S->getBlockDecl());
 }
 
-void StmtProfiler::VisitBlockDeclRefExpr(const BlockDeclRefExpr *S) {
-  VisitExpr(S);
-  VisitDecl(S->getDecl());
-  ID.AddBoolean(S->isByRef());
-  ID.AddBoolean(S->isConstQualAdded());
-}
-
 void StmtProfiler::VisitGenericSelectionExpr(const GenericSelectionExpr *S) {
   VisitExpr(S);
   for (unsigned i = 0; i != S->getNumAssocs(); ++i) {
@@ -738,6 +736,10 @@ void StmtProfiler::VisitCXXConstCastExpr(const CXXConstCastExpr *S) {
   VisitCXXNamedCastExpr(S);
 }
 
+void StmtProfiler::VisitUserDefinedLiteral(const UserDefinedLiteral *S) {
+  VisitCallExpr(S);
+}
+
 void StmtProfiler::VisitCXXBoolLiteralExpr(const CXXBoolLiteralExpr *S) {
   VisitExpr(S);
   ID.AddBoolean(S->getValue());
@@ -761,6 +763,7 @@ void StmtProfiler::VisitCXXUuidofExpr(const CXXUuidofExpr *S) {
 
 void StmtProfiler::VisitCXXThisExpr(const CXXThisExpr *S) {
   VisitExpr(S);
+  ID.AddBoolean(S->isImplicit());
 }
 
 void StmtProfiler::VisitCXXThrowExpr(const CXXThrowExpr *S) {
@@ -978,6 +981,18 @@ void StmtProfiler::VisitObjCStringLiteral(const ObjCStringLiteral *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitObjCBoxedExpr(const ObjCBoxedExpr *E) {
+  VisitExpr(E);
+}
+
+void StmtProfiler::VisitObjCArrayLiteral(const ObjCArrayLiteral *E) {
+  VisitExpr(E);
+}
+
+void StmtProfiler::VisitObjCDictionaryLiteral(const ObjCDictionaryLiteral *E) {
+  VisitExpr(E);
+}
+
 void StmtProfiler::VisitObjCEncodeExpr(const ObjCEncodeExpr *S) {
   VisitExpr(S);
   VisitType(S->getEncodedType());
@@ -1014,6 +1029,12 @@ void StmtProfiler::VisitObjCPropertyRefExpr(const ObjCPropertyRefExpr *S) {
   }
 }
 
+void StmtProfiler::VisitObjCSubscriptRefExpr(const ObjCSubscriptRefExpr *S) {
+  VisitExpr(S);
+  VisitDecl(S->getAtIndexMethodDecl());
+  VisitDecl(S->setAtIndexMethodDecl());
+}
+
 void StmtProfiler::VisitObjCMessageExpr(const ObjCMessageExpr *S) {
   VisitExpr(S);
   VisitName(S->getSelector());
@@ -1023,6 +1044,11 @@ void StmtProfiler::VisitObjCMessageExpr(const ObjCMessageExpr *S) {
 void StmtProfiler::VisitObjCIsaExpr(const ObjCIsaExpr *S) {
   VisitExpr(S);
   ID.AddBoolean(S->isArrow());
+}
+
+void StmtProfiler::VisitObjCBoolLiteralExpr(const ObjCBoolLiteralExpr *S) {
+  VisitExpr(S);
+  ID.AddBoolean(S->getValue());
 }
 
 void StmtProfiler::VisitObjCIndirectCopyRestoreExpr(
@@ -1060,6 +1086,14 @@ void StmtProfiler::VisitDecl(const Decl *D) {
       VisitType(Parm->getType());
       ID.AddInteger(Parm->getFunctionScopeDepth());
       ID.AddInteger(Parm->getFunctionScopeIndex());
+      return;
+    }
+
+    if (const TemplateTypeParmDecl *TTP =
+          dyn_cast<TemplateTypeParmDecl>(D)) {
+      ID.AddInteger(TTP->getDepth());
+      ID.AddInteger(TTP->getIndex());
+      ID.AddBoolean(TTP->isParameterPack());
       return;
     }
 

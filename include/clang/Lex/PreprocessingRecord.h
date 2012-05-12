@@ -21,6 +21,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/Compiler.h"
 #include <vector>
 
 namespace clang {
@@ -87,7 +88,7 @@ namespace clang {
     
     /// \brief Retrieve the source range that covers this entire preprocessed 
     /// entity.
-    SourceRange getSourceRange() const { return Range; }
+    SourceRange getSourceRange() const LLVM_READONLY { return Range; }
 
     /// \brief Returns true if there was a problem loading the preprocessed
     /// entity.
@@ -555,7 +556,7 @@ namespace clang {
     bool isEntityInFileID(iterator PPEI, FileID FID);
 
     /// \brief Add a new preprocessed entity to this record.
-    void addPreprocessedEntity(PreprocessedEntity *Entity);
+    PPEntityID addPreprocessedEntity(PreprocessedEntity *Entity);
 
     /// \brief Returns true if this PreprocessingRecord is keeping track of
     /// conditional directives locations.

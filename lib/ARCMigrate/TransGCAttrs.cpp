@@ -97,7 +97,7 @@ public:
     bool Invalid = false;
     StringRef Spell = Lexer::getSpelling(
                                   SM.getSpellingLoc(TL.getAttrEnumOperandLoc()),
-                                  Buf, SM, Ctx.getLangOptions(), &Invalid);
+                                  Buf, SM, Ctx.getLangOpts(), &Invalid);
     if (Invalid)
       return false;
     MigrationContext::GCAttrOccurrence::AttrKind Kind;
@@ -136,7 +136,7 @@ public:
     if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(D)) {
       for (CXXRecordDecl::method_iterator
              MI = RD->method_begin(), ME = RD->method_end(); MI != ME; ++MI) {
-        if ((*MI)->isOutOfLine())
+        if (MI->isOutOfLine())
           return true;
       }
       return false;
@@ -166,7 +166,7 @@ public:
 
     for (Decl::redecl_iterator
            I = D->redecls_begin(), E = D->redecls_end(); I != E; ++I)
-      if (!isInMainFile((*I)->getLocation()))
+      if (!isInMainFile(I->getLocation()))
         return false;
     
     return true;

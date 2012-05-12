@@ -77,3 +77,16 @@ namespace reference {
   }
 
 }
+
+namespace PR12182 {
+  void f(int const(&)[3]);
+
+  void g() {
+      f({1, 2});
+  }
+}
+
+namespace PR12660 {
+  const int &i { 1 };
+  struct S { S(int); } const &s { 2 };
+}

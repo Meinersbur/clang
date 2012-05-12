@@ -213,7 +213,21 @@ CXString clang_getCompletionAnnotation(CXCompletionString completion_string,
                : createCXString((const char *) 0);
 }
 
-
+CXString
+clang_getCompletionParent(CXCompletionString completion_string,
+                          CXCursorKind *kind) {
+  if (kind)
+    *kind = CXCursor_NotImplemented;
+  
+  CodeCompletionString *CCStr = (CodeCompletionString *)completion_string;
+  if (!CCStr)
+    return createCXString((const char *)0);
+  
+  if (kind)
+    *kind = CCStr->getParentContextKind();
+  return createCXString(CCStr->getParentContextName(), /*DupString=*/false);
+}
+  
 /// \brief The CXCodeCompleteResults structure we allocate internally;
 /// the client only sees the initial CXCodeCompleteResults structure.
 struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
@@ -250,7 +264,8 @@ struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
     CachedCompletionAllocator;
   
   /// \brief Allocator used to store code completion results.
-  clang::CodeCompletionAllocator CodeCompletionAllocator;
+  IntrusiveRefCntPtr<clang::GlobalCodeCompletionAllocator>
+    CodeCompletionAllocator;
   
   /// \brief Context under which completion occurred.
   enum clang::CodeCompletionContext::Kind ContextKind;
@@ -286,6 +301,7 @@ AllocatedCXCodeCompleteResults::AllocatedCXCodeCompleteResults(
     FileSystemOpts(FileSystemOpts),
     FileMgr(new FileManager(FileSystemOpts)),
     SourceMgr(new SourceManager(*Diag, *FileMgr)),
+    CodeCompletionAllocator(new clang::GlobalCodeCompletionAllocator),
     Contexts(CXCompletionContext_Unknown),
     ContainerKind(CXCursor_InvalidCode),
     ContainerUSR(createCXString("")),
@@ -332,7 +348,7 @@ static unsigned long long getContextsForContextKind(
     case CodeCompletionContext::CCC_Type: {
       contexts = CXCompletionContext_AnyType | 
                  CXCompletionContext_ObjCInterface;
-      if (S.getLangOptions().CPlusPlus) {
+      if (S.getLangOpts().CPlusPlus) {
         contexts |= CXCompletionContext_EnumTag |
                     CXCompletionContext_UnionTag |
                     CXCompletionContext_StructTag |
@@ -345,7 +361,7 @@ static unsigned long long getContextsForContextKind(
       contexts = CXCompletionContext_AnyType |
                  CXCompletionContext_ObjCInterface |
                  CXCompletionContext_AnyValue;
-      if (S.getLangOptions().CPlusPlus) {
+      if (S.getLangOpts().CPlusPlus) {
         contexts |= CXCompletionContext_EnumTag |
                     CXCompletionContext_UnionTag |
                     CXCompletionContext_StructTag |
@@ -356,7 +372,7 @@ static unsigned long long getContextsForContextKind(
     }
     case CodeCompletionContext::CCC_Expression: {
       contexts = CXCompletionContext_AnyValue;
-      if (S.getLangOptions().CPlusPlus) {
+      if (S.getLangOpts().CPlusPlus) {
         contexts |= CXCompletionContext_AnyType |
                     CXCompletionContext_ObjCInterface |
                     CXCompletionContext_EnumTag |
@@ -371,7 +387,7 @@ static unsigned long long getContextsForContextKind(
       contexts = CXCompletionContext_ObjCObjectValue |
                  CXCompletionContext_ObjCSelectorValue |
                  CXCompletionContext_ObjCInterface;
-      if (S.getLangOptions().CPlusPlus) {
+      if (S.getLangOpts().CPlusPlus) {
         contexts |= CXCompletionContext_CXXClassTypeValue |
                     CXCompletionContext_AnyType |
                     CXCompletionContext_EnumTag |
@@ -438,7 +454,7 @@ static unsigned long long getContextsForContextKind(
       contexts = CXCompletionContext_AnyType |
                  CXCompletionContext_ObjCInterface |
                  CXCompletionContext_AnyValue;
-      if (S.getLangOptions().CPlusPlus) {
+      if (S.getLangOpts().CPlusPlus) {
         contexts |= CXCompletionContext_EnumTag |
                     CXCompletionContext_UnionTag |
                     CXCompletionContext_StructTag |
@@ -489,13 +505,15 @@ static unsigned long long getContextsForContextKind(
 namespace {
   class CaptureCompletionResults : public CodeCompleteConsumer {
     AllocatedCXCodeCompleteResults &AllocatedResults;
+    CodeCompletionTUInfo CCTUInfo;
     SmallVector<CXCompletionResult, 16> StoredResults;
     CXTranslationUnit *TU;
   public:
     CaptureCompletionResults(AllocatedCXCodeCompleteResults &Results,
                              CXTranslationUnit *TranslationUnit)
       : CodeCompleteConsumer(true, false, true, false), 
-        AllocatedResults(Results), TU(TranslationUnit) { }
+        AllocatedResults(Results), CCTUInfo(Results.CodeCompletionAllocator),
+        TU(TranslationUnit) { }
     ~CaptureCompletionResults() { Finish(); }
     
     virtual void ProcessCodeCompleteResults(Sema &S, 
@@ -505,8 +523,8 @@ namespace {
       StoredResults.reserve(StoredResults.size() + NumResults);
       for (unsigned I = 0; I != NumResults; ++I) {
         CodeCompletionString *StoredCompletion        
-          = Results[I].CreateCodeCompletionString(S, 
-                                      AllocatedResults.CodeCompletionAllocator);
+          = Results[I].CreateCodeCompletionString(S, getAllocator(),
+                                                  getCodeCompletionTUInfo());
         
         CXCompletionResult R;
         R.CursorKind = Results[I].CursorKind;
@@ -593,8 +611,8 @@ namespace {
       StoredResults.reserve(StoredResults.size() + NumCandidates);
       for (unsigned I = 0; I != NumCandidates; ++I) {
         CodeCompletionString *StoredCompletion
-          = Candidates[I].CreateSignatureString(CurrentArg, S, 
-                                      AllocatedResults.CodeCompletionAllocator);
+          = Candidates[I].CreateSignatureString(CurrentArg, S, getAllocator(),
+                                                getCodeCompletionTUInfo());
         
         CXCompletionResult R;
         R.CursorKind = CXCursor_NotImplemented;
@@ -604,8 +622,10 @@ namespace {
     }
     
     virtual CodeCompletionAllocator &getAllocator() { 
-      return AllocatedResults.CodeCompletionAllocator;
+      return *AllocatedResults.CodeCompletionAllocator;
     }
+
+    virtual CodeCompletionTUInfo &getCodeCompletionTUInfo() { return CCTUInfo; }
     
   private:
     void Finish() {
@@ -651,6 +671,10 @@ void clang_codeCompleteAt_Impl(void *UserData) {
   ASTUnit *AST = static_cast<ASTUnit *>(TU->TUData);
   if (!AST)
     return;
+
+  CIndexer *CXXIdx = (CIndexer*)TU->CIdx;
+  if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForEditing))
+    setThreadBackgroundPriority();
 
   ASTUnit::ConcurrencyCheck Check(*AST);
 

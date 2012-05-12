@@ -97,7 +97,7 @@ IdentifierResolver::IdDeclInfo::ReplaceDecl(NamedDecl *Old, NamedDecl *New) {
 //===----------------------------------------------------------------------===//
 
 IdentifierResolver::IdentifierResolver(Preprocessor &PP)
-  : LangOpt(PP.getLangOptions()), PP(PP),
+  : LangOpt(PP.getLangOpts()), PP(PP),
     IdDeclInfos(new IdDeclInfoMap) {
 }
 
@@ -304,7 +304,7 @@ static DeclMatchKind compareDeclarations(NamedDecl *Existing, NamedDecl *New) {
     for (Decl::redecl_iterator RD = New->redecls_begin(), 
                             RDEnd = New->redecls_end();
          RD != RDEnd; ++RD) {
-      if (*RD == Existing)
+      if (RD == Existing)
         return DMK_Replace;
         
       if (RD->isCanonicalDecl())

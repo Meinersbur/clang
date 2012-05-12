@@ -113,7 +113,7 @@ static bool canDevirtualizeMemberFunctionCalls(ASTContext &Context,
   
   // When building with -fapple-kext, all calls must go through the vtable since
   // the kernel linker can do runtime patching of vtables.
-  if (Context.getLangOptions().AppleKext)
+  if (Context.getLangOpts().AppleKext)
     return false;
 
   // If the most derived class is marked final, we know that no subclass can
@@ -179,7 +179,7 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(ME->getMemberDecl());
 
   CGDebugInfo *DI = getDebugInfo();
-  if (DI && CGM.getCodeGenOpts().LimitDebugInfo
+  if (DI && CGM.getCodeGenOpts().DebugInfo == CodeGenOptions::LimitedDebugInfo
       && !isa<CallExpr>(ME->getBase())) {
     QualType PQTy = ME->getBase()->IgnoreParenImpCasts()->getType();
     if (const PointerType * PTy = dyn_cast<PointerType>(PQTy)) {
@@ -256,7 +256,7 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
     if (UseVirtualCall) {
       Callee = BuildVirtualCall(Dtor, Dtor_Complete, This, Ty);
     } else {
-      if (getContext().getLangOptions().AppleKext &&
+      if (getContext().getLangOpts().AppleKext &&
           MD->isVirtual() &&
           ME->hasQualifier())
         Callee = BuildAppleKextVirtualCall(MD, ME->getQualifier(), Ty);
@@ -269,7 +269,7 @@ RValue CodeGenFunction::EmitCXXMemberCallExpr(const CXXMemberCallExpr *CE,
   } else if (UseVirtualCall) {
       Callee = BuildVirtualCall(MD, This, Ty); 
   } else {
-    if (getContext().getLangOptions().AppleKext &&
+    if (getContext().getLangOpts().AppleKext &&
         MD->isVirtual() &&
         ME->hasQualifier())
       Callee = BuildAppleKextVirtualCall(MD, ME->getQualifier(), Ty);
@@ -427,7 +427,7 @@ CodeGenFunction::EmitCXXConstructExpr(const CXXConstructExpr *E,
   // Elide the constructor if we're constructing from a temporary.
   // The temporary check is required because Sema sets this on NRVO
   // returns.
-  if (getContext().getLangOptions().ElideConstructors && E->isElidable()) {
+  if (getContext().getLangOpts().ElideConstructors && E->isElidable()) {
     assert(getContext().hasSameUnqualifiedType(E->getType(),
                                                E->getArg(0)->getType()));
     if (E->getArg(0)->isTemporaryObject(getContext(), CD->getParent())) {
@@ -1381,7 +1381,7 @@ static void EmitObjectDelete(CodeGenFunction &CGF,
   if (Dtor)
     CGF.EmitCXXDestructorCall(Dtor, Dtor_Complete,
                               /*ForVirtualBase=*/false, Ptr);
-  else if (CGF.getLangOptions().ObjCAutoRefCount &&
+  else if (CGF.getLangOpts().ObjCAutoRefCount &&
            ElementType->isObjCLifetimeType()) {
     switch (ElementType.getObjCLifetime()) {
     case Qualifiers::OCL_None:
@@ -1815,16 +1815,19 @@ llvm::Value *CodeGenFunction::EmitDynamicCast(llvm::Value *Value,
 
 void CodeGenFunction::EmitLambdaExpr(const LambdaExpr *E, AggValueSlot Slot) {
   RunCleanupsScope Scope(*this);
+  LValue SlotLV = MakeAddrLValue(Slot.getAddr(), E->getType(),
+                                 Slot.getAlignment());
 
   CXXRecordDecl::field_iterator CurField = E->getLambdaClass()->field_begin();
   for (LambdaExpr::capture_init_iterator i = E->capture_init_begin(),
                                          e = E->capture_init_end();
        i != e; ++i, ++CurField) {
     // Emit initialization
-    LValue LV = EmitLValueForFieldInitialization(Slot.getAddr(), *CurField, 0);
+    
+    LValue LV = EmitLValueForFieldInitialization(SlotLV, &*CurField);
     ArrayRef<VarDecl *> ArrayIndexes;
     if (CurField->getType()->isArrayType())
       ArrayIndexes = E->getCaptureInitIndexVars(i);
-    EmitInitializerForField(*CurField, LV, *i, ArrayIndexes);
+    EmitInitializerForField(&*CurField, LV, *i, ArrayIndexes);
   }
 }

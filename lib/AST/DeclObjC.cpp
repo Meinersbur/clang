@@ -316,9 +316,9 @@ ObjCInterfaceDecl *ObjCInterfaceDecl::lookupInheritedClass(
 
 /// lookupMethod - This method returns an instance/class method by looking in
 /// the class, its categories, and its super classes (using a linear search).
-ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
-                                                bool isInstance,
-                                                bool noCategoryLookup) const {
+ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel, 
+                                     bool isInstance,
+                                     bool shallowCategoryLookup) const {
   // FIXME: Should make sure no callers ever do this.
   if (!hasDefinition())
     return 0;
@@ -334,19 +334,19 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
       return MethodDecl;
 
     // Didn't find one yet - look through protocols.
-    const ObjCList<ObjCProtocolDecl> &Protocols =
-      ClassDecl->getReferencedProtocols();
-    for (ObjCList<ObjCProtocolDecl>::iterator I = Protocols.begin(),
-         E = Protocols.end(); I != E; ++I)
+    for (ObjCInterfaceDecl::protocol_iterator I = ClassDecl->protocol_begin(),
+                                              E = ClassDecl->protocol_end();
+           I != E; ++I)
       if ((MethodDecl = (*I)->lookupMethod(Sel, isInstance)))
         return MethodDecl;
-    if (!noCategoryLookup) {
-      // Didn't find one yet - now look through categories.
-      ObjCCategoryDecl *CatDecl = ClassDecl->getCategoryList();
-      while (CatDecl) {
-        if ((MethodDecl = CatDecl->getMethod(Sel, isInstance)))
-          return MethodDecl;
+    
+    // Didn't find one yet - now look through categories.
+    ObjCCategoryDecl *CatDecl = ClassDecl->getCategoryList();
+    while (CatDecl) {
+      if ((MethodDecl = CatDecl->getMethod(Sel, isInstance)))
+        return MethodDecl;
 
+      if (!shallowCategoryLookup) {
         // Didn't find one yet - look through protocols.
         const ObjCList<ObjCProtocolDecl> &Protocols =
           CatDecl->getReferencedProtocols();
@@ -354,9 +354,10 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
              E = Protocols.end(); I != E; ++I)
           if ((MethodDecl = (*I)->lookupMethod(Sel, isInstance)))
             return MethodDecl;
-        CatDecl = CatDecl->getNextClassCategory();
       }
+      CatDecl = CatDecl->getNextClassCategory();
     }
+  
     ClassDecl = ClassDecl->getSuperClass();
   }
   return NULL;
@@ -628,7 +629,7 @@ void ObjCMethodDecl::createImplicitParams(ASTContext &Context,
   bool selfIsPseudoStrong = false;
   bool selfIsConsumed = false;
   
-  if (Context.getLangOptions().ObjCAutoRefCount) {
+  if (Context.getLangOpts().ObjCAutoRefCount) {
     if (isInstanceMethod()) {
       selfIsConsumed = hasAttr<NSConsumesSelfAttr>();
 
@@ -766,9 +767,9 @@ ObjCIvarDecl *ObjCInterfaceDecl::all_declared_ivar_begin() {
   ObjCIvarDecl *curIvar = 0;
   if (!ivar_empty()) {
     ObjCInterfaceDecl::ivar_iterator I = ivar_begin(), E = ivar_end();
-    data().IvarList = (*I); ++I;
-    for (curIvar = data().IvarList; I != E; curIvar = *I, ++I)
-      curIvar->setNextIvar(*I);
+    data().IvarList = &*I; ++I;
+    for (curIvar = data().IvarList; I != E; curIvar = &*I, ++I)
+      curIvar->setNextIvar(&*I);
   }
   
   for (const ObjCCategoryDecl *CDecl = getFirstClassExtension(); CDecl;
@@ -777,11 +778,11 @@ ObjCIvarDecl *ObjCInterfaceDecl::all_declared_ivar_begin() {
       ObjCCategoryDecl::ivar_iterator I = CDecl->ivar_begin(),
                                           E = CDecl->ivar_end();
       if (!data().IvarList) {
-        data().IvarList = (*I); ++I;
+        data().IvarList = &*I; ++I;
         curIvar = data().IvarList;
       }
-      for ( ;I != E; curIvar = *I, ++I)
-        curIvar->setNextIvar(*I);
+      for ( ;I != E; curIvar = &*I, ++I)
+        curIvar->setNextIvar(&*I);
     }
   }
   
@@ -790,11 +791,11 @@ ObjCIvarDecl *ObjCInterfaceDecl::all_declared_ivar_begin() {
       ObjCImplementationDecl::ivar_iterator I = ImplDecl->ivar_begin(),
                                             E = ImplDecl->ivar_end();
       if (!data().IvarList) {
-        data().IvarList = (*I); ++I;
+        data().IvarList = &*I; ++I;
         curIvar = data().IvarList;
       }
-      for ( ;I != E; curIvar = *I, ++I)
-        curIvar->setNextIvar(*I);
+      for ( ;I != E; curIvar = &*I, ++I)
+        curIvar->setNextIvar(&*I);
     }
   }
   return data().IvarList;
@@ -850,11 +851,8 @@ bool ObjCInterfaceDecl::ClassImplementsProtocol(ObjCProtocolDecl *lProto,
   
   ObjCInterfaceDecl *IDecl = this;
   // 1st, look up the class.
-  const ObjCList<ObjCProtocolDecl> &Protocols =
-  IDecl->getReferencedProtocols();
-
-  for (ObjCList<ObjCProtocolDecl>::iterator PI = Protocols.begin(),
-       E = Protocols.end(); PI != E; ++PI) {
+  for (ObjCInterfaceDecl::protocol_iterator
+        PI = IDecl->protocol_begin(), E = IDecl->protocol_end(); PI != E; ++PI){
     if (getASTContext().ProtocolCompatibleWithProtocol(lProto, *PI))
       return true;
     // This is dubious and is added to be compatible with gcc.  In gcc, it is
@@ -1177,7 +1175,7 @@ void ObjCImplDecl::setClassInterface(ObjCInterfaceDecl *IFace) {
 ObjCPropertyImplDecl *ObjCImplDecl::
 FindPropertyImplIvarDecl(IdentifierInfo *ivarId) const {
   for (propimpl_iterator i = propimpl_begin(), e = propimpl_end(); i != e; ++i){
-    ObjCPropertyImplDecl *PID = *i;
+    ObjCPropertyImplDecl *PID = &*i;
     if (PID->getPropertyIvarDecl() &&
         PID->getPropertyIvarDecl()->getIdentifier() == ivarId)
       return PID;
@@ -1192,7 +1190,7 @@ FindPropertyImplIvarDecl(IdentifierInfo *ivarId) const {
 ObjCPropertyImplDecl *ObjCImplDecl::
 FindPropertyImplDecl(IdentifierInfo *Id) const {
   for (propimpl_iterator i = propimpl_begin(), e = propimpl_end(); i != e; ++i){
-    ObjCPropertyImplDecl *PID = *i;
+    ObjCPropertyImplDecl *PID = &*i;
     if (PID->getPropertyDecl()->getIdentifier() == Id)
       return PID;
   }

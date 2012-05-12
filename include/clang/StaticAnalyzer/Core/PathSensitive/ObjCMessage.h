@@ -22,6 +22,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Compiler.h"
 
 namespace clang {
 namespace ento {
@@ -110,7 +111,7 @@ public:
     return Msg->getSuperLoc();
   }  
 
-  SourceRange getSourceRange() const {
+  SourceRange getSourceRange() const LLVM_READONLY {
     if (PE)
       return PE->getSourceRange();
     return Msg->getSourceRange();
@@ -163,6 +164,9 @@ class CallOrObjCMessage {
   ObjCMessage Msg;
   ProgramStateRef State;
   const LocationContext *LCtx;
+
+  bool isCallbackArg(unsigned Idx, const Type *T) const;
+
 public:
   CallOrObjCMessage(const CallExpr *callE, ProgramStateRef state,
                     const LocationContext *lctx)
@@ -257,6 +261,10 @@ public:
     return Msg.getReceiverSourceRange();
   }
 
+  /// \brief Check if one of the arguments might be a callback.
+  bool hasNonZeroCallbackArg() const;
+
+
   /// \brief Check if the name corresponds to a CoreFoundation or CoreGraphics 
   /// function that allows objects to escape.
   ///
@@ -272,17 +280,7 @@ public:
   //
   // TODO: To reduce false negatives here, we should track the container
   // allocation site and check if a proper deallocator was set there.
-  static bool isCFCGAllowingEscape(StringRef FName) {
-    if (FName[0] == 'C' && (FName[1] == 'F' || FName[1] == 'G'))
-           if (StrInStrNoCase(FName, "InsertValue") != StringRef::npos||
-               StrInStrNoCase(FName, "AddValue") != StringRef::npos ||
-               StrInStrNoCase(FName, "SetValue") != StringRef::npos ||
-               StrInStrNoCase(FName, "AppendValue") != StringRef::npos||
-               StrInStrNoCase(FName, "SetAttribute") != StringRef::npos) {
-         return true;
-       }
-    return false;
-  }
+  static bool isCFCGAllowingEscape(StringRef FName);
 };
 
 }

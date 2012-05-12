@@ -556,7 +556,7 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
   }
 
   case Type::Atomic: {
-    ResultType = ConvertTypeForMem(cast<AtomicType>(Ty)->getValueType());
+    ResultType = ConvertType(cast<AtomicType>(Ty)->getValueType());
     break;
   }
   }
@@ -651,7 +651,7 @@ CodeGenTypes::getCGRecordLayout(const RecordDecl *RD) {
 
 bool CodeGenTypes::isZeroInitializable(QualType T) {
   // No need to check for member pointers when not compiling C++.
-  if (!Context.getLangOptions().CPlusPlus)
+  if (!Context.getLangOpts().CPlusPlus)
     return true;
   
   T = Context.getBaseElementType(T);

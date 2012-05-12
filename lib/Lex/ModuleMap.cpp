@@ -508,7 +508,7 @@ namespace clang {
     
     /// \brief Default target information, used only for string literal
     /// parsing.
-    TargetInfo *Target;
+    OwningPtr<TargetInfo> Target;
     
     /// \brief Stores string data for the various string literals referenced
     /// during parsing.
@@ -551,7 +551,7 @@ namespace clang {
     {
       TargetOptions TargetOpts;
       TargetOpts.Triple = llvm::sys::getDefaultTargetTriple();
-      Target = TargetInfo::CreateTargetInfo(Diags, TargetOpts);
+      Target.reset(TargetInfo::CreateTargetInfo(Diags, TargetOpts));
       
       Tok.clear();
       consumeToken();
@@ -617,6 +617,12 @@ retry:
     break;
       
   case tok::string_literal: {
+    if (LToken.hasUDSuffix()) {
+      Diags.Report(LToken.getLocation(), diag::err_invalid_string_udl);
+      HadError = true;
+      goto retry;
+    }
+
     // Parse the string literal.
     LangOptions LangOpts;
     StringLiteralParser StringLiteral(&LToken, 1, SourceMgr, LangOpts, *Target);

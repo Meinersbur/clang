@@ -22,11 +22,6 @@
 
 namespace clang {
 
-namespace idx { 
-  class Indexer;
-  class TranslationUnit; 
-}
-
 namespace ento {
   class CheckerManager;
 
@@ -36,7 +31,7 @@ class AnalysisManager : public BugReporterData {
 
   ASTContext &Ctx;
   DiagnosticsEngine &Diags;
-  const LangOptions &LangInfo;
+  const LangOptions &LangOpts;
 
   OwningPtr<PathDiagnosticConsumer> PD;
 
@@ -45,11 +40,6 @@ class AnalysisManager : public BugReporterData {
   ConstraintManagerCreator CreateConstraintMgr;
 
   CheckerManager *CheckerMgr;
-
-  /// \brief Provide function definitions in other translation units. This is
-  /// NULL if we don't have multiple translation units. AnalysisManager does
-  /// not own the Indexer.
-  idx::Indexer *Idxer;
 
   enum AnalysisScope { ScopeTU, ScopeDecl } AScope;
 
@@ -75,16 +65,23 @@ class AnalysisManager : public BugReporterData {
   ///   bifurcates paths.
   bool EagerlyAssume;
   bool TrimGraph;
-  bool InlineCall;
   bool EagerlyTrimEGraph;
 
 public:
-  // Settings for inlining tuning.
+  // \brief inter-procedural analysis mode.
+  AnalysisIPAMode IPAMode;
 
+  // Settings for inlining tuning.
   /// \brief The inlining stack depth limit.
   unsigned InlineMaxStackDepth;
   /// \brief The max number of basic blocks in a function being inlined.
   unsigned InlineMaxFunctionSize;
+  /// \brief The mode of function selection used during inlining.
+  AnalysisInliningMode InliningMode;
+
+  /// \brief Do not re-analyze paths leading to exhausted nodes with a different
+  /// strategy. We get better code coverage when retry is enabled.
+  bool NoRetryExhausted;
 
 public:
   AnalysisManager(ASTContext &ctx, DiagnosticsEngine &diags, 
@@ -92,15 +89,17 @@ public:
                   StoreManagerCreator storemgr,
                   ConstraintManagerCreator constraintmgr, 
                   CheckerManager *checkerMgr,
-                  idx::Indexer *idxer,
                   unsigned maxnodes, unsigned maxvisit,
                   bool vizdot, bool vizubi, AnalysisPurgeMode purge,
                   bool eager, bool trim,
-                  bool inlinecall, bool useUnoptimizedCFG,
+                  bool useUnoptimizedCFG,
                   bool addImplicitDtors, bool addInitializers,
                   bool eagerlyTrimEGraph,
+                  AnalysisIPAMode ipa,
                   unsigned inlineMaxStack,
-                  unsigned inlineMaxFunctionSize);
+                  unsigned inlineMaxFunctionSize,
+                  AnalysisInliningMode inliningMode,
+                  bool NoRetry);
 
   /// Construct a clone of the given AnalysisManager with the given ASTContext
   /// and DiagnosticsEngine.
@@ -127,8 +126,6 @@ public:
 
   CheckerManager *getCheckerManager() const { return CheckerMgr; }
 
-  idx::Indexer *getIndexer() const { return Idxer; }
-
   virtual ASTContext &getASTContext() {
     return Ctx;
   }
@@ -141,8 +138,8 @@ public:
     return Diags;
   }
 
-  const LangOptions &getLangOptions() const {
-    return LangInfo;
+  const LangOptions &getLangOpts() const {
+    return LangOpts;
   }
 
   virtual PathDiagnosticConsumer *getPathDiagnosticConsumer() {
@@ -174,11 +171,7 @@ public:
 
   bool shouldEagerlyAssume() const { return EagerlyAssume; }
 
-  bool shouldInlineCall() const { return InlineCall; }
-
-  bool hasIndexer() const { return Idxer != 0; }
-
-  AnalysisDeclContext *getAnalysisDeclContextInAnotherTU(const Decl *D);
+  bool shouldInlineCall() const { return (IPAMode == Inlining); }
 
   CFG *getCFG(Decl const *D) {
     return AnaCtxMgr.getContext(D)->getCFG();
@@ -195,10 +188,6 @@ public:
 
   AnalysisDeclContext *getAnalysisDeclContext(const Decl *D) {
     return AnaCtxMgr.getContext(D);
-  }
-
-  AnalysisDeclContext *getAnalysisDeclContext(const Decl *D, idx::TranslationUnit *TU) {
-    return AnaCtxMgr.getContext(D, TU);
   }
 
 };

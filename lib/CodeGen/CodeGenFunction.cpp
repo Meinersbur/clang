@@ -22,8 +22,9 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "llvm/Target/TargetData.h"
 #include "llvm/Intrinsics.h"
+#include "llvm/Support/MDBuilder.h"
+#include "llvm/Target/TargetData.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -40,7 +41,8 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm)
     CXXVTTValue(0), OutermostConditional(0), TerminateLandingPad(0),
     TerminateHandler(0), TrapBB(0) {
 
-  CatchUndefined = getContext().getLangOptions().CatchUndefined;
+  BoundsChecking = getContext().getLangOpts().BoundsChecking;
+  CatchUndefined = getContext().getLangOpts().CatchUndefined;
   CGM.getCXXABI().getMangleContext().startNewFunction();
 }
 
@@ -266,15 +268,16 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 
   // Pass inline keyword to optimizer if it appears explicitly on any
   // declaration.
-  if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
-    for (FunctionDecl::redecl_iterator RI = FD->redecls_begin(),
-           RE = FD->redecls_end(); RI != RE; ++RI)
-      if (RI->isInlineSpecified()) {
-        Fn->addFnAttr(llvm::Attribute::InlineHint);
-        break;
-      }
+  if (!CGM.getCodeGenOpts().NoInline) 
+    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
+      for (FunctionDecl::redecl_iterator RI = FD->redecls_begin(),
+             RE = FD->redecls_end(); RI != RE; ++RI)
+        if (RI->isInlineSpecified()) {
+          Fn->addFnAttr(llvm::Attribute::InlineHint);
+          break;
+        }
 
-  if (getContext().getLangOptions().OpenCL) {
+  if (getContext().getLangOpts().OpenCL) {
     // Add metadata for a kernel function.
     if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
       if (FD->hasAttr<OpenCLKernelAttr>()) {
@@ -340,7 +343,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     // Tell the epilog emitter to autorelease the result.  We do this
     // now so that various specialized functions can suppress it
     // during their IR-generation.
-    if (getLangOptions().ObjCAutoRefCount &&
+    if (getLangOpts().ObjCAutoRefCount &&
         !CurFnInfo->isReturnsRetained() &&
         RetTy->isObjCRetainableType())
       AutoreleaseResult = true;
@@ -361,8 +364,12 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
                                         LambdaThisCaptureField);
       if (LambdaThisCaptureField) {
         // If this lambda captures this, load it.
-        LValue ThisLValue = EmitLValueForField(CXXABIThisValue,
-                                               LambdaThisCaptureField, 0);
+        QualType LambdaTagType =
+            getContext().getTagDeclType(LambdaThisCaptureField->getParent());
+        LValue LambdaLV = MakeNaturalAlignAddrLValue(CXXABIThisValue,
+                                                     LambdaTagType);
+        LValue ThisLValue = EmitLValueForField(LambdaLV,
+                                               LambdaThisCaptureField);
         CXXThisValue = EmitLoadOfLValue(ThisLValue).getScalarVal();
       }
     } else {
@@ -442,7 +449,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))
     EmitConstructorBody(Args);
-  else if (getContext().getLangOptions().CUDA &&
+  else if (getContext().getLangOpts().CUDA &&
            !CGM.getCodeGenOpts().CUDAIsDevice &&
            FD->hasAttr<CUDAGlobalAttr>())
     CGM.getCUDARuntime().EmitDeviceStubBody(*this, Args);
@@ -731,7 +738,7 @@ static void emitNonZeroVLAInit(CodeGenFunction &CGF, QualType baseType,
 void
 CodeGenFunction::EmitNullInitialization(llvm::Value *DestPtr, QualType Ty) {
   // Ignore empty classes in C++.
-  if (getContext().getLangOptions().CPlusPlus) {
+  if (getContext().getLangOpts().CPlusPlus) {
     if (const RecordType *RT = Ty->getAs<RecordType>()) {
       if (cast<CXXRecordDecl>(RT->getDecl())->isEmpty())
         return;
@@ -875,33 +882,49 @@ llvm::Value *CodeGenFunction::emitArrayLength(const ArrayType *origArrayType,
   llvm::ConstantInt *zero = Builder.getInt32(0);
   gepIndices.push_back(zero);
 
-  // It's more efficient to calculate the count from the LLVM
-  // constant-length arrays than to re-evaluate the array bounds.
   uint64_t countFromCLAs = 1;
+  QualType eltType;
 
   llvm::ArrayType *llvmArrayType =
-    cast<llvm::ArrayType>(
+    dyn_cast<llvm::ArrayType>(
       cast<llvm::PointerType>(addr->getType())->getElementType());
-  while (true) {
+  while (llvmArrayType) {
     assert(isa<ConstantArrayType>(arrayType));
     assert(cast<ConstantArrayType>(arrayType)->getSize().getZExtValue()
              == llvmArrayType->getNumElements());
 
     gepIndices.push_back(zero);
     countFromCLAs *= llvmArrayType->getNumElements();
+    eltType = arrayType->getElementType();
 
     llvmArrayType =
       dyn_cast<llvm::ArrayType>(llvmArrayType->getElementType());
-    if (!llvmArrayType) break;
-
     arrayType = getContext().getAsArrayType(arrayType->getElementType());
-    assert(arrayType && "LLVM and Clang types are out-of-synch");
+    assert((!llvmArrayType || arrayType) &&
+           "LLVM and Clang types are out-of-synch");
   }
 
-  baseType = arrayType->getElementType();
+  if (arrayType) {
+    // From this point onwards, the Clang array type has been emitted
+    // as some other type (probably a packed struct). Compute the array
+    // size, and just emit the 'begin' expression as a bitcast.
+    while (arrayType) {
+      countFromCLAs *=
+          cast<ConstantArrayType>(arrayType)->getSize().getZExtValue();
+      eltType = arrayType->getElementType();
+      arrayType = getContext().getAsArrayType(eltType);
+    }
 
-  // Create the actual GEP.
-  addr = Builder.CreateInBoundsGEP(addr, gepIndices, "array.begin");
+    unsigned AddressSpace =
+        cast<llvm::PointerType>(addr->getType())->getAddressSpace();
+    llvm::Type *BaseType = ConvertType(eltType)->getPointerTo(AddressSpace);
+    addr = Builder.CreateBitCast(addr, BaseType, "array.begin");
+  } else {
+    // Create the actual GEP.
+    addr = Builder.CreateInBoundsGEP(addr, gepIndices, "array.begin");
+  }
+
+  baseType = eltType;
 
   llvm::Value *numElements
     = llvm::ConstantInt::get(SizeTy, countFromCLAs);
@@ -1065,7 +1088,8 @@ void CodeGenFunction::EmitDeclRefExprDbgValue(const DeclRefExpr *E,
                                               llvm::Constant *Init) {
   assert (Init && "Invalid DeclRefExpr initializer!");
   if (CGDebugInfo *Dbg = getDebugInfo())
-    Dbg->EmitGlobalVariable(E->getDecl(), Init);
+    if (CGM.getCodeGenOpts().DebugInfo >= CodeGenOptions::LimitedDebugInfo)
+      Dbg->EmitGlobalVariable(E->getDecl(), Init);
 }
 
 CodeGenFunction::PeepholeProtection

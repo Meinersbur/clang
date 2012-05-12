@@ -106,6 +106,14 @@ void ASTStmtWriter::VisitLabelStmt(LabelStmt *S) {
   Code = serialization::STMT_LABEL;
 }
 
+void ASTStmtWriter::VisitAttributedStmt(AttributedStmt *S) {
+  VisitStmt(S);
+  Writer.WriteAttributes(S->getAttrs(), Record);
+  Writer.AddStmt(S->getSubStmt());
+  Writer.AddSourceLocation(S->getAttrLoc(), Record);
+  Code = serialization::STMT_ATTRIBUTED;
+}
+
 void ASTStmtWriter::VisitIfStmt(IfStmt *S) {
   VisitStmt(S);
   Writer.AddDeclRef(S->getConditionVariable(), Record);
@@ -266,6 +274,7 @@ void ASTStmtWriter::VisitDeclRefExpr(DeclRefExpr *E) {
   Record.push_back(E->getDecl() != E->getFoundDecl());
   Record.push_back(E->hasTemplateKWAndArgsInfo());
   Record.push_back(E->hadMultipleCandidates());
+  Record.push_back(E->refersToEnclosingLocal());
 
   if (E->hasTemplateKWAndArgsInfo()) {
     unsigned NumTemplateArgs = E->getNumTemplateArgs();
@@ -712,15 +721,6 @@ void ASTStmtWriter::VisitBlockExpr(BlockExpr *E) {
   Code = serialization::EXPR_BLOCK;
 }
 
-void ASTStmtWriter::VisitBlockDeclRefExpr(BlockDeclRefExpr *E) {
-  VisitExpr(E);
-  Writer.AddDeclRef(E->getDecl(), Record);
-  Writer.AddSourceLocation(E->getLocation(), Record);
-  Record.push_back(E->isByRef());
-  Record.push_back(E->isConstQualAdded());
-  Code = serialization::EXPR_BLOCK_DECL_REF;
-}
-
 void ASTStmtWriter::VisitGenericSelectionExpr(GenericSelectionExpr *E) {
   VisitExpr(E);
   Record.push_back(E->getNumAssocs());
@@ -753,24 +753,16 @@ void ASTStmtWriter::VisitPseudoObjectExpr(PseudoObjectExpr *E) {
          i = E->semantics_begin(), e = E->semantics_end(); i != e; ++i) {
     Writer.AddStmt(*i);
   }
-
   Code = serialization::EXPR_PSEUDO_OBJECT;
 }
 
 void ASTStmtWriter::VisitAtomicExpr(AtomicExpr *E) {
   VisitExpr(E);
   Record.push_back(E->getOp());
-  Writer.AddStmt(E->getPtr());
-  Writer.AddStmt(E->getOrder());
-  if (E->getOp() != AtomicExpr::Load)
-    Writer.AddStmt(E->getVal1());
-  if (E->isCmpXChg()) {
-    Writer.AddStmt(E->getOrderFail());
-    Writer.AddStmt(E->getVal2());
-  }
+  for (unsigned I = 0, N = E->getNumSubExprs(); I != N; ++I)
+    Writer.AddStmt(E->getSubExprs()[I]);
   Writer.AddSourceLocation(E->getBuiltinLoc(), Record);
   Writer.AddSourceLocation(E->getRParenLoc(), Record);
-
   Code = serialization::EXPR_ATOMIC;
 }
 
@@ -783,6 +775,46 @@ void ASTStmtWriter::VisitObjCStringLiteral(ObjCStringLiteral *E) {
   Writer.AddStmt(E->getString());
   Writer.AddSourceLocation(E->getAtLoc(), Record);
   Code = serialization::EXPR_OBJC_STRING_LITERAL;
+}
+
+void ASTStmtWriter::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+  VisitExpr(E);
+  Writer.AddStmt(E->getSubExpr());
+  Writer.AddDeclRef(E->getBoxingMethod(), Record);
+  Writer.AddSourceRange(E->getSourceRange(), Record);
+  Code = serialization::EXPR_OBJC_BOXED_EXPRESSION;
+}
+
+void ASTStmtWriter::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+  VisitExpr(E);
+  Record.push_back(E->getNumElements());
+  for (unsigned i = 0; i < E->getNumElements(); i++)
+    Writer.AddStmt(E->getElement(i));
+  Writer.AddDeclRef(E->getArrayWithObjectsMethod(), Record);
+  Writer.AddSourceRange(E->getSourceRange(), Record);
+  Code = serialization::EXPR_OBJC_ARRAY_LITERAL;
+}
+
+void ASTStmtWriter::VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
+  VisitExpr(E);
+  Record.push_back(E->getNumElements());
+  Record.push_back(E->HasPackExpansions);
+  for (unsigned i = 0; i < E->getNumElements(); i++) {
+    ObjCDictionaryElement Element = E->getKeyValueElement(i);
+    Writer.AddStmt(Element.Key);
+    Writer.AddStmt(Element.Value);
+    if (E->HasPackExpansions) {
+      Writer.AddSourceLocation(Element.EllipsisLoc, Record);
+      unsigned NumExpansions = 0;
+      if (Element.NumExpansions)
+        NumExpansions = *Element.NumExpansions + 1;
+      Record.push_back(NumExpansions);
+    }
+  }
+    
+  Writer.AddDeclRef(E->getDictWithObjectsMethod(), Record);
+  Writer.AddSourceRange(E->getSourceRange(), Record);
+  Code = serialization::EXPR_OBJC_DICTIONARY_LITERAL;
 }
 
 void ASTStmtWriter::VisitObjCEncodeExpr(ObjCEncodeExpr *E) {
@@ -821,6 +853,7 @@ void ASTStmtWriter::VisitObjCIvarRefExpr(ObjCIvarRefExpr *E) {
 
 void ASTStmtWriter::VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
   VisitExpr(E);
+  Record.push_back(E->SetterAndMethodRefFlags.getInt());
   Record.push_back(E->isImplicitProperty());
   if (E->isImplicitProperty()) {
     Writer.AddDeclRef(E->getImplicitPropertyGetter(), Record);
@@ -842,6 +875,17 @@ void ASTStmtWriter::VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
   }
   
   Code = serialization::EXPR_OBJC_PROPERTY_REF_EXPR;
+}
+
+void ASTStmtWriter::VisitObjCSubscriptRefExpr(ObjCSubscriptRefExpr *E) {
+  VisitExpr(E);
+  Writer.AddSourceLocation(E->getRBracket(), Record);
+  Writer.AddStmt(E->getBaseExpr());
+  Writer.AddStmt(E->getKeyExpr());
+  Writer.AddDeclRef(E->getAtIndexMethodDecl(), Record);
+  Writer.AddDeclRef(E->setAtIndexMethodDecl(), Record);
+  
+  Code = serialization::EXPR_OBJC_SUBSCRIPT_REF_EXPR;
 }
 
 void ASTStmtWriter::VisitObjCMessageExpr(ObjCMessageExpr *E) {
@@ -945,6 +989,13 @@ void ASTStmtWriter::VisitObjCAtThrowStmt(ObjCAtThrowStmt *S) {
   Code = serialization::STMT_OBJC_AT_THROW;
 }
 
+void ASTStmtWriter::VisitObjCBoolLiteralExpr(ObjCBoolLiteralExpr *E) {
+  VisitExpr(E);
+  Record.push_back(E->getValue());
+  Writer.AddSourceLocation(E->getLocation(), Record);
+  Code = serialization::EXPR_OBJC_BOOL_LITERAL;
+}
+
 //===----------------------------------------------------------------------===//
 // C++ Expressions and Statements.
 //===----------------------------------------------------------------------===//
@@ -994,6 +1045,7 @@ void ASTStmtWriter::VisitMSDependentExistsStmt(MSDependentExistsStmt *S) {
 void ASTStmtWriter::VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
   VisitCallExpr(E);
   Record.push_back(E->getOperator());
+  Writer.AddSourceRange(E->Range, Record);
   Code = serialization::EXPR_CXX_OPERATOR_CALL;
 }
 
@@ -1086,6 +1138,12 @@ void ASTStmtWriter::VisitCXXFunctionalCastExpr(CXXFunctionalCastExpr *E) {
   Writer.AddSourceLocation(E->getTypeBeginLoc(), Record);
   Writer.AddSourceLocation(E->getRParenLoc(), Record);
   Code = serialization::EXPR_CXX_FUNCTIONAL_CAST;
+}
+
+void ASTStmtWriter::VisitUserDefinedLiteral(UserDefinedLiteral *E) {
+  VisitCallExpr(E);
+  Writer.AddSourceLocation(E->UDSuffixLoc, Record);
+  Code = serialization::EXPR_USER_DEFINED_LITERAL;
 }
 
 void ASTStmtWriter::VisitCXXBoolLiteralExpr(CXXBoolLiteralExpr *E) {

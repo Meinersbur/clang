@@ -24,9 +24,10 @@ void test_null_cond(int *p) {
     *p = 0xDEADBEEF;
   }
 }
-
+  
 void test_null_cond_transitive(int *q) {
   if (!q) {
+    // FIXME: we need a diagnostic saying that p is initialized to 0
     int *p = q;
     *p = 0xDEADBEEF;
   }
@@ -80,7 +81,6 @@ int test_cond_assign() {
 @end
 
 // CHECK: <?xml version="1.0" encoding="UTF-8"?>
-// CHECK: <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 // CHECK: <plist version="1.0">
 // CHECK: <dict>
 // CHECK:  <key>files</key>
@@ -118,7 +118,7 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>6</integer>
-// CHECK:            <key>col</key><integer>4</integer>
+// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -148,6 +148,7 @@ int test_cond_assign() {
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -157,6 +158,8 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_init</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
 // CHECK:    <key>line</key><integer>6</integer>
@@ -194,7 +197,7 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>12</integer>
-// CHECK:            <key>col</key><integer>4</integer>
+// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -224,6 +227,7 @@ int test_cond_assign() {
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -233,6 +237,8 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_assign</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
 // CHECK:    <key>line</key><integer>12</integer>
@@ -270,7 +276,7 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>19</integer>
-// CHECK:            <key>col</key><integer>4</integer>
+// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -300,6 +306,7 @@ int test_cond_assign() {
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;q&apos;)</string>
 // CHECK:      <key>message</key>
@@ -309,6 +316,8 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;q&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_assign_transitive</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
 // CHECK:    <key>line</key><integer>19</integer>
@@ -376,6 +385,7 @@ int test_cond_assign() {
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Assuming &apos;p&apos; is null</string>
 // CHECK:      <key>message</key>
@@ -408,7 +418,7 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>24</integer>
-// CHECK:            <key>col</key><integer>6</integer>
+// CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -438,6 +448,7 @@ int test_cond_assign() {
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -447,6 +458,8 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_cond</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
 // CHECK:    <key>line</key><integer>24</integer>
@@ -492,34 +505,6 @@ int test_cond_assign() {
 // CHECK:       </array>
 // CHECK:     </dict>
 // CHECK:     <dict>
-// CHECK:      <key>kind</key><string>event</string>
-// CHECK:      <key>location</key>
-// CHECK:      <dict>
-// CHECK:       <key>line</key><integer>29</integer>
-// CHECK:       <key>col</key><integer>7</integer>
-// CHECK:       <key>file</key><integer>0</integer>
-// CHECK:      </dict>
-// CHECK:      <key>ranges</key>
-// CHECK:      <array>
-// CHECK:        <array>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>29</integer>
-// CHECK:          <key>col</key><integer>7</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>29</integer>
-// CHECK:          <key>col</key><integer>8</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:        </array>
-// CHECK:      </array>
-// CHECK:      <key>extended_message</key>
-// CHECK:      <string>Assuming &apos;q&apos; is null</string>
-// CHECK:      <key>message</key>
-// CHECK: <string>Assuming &apos;q&apos; is null</string>
-// CHECK:     </dict>
-// CHECK:     <dict>
 // CHECK:      <key>kind</key><string>control</string>
 // CHECK:      <key>edges</key>
 // CHECK:       <array>
@@ -540,12 +525,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>30</integer>
+// CHECK:            <key>line</key><integer>31</integer>
 // CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>30</integer>
+// CHECK:            <key>line</key><integer>31</integer>
 // CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -561,12 +546,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>30</integer>
+// CHECK:            <key>line</key><integer>31</integer>
 // CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>30</integer>
+// CHECK:            <key>line</key><integer>31</integer>
 // CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -574,13 +559,13 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>31</integer>
+// CHECK:            <key>line</key><integer>32</integer>
 // CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>31</integer>
-// CHECK:            <key>col</key><integer>6</integer>
+// CHECK:            <key>line</key><integer>32</integer>
+// CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -591,7 +576,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>31</integer>
+// CHECK:       <key>line</key><integer>32</integer>
 // CHECK:       <key>col</key><integer>5</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -599,17 +584,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>31</integer>
+// CHECK:          <key>line</key><integer>32</integer>
 // CHECK:          <key>col</key><integer>6</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>31</integer>
+// CHECK:          <key>line</key><integer>32</integer>
 // CHECK:          <key>col</key><integer>6</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -619,9 +605,11 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_cond_transitive</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
-// CHECK:    <key>line</key><integer>31</integer>
+// CHECK:    <key>line</key><integer>32</integer>
 // CHECK:    <key>col</key><integer>5</integer>
 // CHECK:    <key>file</key><integer>0</integer>
 // CHECK:   </dict>
@@ -637,12 +625,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -650,12 +638,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>10</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>10</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -671,12 +659,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>10</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>36</integer>
+// CHECK:            <key>line</key><integer>37</integer>
 // CHECK:            <key>col</key><integer>10</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -684,13 +672,13 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>38</integer>
+// CHECK:            <key>line</key><integer>39</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>38</integer>
-// CHECK:            <key>col</key><integer>8</integer>
+// CHECK:            <key>line</key><integer>39</integer>
+// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -701,7 +689,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>38</integer>
+// CHECK:       <key>line</key><integer>39</integer>
 // CHECK:       <key>col</key><integer>3</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -709,17 +697,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>38</integer>
+// CHECK:          <key>line</key><integer>39</integer>
 // CHECK:          <key>col</key><integer>7</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>38</integer>
+// CHECK:          <key>line</key><integer>39</integer>
 // CHECK:          <key>col</key><integer>7</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from field &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -729,9 +718,11 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from field &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_null_field</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
-// CHECK:    <key>line</key><integer>38</integer>
+// CHECK:    <key>line</key><integer>39</integer>
 // CHECK:    <key>col</key><integer>3</integer>
 // CHECK:    <key>file</key><integer>0</integer>
 // CHECK:   </dict>
@@ -747,12 +738,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -760,46 +751,18 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
 // CHECK:        </dict>
 // CHECK:       </array>
-// CHECK:     </dict>
-// CHECK:     <dict>
-// CHECK:      <key>kind</key><string>event</string>
-// CHECK:      <key>location</key>
-// CHECK:      <dict>
-// CHECK:       <key>line</key><integer>43</integer>
-// CHECK:       <key>col</key><integer>7</integer>
-// CHECK:       <key>file</key><integer>0</integer>
-// CHECK:      </dict>
-// CHECK:      <key>ranges</key>
-// CHECK:      <array>
-// CHECK:        <array>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>43</integer>
-// CHECK:          <key>col</key><integer>7</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>43</integer>
-// CHECK:          <key>col</key><integer>12</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:        </array>
-// CHECK:      </array>
-// CHECK:      <key>extended_message</key>
-// CHECK:      <string>Assuming &apos;a&apos; is not equal to 0</string>
-// CHECK:      <key>message</key>
-// CHECK: <string>Assuming &apos;a&apos; is not equal to 0</string>
 // CHECK:     </dict>
 // CHECK:     <dict>
 // CHECK:      <key>kind</key><string>control</string>
@@ -809,12 +772,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>43</integer>
+// CHECK:            <key>line</key><integer>44</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -822,12 +785,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -843,12 +806,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -856,75 +819,13 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
+// CHECK:            <key>line</key><integer>47</integer>
 // CHECK:            <key>col</key><integer>7</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:          </array>
-// CHECK:        </dict>
-// CHECK:       </array>
-// CHECK:     </dict>
-// CHECK:     <dict>
-// CHECK:      <key>kind</key><string>event</string>
-// CHECK:      <key>location</key>
-// CHECK:      <dict>
-// CHECK:       <key>line</key><integer>46</integer>
-// CHECK:       <key>col</key><integer>7</integer>
-// CHECK:       <key>file</key><integer>0</integer>
-// CHECK:      </dict>
-// CHECK:      <key>ranges</key>
-// CHECK:      <array>
-// CHECK:        <array>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>46</integer>
-// CHECK:          <key>col</key><integer>7</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:         <dict>
-// CHECK:          <key>line</key><integer>46</integer>
-// CHECK:          <key>col</key><integer>12</integer>
-// CHECK:          <key>file</key><integer>0</integer>
-// CHECK:         </dict>
-// CHECK:        </array>
-// CHECK:      </array>
-// CHECK:      <key>extended_message</key>
-// CHECK:      <string>Assuming &apos;b&apos; is equal to 0</string>
-// CHECK:      <key>message</key>
-// CHECK: <string>Assuming &apos;b&apos; is equal to 0</string>
-// CHECK:     </dict>
-// CHECK:     <dict>
-// CHECK:      <key>kind</key><string>control</string>
-// CHECK:      <key>edges</key>
-// CHECK:       <array>
-// CHECK:        <dict>
-// CHECK:         <key>start</key>
-// CHECK:          <array>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
-// CHECK:            <key>col</key><integer>7</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>46</integer>
-// CHECK:            <key>col</key><integer>7</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:          </array>
-// CHECK:         <key>end</key>
-// CHECK:          <array>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>49</integer>
-// CHECK:            <key>col</key><integer>3</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>49</integer>
-// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -939,13 +840,13 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>49</integer>
-// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>line</key><integer>47</integer>
+// CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>49</integer>
-// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>line</key><integer>47</integer>
+// CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -958,7 +859,41 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>50</integer>
-// CHECK:            <key>col</key><integer>4</integer>
+// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:          </array>
+// CHECK:        </dict>
+// CHECK:       </array>
+// CHECK:     </dict>
+// CHECK:     <dict>
+// CHECK:      <key>kind</key><string>control</string>
+// CHECK:      <key>edges</key>
+// CHECK:       <array>
+// CHECK:        <dict>
+// CHECK:         <key>start</key>
+// CHECK:          <array>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>50</integer>
+// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>50</integer>
+// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:          </array>
+// CHECK:         <key>end</key>
+// CHECK:          <array>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>51</integer>
+// CHECK:            <key>col</key><integer>3</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>51</integer>
+// CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -969,7 +904,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>50</integer>
+// CHECK:       <key>line</key><integer>51</integer>
 // CHECK:       <key>col</key><integer>3</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -977,17 +912,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>50</integer>
+// CHECK:          <key>line</key><integer>51</integer>
 // CHECK:          <key>col</key><integer>4</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>50</integer>
+// CHECK:          <key>line</key><integer>51</integer>
 // CHECK:          <key>col</key><integer>4</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -997,9 +933,11 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_assumptions</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
-// CHECK:    <key>line</key><integer>50</integer>
+// CHECK:    <key>line</key><integer>51</integer>
 // CHECK:    <key>col</key><integer>3</integer>
 // CHECK:    <key>file</key><integer>0</integer>
 // CHECK:   </dict>
@@ -1015,12 +953,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>55</integer>
+// CHECK:            <key>line</key><integer>56</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>55</integer>
+// CHECK:            <key>line</key><integer>56</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1028,12 +966,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1049,12 +987,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1062,12 +1000,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1079,7 +1017,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>56</integer>
+// CHECK:       <key>line</key><integer>57</integer>
 // CHECK:       <key>col</key><integer>7</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -1087,17 +1025,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>56</integer>
+// CHECK:          <key>line</key><integer>57</integer>
 // CHECK:          <key>col</key><integer>7</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>56</integer>
+// CHECK:          <key>line</key><integer>57</integer>
 // CHECK:          <key>col</key><integer>7</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Assuming &apos;p&apos; is null</string>
 // CHECK:      <key>message</key>
@@ -1111,12 +1050,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>56</integer>
+// CHECK:            <key>line</key><integer>57</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1124,12 +1063,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1145,12 +1084,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1158,12 +1097,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>10</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>58</integer>
+// CHECK:            <key>line</key><integer>59</integer>
 // CHECK:            <key>col</key><integer>11</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1175,7 +1114,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>58</integer>
+// CHECK:       <key>line</key><integer>59</integer>
 // CHECK:       <key>col</key><integer>10</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -1183,17 +1122,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>58</integer>
+// CHECK:          <key>line</key><integer>59</integer>
 // CHECK:          <key>col</key><integer>11</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>58</integer>
+// CHECK:          <key>line</key><integer>59</integer>
 // CHECK:          <key>col</key><integer>11</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -1203,9 +1143,11 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>function</string>
+// CHECK:   <key>issue_context</key><string>test_cond_assign</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
-// CHECK:    <key>line</key><integer>58</integer>
+// CHECK:    <key>line</key><integer>59</integer>
 // CHECK:    <key>col</key><integer>10</integer>
 // CHECK:    <key>file</key><integer>0</integer>
 // CHECK:   </dict>
@@ -1221,12 +1163,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1234,12 +1176,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1255,12 +1197,12 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>7</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1268,12 +1210,12 @@ int test_cond_assign() {
 // CHECK:         <key>end</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
@@ -1289,47 +1231,13 @@ int test_cond_assign() {
 // CHECK:         <key>start</key>
 // CHECK:          <array>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:           <dict>
-// CHECK:            <key>line</key><integer>75</integer>
+// CHECK:            <key>line</key><integer>76</integer>
 // CHECK:            <key>col</key><integer>3</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:          </array>
-// CHECK:         <key>end</key>
-// CHECK:          <array>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>76</integer>
-// CHECK:            <key>col</key><integer>5</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>76</integer>
-// CHECK:            <key>col</key><integer>5</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:          </array>
-// CHECK:        </dict>
-// CHECK:       </array>
-// CHECK:     </dict>
-// CHECK:     <dict>
-// CHECK:      <key>kind</key><string>control</string>
-// CHECK:      <key>edges</key>
-// CHECK:       <array>
-// CHECK:        <dict>
-// CHECK:         <key>start</key>
-// CHECK:          <array>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>76</integer>
-// CHECK:            <key>col</key><integer>5</integer>
-// CHECK:            <key>file</key><integer>0</integer>
-// CHECK:           </dict>
-// CHECK:           <dict>
-// CHECK:            <key>line</key><integer>76</integer>
-// CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -1342,7 +1250,41 @@ int test_cond_assign() {
 // CHECK:           </dict>
 // CHECK:           <dict>
 // CHECK:            <key>line</key><integer>77</integer>
-// CHECK:            <key>col</key><integer>6</integer>
+// CHECK:            <key>col</key><integer>5</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:          </array>
+// CHECK:        </dict>
+// CHECK:       </array>
+// CHECK:     </dict>
+// CHECK:     <dict>
+// CHECK:      <key>kind</key><string>control</string>
+// CHECK:      <key>edges</key>
+// CHECK:       <array>
+// CHECK:        <dict>
+// CHECK:         <key>start</key>
+// CHECK:          <array>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>77</integer>
+// CHECK:            <key>col</key><integer>5</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>77</integer>
+// CHECK:            <key>col</key><integer>5</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:          </array>
+// CHECK:         <key>end</key>
+// CHECK:          <array>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>78</integer>
+// CHECK:            <key>col</key><integer>5</integer>
+// CHECK:            <key>file</key><integer>0</integer>
+// CHECK:           </dict>
+// CHECK:           <dict>
+// CHECK:            <key>line</key><integer>78</integer>
+// CHECK:            <key>col</key><integer>5</integer>
 // CHECK:            <key>file</key><integer>0</integer>
 // CHECK:           </dict>
 // CHECK:          </array>
@@ -1353,7 +1295,7 @@ int test_cond_assign() {
 // CHECK:      <key>kind</key><string>event</string>
 // CHECK:      <key>location</key>
 // CHECK:      <dict>
-// CHECK:       <key>line</key><integer>77</integer>
+// CHECK:       <key>line</key><integer>78</integer>
 // CHECK:       <key>col</key><integer>5</integer>
 // CHECK:       <key>file</key><integer>0</integer>
 // CHECK:      </dict>
@@ -1361,17 +1303,18 @@ int test_cond_assign() {
 // CHECK:      <array>
 // CHECK:        <array>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>77</integer>
+// CHECK:          <key>line</key><integer>78</integer>
 // CHECK:          <key>col</key><integer>6</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:         <dict>
-// CHECK:          <key>line</key><integer>77</integer>
+// CHECK:          <key>line</key><integer>78</integer>
 // CHECK:          <key>col</key><integer>6</integer>
 // CHECK:          <key>file</key><integer>0</integer>
 // CHECK:         </dict>
 // CHECK:        </array>
 // CHECK:      </array>
+// CHECK:      <key>depth</key><integer>0</integer>
 // CHECK:      <key>extended_message</key>
 // CHECK:      <string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:      <key>message</key>
@@ -1381,9 +1324,11 @@ int test_cond_assign() {
 // CHECK:    <key>description</key><string>Dereference of null pointer (loaded from variable &apos;p&apos;)</string>
 // CHECK:    <key>category</key><string>Logic error</string>
 // CHECK:    <key>type</key><string>Dereference of null pointer</string>
+// CHECK:   <key>issue_context_kind</key><string>Objective-C method</string>
+// CHECK:   <key>issue_context</key><string>test</string>
 // CHECK:   <key>location</key>
 // CHECK:   <dict>
-// CHECK:    <key>line</key><integer>77</integer>
+// CHECK:    <key>line</key><integer>78</integer>
 // CHECK:    <key>col</key><integer>5</integer>
 // CHECK:    <key>file</key><integer>0</integer>
 // CHECK:   </dict>

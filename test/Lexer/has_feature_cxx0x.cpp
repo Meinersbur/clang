@@ -40,6 +40,16 @@ int no_decltype();
 // CHECK-NO-0X: no_decltype
 
 
+#if __has_feature(cxx_decltype_incomplete_return_types)
+int has_decltype_incomplete_return_types();
+#else
+int no_decltype_incomplete_return_types();
+#endif
+
+// CHECK-0X: has_decltype_incomplete_return_types
+// CHECK-NO-0X: no_decltype_incomplete_return_types
+
+
 #if __has_feature(cxx_auto_type)
 int has_auto_type();
 #else
@@ -244,3 +254,21 @@ int no_unrestricted_unions();
 
 // CHECK-0X: has_unrestricted_unions
 // CHECK-NO-0X: no_unrestricted_unions
+
+#if __has_feature(cxx_user_literals)
+int has_user_literals();
+#else
+int no_user_literals();
+#endif
+
+// CHECK-0X: has_user_literals
+// CHECK-NO-0X: no_user_literals
+
+#if __has_feature(cxx_local_type_template_args)
+int has_local_type_template_args();
+#else
+int no_local_type_template_args();
+#endif
+
+// CHECK-0X: has_local_type_template_args
+// CHECK-NO-0X: no_local_type_template_args

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ASTCommon.h"
+#include "ASTReaderInternals.h"
 #include "clang/Serialization/ASTReader.h"
 #include "clang/Sema/IdentifierResolver.h"
 #include "clang/Sema/Sema.h"
@@ -24,6 +25,7 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
+#include "llvm/Support/SaveAndRestore.h"
 using namespace clang;
 using namespace clang::serialization;
 
@@ -453,7 +455,13 @@ void ASTDeclReader::VisitEnumDecl(EnumDecl *ED) {
   ED->IsScoped = Record[Idx++];
   ED->IsScopedUsingClassTag = Record[Idx++];
   ED->IsFixed = Record[Idx++];
-  ED->setInstantiationOfMemberEnum(ReadDeclAs<EnumDecl>(Record, Idx));
+
+  if (EnumDecl *InstED = ReadDeclAs<EnumDecl>(Record, Idx)) {
+    TemplateSpecializationKind TSK = (TemplateSpecializationKind)Record[Idx++];
+    SourceLocation POI = ReadSourceLocation(Record, Idx);
+    ED->setInstantiationOfMemberEnum(Reader.getContext(), InstED, TSK);
+    ED->getMemberSpecializationInfo()->setPointOfInstantiation(POI);
+  }
 }
 
 void ASTDeclReader::VisitRecordDecl(RecordDecl *RD) {
@@ -622,6 +630,10 @@ void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
   if (Record[Idx++]) {
     // In practice, this won't be executed (since method definitions
     // don't occur in header files).
+    // Switch case IDs for this method body.
+    ASTReader::SwitchCaseMapTy SwitchCaseStmtsForObjCMethod;
+    SaveAndRestore<ASTReader::SwitchCaseMapTy *>
+      SCFOM(Reader.CurrSwitchCaseStmts, &SwitchCaseStmtsForObjCMethod);
     MD->setBody(Reader.ReadStmt(F));
     MD->setSelfDecl(ReadDeclAs<ImplicitParamDecl>(Record, Idx));
     MD->setCmdDecl(ReadDeclAs<ImplicitParamDecl>(Record, Idx));
@@ -630,6 +642,7 @@ void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
   MD->setVariadic(Record[Idx++]);
   MD->setSynthesized(Record[Idx++]);
   MD->setDefined(Record[Idx++]);
+  MD->IsOverriding = Record[Idx++];
 
   MD->IsRedeclaration = Record[Idx++];
   MD->HasRedeclaration = Record[Idx++];
@@ -949,6 +962,10 @@ void ASTDeclReader::VisitBlockDecl(BlockDecl *BD) {
     Params.push_back(ReadDeclAs<ParmVarDecl>(Record, Idx));
   BD->setParams(Params);
 
+  BD->setIsVariadic(Record[Idx++]);
+  BD->setBlockMissingReturnType(Record[Idx++]);
+  BD->setIsConversionFromLambda(Record[Idx++]);
+
   bool capturesCXXThis = Record[Idx++];
   unsigned numCaptures = Record[Idx++];
   SmallVector<BlockDecl::Capture, 16> captures;
@@ -1074,6 +1091,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
   Data.HasPublicFields = Record[Idx++];
   Data.HasMutableFields = Record[Idx++];
   Data.HasOnlyCMembers = Record[Idx++];
+  Data.HasInClassInitializer = Record[Idx++];
   Data.HasTrivialDefaultConstructor = Record[Idx++];
   Data.HasConstexprNonCopyMoveConstructor = Record[Idx++];
   Data.DefaultedDefaultConstructorIsConstexpr = Record[Idx++];
@@ -1534,7 +1552,7 @@ template<typename T>
 void ASTDeclReader::mergeRedeclarable(Redeclarable<T> *D, 
                                       RedeclarableResult &Redecl) {
   // If modules are not available, there is no reason to perform this merge.
-  if (!Reader.getContext().getLangOptions().Modules)
+  if (!Reader.getContext().getLangOpts().Modules)
     return;
   
   if (FindExistingResult ExistingRes = findExisting(static_cast<T*>(D))) {
@@ -2094,7 +2112,9 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
       DeclContextVisibleUpdates &U = I->second;
       for (DeclContextVisibleUpdates::iterator UI = U.begin(), UE = U.end();
            UI != UE; ++UI) {
-        UI->second->DeclContextInfos[DC].NameLookupTableData = UI->first;
+        DeclContextInfo &Info = UI->second->DeclContextInfos[DC];
+        delete Info.NameLookupTableData;
+        Info.NameLookupTableData = UI->first;
       }
       PendingVisibleUpdates.erase(I);
     }

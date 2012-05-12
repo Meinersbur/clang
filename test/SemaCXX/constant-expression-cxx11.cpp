@@ -615,6 +615,10 @@ static_assert(agg1.arr[4] == 0, "");
 static_assert(agg1.arr[5] == 0, ""); // expected-error {{constant expression}} expected-note {{read of dereferenced one-past-the-end}}
 static_assert(agg1.p == nullptr, "");
 
+static constexpr const unsigned char uc[] = { "foo" };
+static_assert(uc[0] == 'f', "");
+static_assert(uc[3] == 0, "");
+
 namespace SimpleDerivedClass {
 
 struct B {
@@ -1229,4 +1233,28 @@ namespace CompoundLiteral {
   // pointer to it. This is OK: we're not required to treat this as a constant
   // in C++, and in C we model compound literals as lvalues.
   constexpr int *p = (int*)(int[1]){0}; // expected-warning {{C99}} expected-error {{constant expression}} expected-note 2{{temporary}}
+}
+
+namespace Vector {
+  typedef int __attribute__((vector_size(16))) VI4;
+  constexpr VI4 f(int n) {
+    return VI4 { n * 3, n + 4, n - 5, n / 6 };
+  }
+  constexpr auto v1 = f(10);
+
+  typedef double __attribute__((vector_size(32))) VD4;
+  constexpr VD4 g(int n) {
+    return (VD4) { n / 2.0, n + 1.5, n - 5.4, n * 0.9 }; // expected-warning {{C99}}
+  }
+  constexpr auto v2 = g(4);
+}
+
+// PR12626, redux
+namespace InvalidClasses {
+  void test0() {
+    struct X; // expected-note {{forward declaration}}
+    struct Y { bool b; X x; }; // expected-error {{field has incomplete type}}
+    Y y;
+    auto& b = y.b;
+  }
 }

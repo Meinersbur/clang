@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTWriter.h"
+#include "clang/Serialization/ASTReader.h"
 #include "ASTCommon.h"
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/DeclCXX.h"
@@ -230,7 +231,13 @@ void ASTDeclWriter::VisitEnumDecl(EnumDecl *D) {
   Record.push_back(D->isScoped());
   Record.push_back(D->isScopedUsingClassTag());
   Record.push_back(D->isFixed());
-  Writer.AddDeclRef(D->getInstantiatedFromMemberEnum(), Record);
+  if (MemberSpecializationInfo *MemberInfo = D->getMemberSpecializationInfo()) {
+    Writer.AddDeclRef(MemberInfo->getInstantiatedFrom(), Record);
+    Record.push_back(MemberInfo->getTemplateSpecializationKind());
+    Writer.AddSourceLocation(MemberInfo->getPointOfInstantiation(), Record);
+  } else {
+    Writer.AddDeclRef(0, Record);
+  }
 
   if (!D->hasAttrs() &&
       !D->isImplicit() &&
@@ -410,6 +417,7 @@ void ASTDeclWriter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
   Record.push_back(D->isVariadic());
   Record.push_back(D->isSynthesized());
   Record.push_back(D->isDefined());
+  Record.push_back(D->IsOverriding);
 
   Record.push_back(D->IsRedeclaration);
   Record.push_back(D->HasRedeclaration);
@@ -729,6 +737,7 @@ void ASTDeclWriter::VisitParmVarDecl(ParmVarDecl *D) {
       !D->hasExtInfo() &&
       !D->isImplicit() &&
       !D->isUsed(false) &&
+      !D->isInvalidDecl() &&
       !D->isReferenced() &&
       D->getAccess() == AS_none &&
       !D->isModulePrivate() &&
@@ -744,7 +753,6 @@ void ASTDeclWriter::VisitParmVarDecl(ParmVarDecl *D) {
 
   // Check things we know are true of *every* PARM_VAR_DECL, which is more than
   // just us assuming it.
-  assert(!D->isInvalidDecl() && "Shouldn't emit invalid decls");
   assert(!D->isThreadSpecified() && "PARM_VAR_DECL can't be __thread");
   assert(D->getAccess() == AS_none && "PARM_VAR_DECL can't be public/private");
   assert(!D->isExceptionVariable() && "PARM_VAR_DECL can't be exception var");
@@ -768,6 +776,9 @@ void ASTDeclWriter::VisitBlockDecl(BlockDecl *D) {
   for (FunctionDecl::param_iterator P = D->param_begin(), PEnd = D->param_end();
        P != PEnd; ++P)
     Writer.AddDeclRef(*P, Record);
+  Record.push_back(D->isVariadic());
+  Record.push_back(D->blockMissingReturnType());
+  Record.push_back(D->isConversionFromLambda());
   Record.push_back(D->capturesCXXThis());
   Record.push_back(D->getNumCaptures());
   for (BlockDecl::capture_iterator
@@ -819,9 +830,7 @@ void ASTDeclWriter::VisitNamespaceDecl(NamespaceDecl *D) {
     Writer.AddUpdatedDeclContext(NS);
 
     // Make sure all visible decls are written. They will be recorded later.
-    NS->lookup(DeclarationName());
-    StoredDeclsMap *Map = static_cast<StoredDeclsMap*>(NS->getLookupPtr());
-    if (Map) {
+    if (StoredDeclsMap *Map = NS->buildLookup()) {
       for (StoredDeclsMap::iterator D = Map->begin(), DEnd = Map->end();
            D != DEnd; ++D) {
         DeclContext::lookup_result Result = D->second.getLookupResult();
@@ -1046,7 +1055,7 @@ void ASTDeclWriter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
   VisitRedeclarableTemplateDecl(D);
 
   if (D->isFirstDeclaration()) {
-    typedef llvm::FoldingSet<ClassTemplateSpecializationDecl> CTSDSetTy;
+    typedef llvm::FoldingSetVector<ClassTemplateSpecializationDecl> CTSDSetTy;
     CTSDSetTy &CTSDSet = D->getSpecializations();
     Record.push_back(CTSDSet.size());
     for (CTSDSetTy::iterator I=CTSDSet.begin(), E = CTSDSet.end(); I!=E; ++I) {
@@ -1054,7 +1063,8 @@ void ASTDeclWriter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
       Writer.AddDeclRef(&*I, Record);
     }
 
-    typedef llvm::FoldingSet<ClassTemplatePartialSpecializationDecl> CTPSDSetTy;
+    typedef llvm::FoldingSetVector<ClassTemplatePartialSpecializationDecl>
+      CTPSDSetTy;
     CTPSDSetTy &CTPSDSet = D->getPartialSpecializations();
     Record.push_back(CTPSDSet.size());
     for (CTPSDSetTy::iterator I=CTPSDSet.begin(), E=CTPSDSet.end(); I!=E; ++I) {
@@ -1138,7 +1148,7 @@ void ASTDeclWriter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
 
     // Write the function specialization declarations.
     Record.push_back(D->getSpecializations().size());
-    for (llvm::FoldingSet<FunctionTemplateSpecializationInfo>::iterator
+    for (llvm::FoldingSetVector<FunctionTemplateSpecializationInfo>::iterator
            I = D->getSpecializations().begin(),
            E = D->getSpecializations().end()   ; I != E; ++I) {
       assert(I->Function->isCanonicalDecl() &&
@@ -1267,7 +1277,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1299,7 +1309,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1336,7 +1346,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1383,7 +1393,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1424,7 +1434,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1474,7 +1484,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1502,7 +1512,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   // Decl
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclContext
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // LexicalDeclContext
-  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl (!?)
+  Abv->Add(BitCodeAbbrevOp(0));                       // isInvalidDecl
   Abv->Add(BitCodeAbbrevOp(0));                       // HasAttrs
   Abv->Add(BitCodeAbbrevOp(0));                       // isImplicit
   Abv->Add(BitCodeAbbrevOp(0));                       // isUsed
@@ -1553,6 +1563,7 @@ void ASTWriter::WriteDeclsBlockAbbrevs() {
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); //GetDeclFound
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); //ExplicitTemplateArgs
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); //HadMultipleCandidates
+  Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); //RefersToEnclosingLocal
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclRef
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Location
   DeclRefExprAbbrev = Stream.EmitAbbrev(Abv);
@@ -1635,19 +1646,6 @@ void ASTWriter::WriteDecl(ASTContext &Context, Decl *D) {
   RecordData Record;
   ASTDeclWriter W(*this, Context, Record);
 
-  // If this declaration is also a DeclContext, write blocks for the
-  // declarations that lexically stored inside its context and those
-  // declarations that are visible from its context. These blocks
-  // are written before the declaration itself so that we can put
-  // their offsets into the record for the declaration.
-  uint64_t LexicalOffset = 0;
-  uint64_t VisibleOffset = 0;
-  DeclContext *DC = dyn_cast<DeclContext>(D);
-  if (DC) {
-    LexicalOffset = WriteDeclContextLexicalBlock(Context, DC);
-    VisibleOffset = WriteDeclContextVisibleBlock(Context, DC);
-  }
-
   // Determine the ID for this declaration.
   serialization::DeclID ID;
   if (D->isFromASTFile())
@@ -1659,8 +1657,31 @@ void ASTWriter::WriteDecl(ASTContext &Context, Decl *D) {
     
     ID= IDR;
   }
+
+  bool isReplacingADecl = ID < FirstDeclID;
+
+  // If this declaration is also a DeclContext, write blocks for the
+  // declarations that lexically stored inside its context and those
+  // declarations that are visible from its context. These blocks
+  // are written before the declaration itself so that we can put
+  // their offsets into the record for the declaration.
+  uint64_t LexicalOffset = 0;
+  uint64_t VisibleOffset = 0;
+  DeclContext *DC = dyn_cast<DeclContext>(D);
+  if (DC) {
+    if (isReplacingADecl) {
+      // It is replacing a decl from a chained PCH; make sure that the
+      // DeclContext is fully loaded.
+      if (DC->hasExternalLexicalStorage())
+        DC->LoadLexicalDeclsFromExternalStorage();
+      if (DC->hasExternalVisibleStorage())
+        Chain->completeVisibleDeclsMap(DC);
+    }
+    LexicalOffset = WriteDeclContextLexicalBlock(Context, DC);
+    VisibleOffset = WriteDeclContextVisibleBlock(Context, DC);
+  }
   
-  if (ID < FirstDeclID) {
+  if (isReplacingADecl) {
     // We're replacing a decl in a previous file.
     ReplacedDecls.push_back(ReplacedDeclInfo(ID, Stream.GetCurrentBitNo(),
                                              D->getLocation()));

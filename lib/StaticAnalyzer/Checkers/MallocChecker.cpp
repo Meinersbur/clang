@@ -82,11 +82,14 @@ struct ReallocPair {
   }
 };
 
+typedef std::pair<const Stmt*, const MemRegion*> LeakInfo;
+
 class MallocChecker : public Checker<check::DeadSymbols,
                                      check::EndPath,
                                      check::PreStmt<ReturnStmt>,
                                      check::PreStmt<CallExpr>,
                                      check::PostStmt<CallExpr>,
+                                     check::PostStmt<BlockExpr>,
                                      check::Location,
                                      check::Bind,
                                      eval::Assume,
@@ -98,8 +101,6 @@ class MallocChecker : public Checker<check::DeadSymbols,
   mutable OwningPtr<BugType> BT_BadFree;
   mutable IdentifierInfo *II_malloc, *II_free, *II_realloc, *II_calloc,
                          *II_valloc, *II_reallocf, *II_strndup, *II_strdup;
-
-  static const unsigned InvalidArgIndex = UINT_MAX;
 
 public:
   MallocChecker() : II_malloc(0), II_free(0), II_realloc(0), II_calloc(0),
@@ -116,6 +117,7 @@ public:
 
   void checkPreStmt(const CallExpr *S, CheckerContext &C) const;
   void checkPostStmt(const CallExpr *CE, CheckerContext &C) const;
+  void checkPostStmt(const BlockExpr *BE, CheckerContext &C) const;
   void checkDeadSymbols(SymbolReaper &SymReaper, CheckerContext &C) const;
   void checkEndPath(CheckerContext &C) const;
   void checkPreStmt(const ReturnStmt *S, CheckerContext &C) const;
@@ -134,6 +136,9 @@ public:
   bool wantsRegionChangeUpdate(ProgramStateRef state) const {
     return true;
   }
+
+  void printState(raw_ostream &Out, ProgramStateRef State,
+                  const char *NL, const char *Sep) const;
 
 private:
   void initIdentifierInfo(ASTContext &C) const;
@@ -187,28 +192,36 @@ private:
 
   /// Find the location of the allocation for Sym on the path leading to the
   /// exploded node N.
-  const Stmt *getAllocationSite(const ExplodedNode *N, SymbolRef Sym,
-                                CheckerContext &C) const;
+  LeakInfo getAllocationSite(const ExplodedNode *N, SymbolRef Sym,
+                             CheckerContext &C) const;
 
   void reportLeak(SymbolRef Sym, ExplodedNode *N, CheckerContext &C) const;
 
   /// The bug visitor which allows us to print extra diagnostics along the
   /// BugReport path. For example, showing the allocation site of the leaked
   /// region.
-  class MallocBugVisitor : public BugReporterVisitor {
+  class MallocBugVisitor : public BugReporterVisitorImpl<MallocBugVisitor> {
   protected:
     enum NotificationMode {
       Normal,
-      Complete,
       ReallocationFailed
     };
 
     // The allocated region symbol tracked by the main analysis.
     SymbolRef Sym;
+
+    // The mode we are in, i.e. what kind of diagnostics will be emitted.
     NotificationMode Mode;
 
+    // A symbol from when the primary region should have been reallocated.
+    SymbolRef FailedReallocSymbol;
+
+    bool IsLeak;
+
   public:
-    MallocBugVisitor(SymbolRef S) : Sym(S), Mode(Normal) {}
+    MallocBugVisitor(SymbolRef S, bool isLeak = false)
+       : Sym(S), Mode(Normal), FailedReallocSymbol(0), IsLeak(isLeak) {}
+
     virtual ~MallocBugVisitor() {}
 
     void Profile(llvm::FoldingSetNodeID &ID) const {
@@ -245,6 +258,43 @@ private:
                                    const ExplodedNode *PrevN,
                                    BugReporterContext &BRC,
                                    BugReport &BR);
+
+    PathDiagnosticPiece* getEndPath(BugReporterContext &BRC,
+                                    const ExplodedNode *EndPathNode,
+                                    BugReport &BR) {
+      if (!IsLeak)
+        return 0;
+
+      PathDiagnosticLocation L =
+        PathDiagnosticLocation::createEndOfPath(EndPathNode,
+                                                BRC.getSourceManager());
+      // Do not add the statement itself as a range in case of leak.
+      return new PathDiagnosticEventPiece(L, BR.getDescription(), false);
+    }
+
+  private:
+    class StackHintGeneratorForReallocationFailed
+        : public StackHintGeneratorForSymbol {
+    public:
+      StackHintGeneratorForReallocationFailed(SymbolRef S, StringRef M)
+        : StackHintGeneratorForSymbol(S, M) {}
+
+      virtual std::string getMessageForArg(const Expr *ArgE, unsigned ArgIndex) {
+        SmallString<200> buf;
+        llvm::raw_svector_ostream os(buf);
+
+        os << "Reallocation of ";
+        // Printed parameters start at 1, not 0.
+        printOrdinal(++ArgIndex, os);
+        os << " parameter failed";
+
+        return os.str();
+      }
+
+      virtual std::string getMessageForReturn(const CallExpr *CallExpr) {
+        return "Reallocation of returned value failed";
+      }
+    };
   };
 };
 } // end anonymous namespace
@@ -337,6 +387,8 @@ void MallocChecker::checkPostStmt(const CallExpr *CE, CheckerContext &C) const {
 
   ProgramStateRef State = C.getState();
   if (FunI == II_malloc || FunI == II_valloc) {
+    if (CE->getNumArgs() < 1)
+      return;
     State = MallocMemAux(C, CE, CE->getArg(0), UndefinedVal(), State);
   } else if (FunI == II_realloc) {
     State = ReallocMem(C, CE, false);
@@ -459,6 +511,9 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
                                           ProgramStateRef state,
                                           unsigned Num,
                                           bool Hold) const {
+  if (CE->getNumArgs() < (Num + 1))
+    return 0;
+
   const Expr *ArgExpr = CE->getArg(Num);
   SVal ArgVal = state->getSVal(ArgExpr, C.getLocationContext());
   if (!isa<DefinedOrUnknownSVal>(ArgVal))
@@ -537,6 +592,7 @@ ProgramStateRef MallocChecker::FreeMemAux(CheckerContext &C,
       BugReport *R = new BugReport(*BT_DoubleFree, 
                         "Attempt to free released memory", N);
       R->addRange(ArgExpr->getSourceRange());
+      R->markInteresting(Sym);
       R->addVisitor(new MallocBugVisitor(Sym));
       C.EmitReport(R);
     }
@@ -669,6 +725,7 @@ void MallocChecker::ReportBadFree(CheckerContext &C, SVal ArgVal,
     }
     
     BugReport *R = new BugReport(*BT_BadFree, os.str(), N);
+    R->markInteresting(MR);
     R->addRange(range);
     C.EmitReport(R);
   }
@@ -677,6 +734,9 @@ void MallocChecker::ReportBadFree(CheckerContext &C, SVal ArgVal,
 ProgramStateRef MallocChecker::ReallocMem(CheckerContext &C,
                                           const CallExpr *CE,
                                           bool FreesOnFail) const {
+  if (CE->getNumArgs() < 2)
+    return 0;
+
   ProgramStateRef state = C.getState();
   const Expr *arg0Expr = CE->getArg(0);
   const LocationContext *LCtx = C.getLocationContext();
@@ -762,6 +822,9 @@ ProgramStateRef MallocChecker::ReallocMem(CheckerContext &C,
 }
 
 ProgramStateRef MallocChecker::CallocMem(CheckerContext &C, const CallExpr *CE){
+  if (CE->getNumArgs() < 2)
+    return 0;
+
   ProgramStateRef state = C.getState();
   SValBuilder &svalBuilder = C.getSValBuilder();
   const LocationContext *LCtx = C.getLocationContext();
@@ -774,17 +837,30 @@ ProgramStateRef MallocChecker::CallocMem(CheckerContext &C, const CallExpr *CE){
   return MallocMemAux(C, CE, TotalSize, zeroVal, state);
 }
 
-const Stmt *
+LeakInfo
 MallocChecker::getAllocationSite(const ExplodedNode *N, SymbolRef Sym,
                                  CheckerContext &C) const {
   const LocationContext *LeakContext = N->getLocationContext();
   // Walk the ExplodedGraph backwards and find the first node that referred to
   // the tracked symbol.
   const ExplodedNode *AllocNode = N;
+  const MemRegion *ReferenceRegion = 0;
 
   while (N) {
-    if (!N->getState()->get<RegionState>(Sym))
+    ProgramStateRef State = N->getState();
+    if (!State->get<RegionState>(Sym))
       break;
+
+    // Find the most recent expression bound to the symbol in the current
+    // context.
+    if (!ReferenceRegion) {
+      if (const MemRegion *MR = C.getLocationRegionIfPostStore(N)) {
+        SVal Val = State->getSVal(MR);
+        if (Val.getAsLocSymbol() == Sym)
+          ReferenceRegion = MR;
+      }
+    }
+
     // Allocation node, is the last node in the current context in which the
     // symbol was tracked.
     if (N->getLocationContext() == LeakContext)
@@ -793,10 +869,11 @@ MallocChecker::getAllocationSite(const ExplodedNode *N, SymbolRef Sym,
   }
 
   ProgramPoint P = AllocNode->getLocation();
-  if (!isa<StmtPoint>(P))
-    return 0;
+  const Stmt *AllocationStmt = 0;
+  if (isa<StmtPoint>(P))
+    AllocationStmt = cast<StmtPoint>(P).getStmt();
 
-  return cast<StmtPoint>(P).getStmt();
+  return LeakInfo(AllocationStmt, ReferenceRegion);
 }
 
 void MallocChecker::reportLeak(SymbolRef Sym, ExplodedNode *N,
@@ -816,13 +893,25 @@ void MallocChecker::reportLeak(SymbolRef Sym, ExplodedNode *N,
   // With leaks, we want to unique them by the location where they were
   // allocated, and only report a single path.
   PathDiagnosticLocation LocUsedForUniqueing;
-  if (const Stmt *AllocStmt = getAllocationSite(N, Sym, C))
+  const Stmt *AllocStmt = 0;
+  const MemRegion *Region = 0;
+  llvm::tie(AllocStmt, Region) = getAllocationSite(N, Sym, C);
+  if (AllocStmt)
     LocUsedForUniqueing = PathDiagnosticLocation::createBegin(AllocStmt,
                             C.getSourceManager(), N->getLocationContext());
 
-  BugReport *R = new BugReport(*BT_Leak,
-    "Memory is never released; potential memory leak", N, LocUsedForUniqueing);
-  R->addVisitor(new MallocBugVisitor(Sym));
+  SmallString<200> buf;
+  llvm::raw_svector_ostream os(buf);
+  os << "Memory is never released; potential leak";
+  if (Region) {
+    os << " of memory pointed to by '";
+    Region->dumpPretty(os);
+    os <<'\'';
+  }
+
+  BugReport *R = new BugReport(*BT_Leak, os.str(), N, LocUsedForUniqueing);
+  R->markInteresting(Sym);
+  R->addVisitor(new MallocBugVisitor(Sym, true));
   C.EmitReport(R);
 }
 
@@ -953,6 +1042,46 @@ void MallocChecker::checkPreStmt(const ReturnStmt *S, CheckerContext &C) const {
     checkEscape(Sym, E, C);
 }
 
+// TODO: Blocks should be either inlined or should call invalidate regions
+// upon invocation. After that's in place, special casing here will not be 
+// needed.
+void MallocChecker::checkPostStmt(const BlockExpr *BE,
+                                  CheckerContext &C) const {
+
+  // Scan the BlockDecRefExprs for any object the retain count checker
+  // may be tracking.
+  if (!BE->getBlockDecl()->hasCaptures())
+    return;
+
+  ProgramStateRef state = C.getState();
+  const BlockDataRegion *R =
+    cast<BlockDataRegion>(state->getSVal(BE,
+                                         C.getLocationContext()).getAsRegion());
+
+  BlockDataRegion::referenced_vars_iterator I = R->referenced_vars_begin(),
+                                            E = R->referenced_vars_end();
+
+  if (I == E)
+    return;
+
+  SmallVector<const MemRegion*, 10> Regions;
+  const LocationContext *LC = C.getLocationContext();
+  MemRegionManager &MemMgr = C.getSValBuilder().getRegionManager();
+
+  for ( ; I != E; ++I) {
+    const VarRegion *VR = *I;
+    if (VR->getSuperRegion() == R) {
+      VR = MemMgr.getVarRegion(VR->getDecl(), LC);
+    }
+    Regions.push_back(VR);
+  }
+
+  state =
+    state->scanReachableSymbols<StopTrackingCallback>(Regions.data(),
+                                    Regions.data() + Regions.size()).getState();
+  C.addTransition(state);
+}
+
 bool MallocChecker::checkUseAfterFree(SymbolRef Sym, CheckerContext &C,
                                       const Stmt *S) const {
   assert(Sym);
@@ -966,6 +1095,7 @@ bool MallocChecker::checkUseAfterFree(SymbolRef Sym, CheckerContext &C,
                                    "Use of memory after it is freed",N);
       if (S)
         R->addRange(S->getSourceRange());
+      R->markInteresting(Sym);
       R->addVisitor(new MallocBugVisitor(Sym));
       C.EmitReport(R);
       return true;
@@ -1007,7 +1137,11 @@ void MallocChecker::checkBind(SVal loc, SVal val, const Stmt *S,
       // To test (3), generate a new state with the binding added.  If it is
       // the same state, then it escapes (since the store cannot represent
       // the binding).
-      escapes = (state == (state->bindLoc(*regionLoc, val)));
+      // Do this only if we know that the store is not supposed to generate the
+      // same state.
+      SVal StoredVal = state->getSVal(regionLoc->getRegion());
+      if (StoredVal != val)
+        escapes = (state == (state->bindLoc(*regionLoc, val)));
     }
     if (!escapes) {
       // Case 4: We do not currently model what happens when a symbol is
@@ -1086,7 +1220,7 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
   ASTContext &ASTC = State->getStateManager().getContext();
 
   // If it's one of the allocation functions we can reason about, we model
-  // it's behavior explicitly.
+  // its behavior explicitly.
   if (isa<FunctionDecl>(D) && isMemFunction(cast<FunctionDecl>(D), ASTC)) {
     return true;
   }
@@ -1097,7 +1231,7 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     return false;
 
   // Process C/ObjC functions.
-  if (const FunctionDecl *FD  = dyn_cast_or_null<FunctionDecl>(D)) {
+  if (const FunctionDecl *FD  = dyn_cast<FunctionDecl>(D)) {
     // White list the system functions whose arguments escape.
     const IdentifierInfo *II = FD->getIdentifier();
     if (!II)
@@ -1157,9 +1291,20 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     // this would be to implement a pointer escapes callback.
     if (FName == "CVPixelBufferCreateWithBytes" ||
         FName == "CGBitmapContextCreateWithData" ||
-        FName == "CVPixelBufferCreateWithPlanarBytes") {
+        FName == "CVPixelBufferCreateWithPlanarBytes" ||
+        FName == "OSAtomicEnqueue") {
       return false;
     }
+
+    // Whitelist NSXXInsertXX, for example NSMapInsertIfAbsent, since they can
+    // be deallocated by NSMapRemove.
+    if (FName.startswith("NS") && (FName.find("Insert") != StringRef::npos))
+      return false;
+
+    // If the call has a callback as an argument, assume the memory
+    // can be freed.
+    if (Call->hasNonZeroCallbackArg())
+      return false;
 
     // Otherwise, assume that the function does not free memory.
     // Most system calls, do not free the memory.
@@ -1187,6 +1332,11 @@ bool MallocChecker::doesNotFreeMemory(const CallOrObjCMessage *Call,
     if (S.getNameForSlot(0).endswith("NoCopy")) {
       return false;
     }
+
+    // If the call has a callback as an argument, assume the memory
+    // can be freed.
+    if (Call->hasNonZeroCallbackArg())
+      return false;
 
     // Otherwise, assume that the function does not free memory.
     // Most system calls, do not free the memory.
@@ -1235,18 +1385,37 @@ MallocChecker::checkRegionChanges(ProgramStateRef State,
   return State;
 }
 
+static SymbolRef findFailedReallocSymbol(ProgramStateRef currState,
+                                         ProgramStateRef prevState) {
+  ReallocMap currMap = currState->get<ReallocPairs>();
+  ReallocMap prevMap = prevState->get<ReallocPairs>();
+
+  for (ReallocMap::iterator I = prevMap.begin(), E = prevMap.end();
+       I != E; ++I) {
+    SymbolRef sym = I.getKey();
+    if (!currMap.lookup(sym))
+      return sym;
+  }
+
+  return NULL;
+}
+
 PathDiagnosticPiece *
 MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
                                            const ExplodedNode *PrevN,
                                            BugReporterContext &BRC,
                                            BugReport &BR) {
-  const RefState *RS = N->getState()->get<RegionState>(Sym);
-  const RefState *RSPrev = PrevN->getState()->get<RegionState>(Sym);
+  ProgramStateRef state = N->getState();
+  ProgramStateRef statePrev = PrevN->getState();
+
+  const RefState *RS = state->get<RegionState>(Sym);
+  const RefState *RSPrev = statePrev->get<RegionState>(Sym);
   if (!RS && !RSPrev)
     return 0;
 
   const Stmt *S = 0;
   const char *Msg = 0;
+  StackHintGeneratorForSymbol *StackHint = 0;
 
   // Retrieve the associated statement.
   ProgramPoint ProgLoc = N->getLocation();
@@ -1263,44 +1432,67 @@ MallocChecker::MallocBugVisitor::VisitNode(const ExplodedNode *N,
 
   // Find out if this is an interesting point and what is the kind.
   if (Mode == Normal) {
-    if (isAllocated(RS, RSPrev, S))
+    if (isAllocated(RS, RSPrev, S)) {
       Msg = "Memory is allocated";
-    else if (isReleased(RS, RSPrev, S))
+      StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                  "Returned allocated memory");
+    } else if (isReleased(RS, RSPrev, S)) {
       Msg = "Memory is released";
-    else if (isReallocFailedCheck(RS, RSPrev, S)) {
+      StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                  "Returned released memory");
+    } else if (isReallocFailedCheck(RS, RSPrev, S)) {
       Mode = ReallocationFailed;
       Msg = "Reallocation failed";
+      StackHint = new StackHintGeneratorForReallocationFailed(Sym,
+                                                       "Reallocation failed");
+
+      if (SymbolRef sym = findFailedReallocSymbol(state, statePrev)) {
+        // Is it possible to fail two reallocs WITHOUT testing in between?
+        assert((!FailedReallocSymbol || FailedReallocSymbol == sym) &&
+          "We only support one failed realloc at a time.");
+        BR.markInteresting(sym);
+        FailedReallocSymbol = sym;
+      }
     }
 
   // We are in a special mode if a reallocation failed later in the path.
   } else if (Mode == ReallocationFailed) {
-    // Generate a special diagnostic for the first realloc we find.
-    if (!isAllocated(RS, RSPrev, S) && !isReleased(RS, RSPrev, S))
-      return 0;
+    assert(FailedReallocSymbol && "No symbol to look for.");
 
-    // Check that the name of the function is realloc.
-    const CallExpr *CE = dyn_cast<CallExpr>(S);
-    if (!CE)
-      return 0;
-    const FunctionDecl *funDecl = CE->getDirectCallee();
-    if (!funDecl)
-      return 0;
-    StringRef FunName = funDecl->getName();
-    if (!(FunName.equals("realloc") || FunName.equals("reallocf")))
-      return 0;
-    Msg = "Attempt to reallocate memory";
-    Mode = Normal;
+    // Is this is the first appearance of the reallocated symbol?
+    if (!statePrev->get<RegionState>(FailedReallocSymbol)) {
+      // If we ever hit this assert, that means BugReporter has decided to skip
+      // node pairs or visit them out of order.
+      assert(state->get<RegionState>(FailedReallocSymbol) &&
+        "Missed the reallocation point");
+
+      // We're at the reallocation point.
+      Msg = "Attempt to reallocate memory";
+      StackHint = new StackHintGeneratorForSymbol(Sym,
+                                                 "Returned reallocated memory");
+      FailedReallocSymbol = NULL;
+      Mode = Normal;
+    }
   }
 
   if (!Msg)
     return 0;
+  assert(StackHint);
 
   // Generate the extra diagnostic.
   PathDiagnosticLocation Pos(S, BRC.getSourceManager(),
                              N->getLocationContext());
-  return new PathDiagnosticEventPiece(Pos, Msg);
+  return new PathDiagnosticEventPiece(Pos, Msg, true, StackHint);
 }
 
+void MallocChecker::printState(raw_ostream &Out, ProgramStateRef State,
+                               const char *NL, const char *Sep) const {
+
+  RegionStateTy RS = State->get<RegionState>();
+
+  if (!RS.isEmpty())
+    Out << "Has Malloc data" << NL;
+}
 
 #define REGISTER_CHECKER(name) \
 void ento::register##name(CheckerManager &mgr) {\

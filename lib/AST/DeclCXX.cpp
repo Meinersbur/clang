@@ -43,6 +43,7 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
     Abstract(false), IsStandardLayout(true), HasNoNonEmptyBases(true),
     HasPrivateFields(false), HasProtectedFields(false), HasPublicFields(false),
     HasMutableFields(false), HasOnlyCMembers(true),
+    HasInClassInitializer(false),
     HasTrivialDefaultConstructor(true),
     HasConstexprNonCopyMoveConstructor(false),
     DefaultedDefaultConstructorIsConstexpr(true),
@@ -400,7 +401,7 @@ CXXConstructorDecl *CXXRecordDecl::getCopyConstructor(unsigned TypeQuals) const{
 CXXConstructorDecl *CXXRecordDecl::getMoveConstructor() const {
   for (ctor_iterator I = ctor_begin(), E = ctor_end(); I != E; ++I)
     if (I->isMoveConstructor())
-      return *I;
+      return &*I;
 
   return 0;
 }
@@ -458,7 +459,7 @@ CXXMethodDecl *CXXRecordDecl::getCopyAssignmentOperator(bool ArgIsConst) const {
 CXXMethodDecl *CXXRecordDecl::getMoveAssignmentOperator() const {
   for (method_iterator I = method_begin(), E = method_end(); I != E; ++I)
     if (I->isMoveAssignmentOperator())
-      return *I;
+      return &*I;
 
   return 0;
 }
@@ -636,7 +637,7 @@ NotASpecialMember:;
     // C++0x [dcl.init.aggr]p1:
     //   An aggregate is an array or a class with no user-provided
     //   constructors [...].
-    if (!getASTContext().getLangOptions().CPlusPlus0x || UserProvided)
+    if (!getASTContext().getLangOpts().CPlusPlus0x || UserProvided)
       data().Aggregate = false;
 
     // C++ [class]p4:
@@ -798,7 +799,7 @@ NotASpecialMember:;
     ASTContext &Context = getASTContext();
     QualType T = Context.getBaseElementType(Field->getType());
     if (T->isObjCRetainableType() || T.isObjCGCStrong()) {
-      if (!Context.getLangOptions().ObjCAutoRefCount ||
+      if (!Context.getLangOpts().ObjCAutoRefCount ||
           T.getObjCLifetime() != Qualifiers::OCL_ExplicitNone)
         setHasObjectMember(true);
     } else if (!T.isPODType(Context))
@@ -818,17 +819,19 @@ NotASpecialMember:;
       data().HasNonLiteralTypeFieldsOrBases = true;
 
     if (Field->hasInClassInitializer()) {
-      // C++0x [class]p5:
+      data().HasInClassInitializer = true;
+
+      // C++11 [class]p5:
       //   A default constructor is trivial if [...] no non-static data member
       //   of its class has a brace-or-equal-initializer.
       data().HasTrivialDefaultConstructor = false;
 
-      // C++0x [dcl.init.aggr]p1:
+      // C++11 [dcl.init.aggr]p1:
       //   An aggregate is a [...] class with [...] no
       //   brace-or-equal-initializers for non-static data members.
       data().Aggregate = false;
 
-      // C++0x [class]p10:
+      // C++11 [class]p10:
       //   A POD struct is [...] a trivial class.
       data().PlainOldData = false;
     }
@@ -920,7 +923,7 @@ NotASpecialMember:;
         //    -- every constructor involved in initializing non-static data
         //       members [...] shall be a constexpr constructor
         if (!Field->hasInClassInitializer() &&
-            !FieldRec->hasConstexprDefaultConstructor())
+            !FieldRec->hasConstexprDefaultConstructor() && !isUnion())
           // The standard requires any in-class initializer to be a constant
           // expression. We consider this to be a defect.
           data().DefaultedDefaultConstructorIsConstexpr = false;
@@ -944,7 +947,7 @@ NotASpecialMember:;
         data().DefaultedDefaultConstructorIsConstexpr = false;
         data().DefaultedCopyConstructorIsConstexpr = false;
         data().DefaultedMoveConstructorIsConstexpr = false;
-      } else if (!Field->hasInClassInitializer())
+      } else if (!Field->hasInClassInitializer() && !isUnion())
         data().DefaultedDefaultConstructorIsConstexpr = false;
     }
 
@@ -996,11 +999,11 @@ void CXXRecordDecl::getCaptureFields(
   for (LambdaExpr::Capture *C = Lambda.Captures, *CEnd = C + Lambda.NumCaptures;
        C != CEnd; ++C, ++Field) {
     if (C->capturesThis()) {
-      ThisCapture = *Field;
+      ThisCapture = &*Field;
       continue;
     }
 
-    Captures[C->getCapturedVar()] = *Field;
+    Captures[C->getCapturedVar()] = &*Field;
   }
 }
 
@@ -1050,8 +1053,10 @@ static void CollectVisibleConversions(ASTContext &Context,
     HiddenTypes = &HiddenTypesBuffer;
 
     for (UnresolvedSetIterator I = Cs.begin(), E = Cs.end(); I != E; ++I) {
-      bool Hidden =
-        !HiddenTypesBuffer.insert(GetConversionType(Context, I.getDecl()));
+      CanQualType ConvType(GetConversionType(Context, I.getDecl()));
+      bool Hidden = ParentHiddenTypes.count(ConvType);
+      if (!Hidden)
+        HiddenTypesBuffer.insert(ConvType);
 
       // If this conversion is hidden and we're in a virtual base,
       // remember that it's hidden along some inheritance path.
@@ -1243,7 +1248,7 @@ void CXXRecordDecl::completeDefinition() {
 void CXXRecordDecl::completeDefinition(CXXFinalOverriderMap *FinalOverriders) {
   RecordDecl::completeDefinition();
   
-  if (hasObjectMember() && getASTContext().getLangOptions().ObjCAutoRefCount) {
+  if (hasObjectMember() && getASTContext().getLangOpts().ObjCAutoRefCount) {
     // Objective-C Automatic Reference Counting:
     //   If a class has a non-static data member of Objective-C pointer
     //   type (or array thereof), it is a non-POD type and its
@@ -1421,19 +1426,23 @@ void CXXMethodDecl::addOverriddenMethod(const CXXMethodDecl *MD) {
   assert(MD->isCanonicalDecl() && "Method is not canonical!");
   assert(!MD->getParent()->isDependentContext() &&
          "Can't add an overridden method to a class template!");
+  assert(MD->isVirtual() && "Method is not virtual!");
 
   getASTContext().addOverriddenMethod(this, MD);
 }
 
 CXXMethodDecl::method_iterator CXXMethodDecl::begin_overridden_methods() const {
+  if (isa<CXXConstructorDecl>(this)) return 0;
   return getASTContext().overridden_methods_begin(this);
 }
 
 CXXMethodDecl::method_iterator CXXMethodDecl::end_overridden_methods() const {
+  if (isa<CXXConstructorDecl>(this)) return 0;
   return getASTContext().overridden_methods_end(this);
 }
 
 unsigned CXXMethodDecl::size_overridden_methods() const {
+  if (isa<CXXConstructorDecl>(this)) return 0;
   return getASTContext().overridden_methods_size(this);
 }
 
@@ -1712,8 +1721,8 @@ bool CXXConstructorDecl::isSpecializationCopyingObject() const {
 
 const CXXConstructorDecl *CXXConstructorDecl::getInheritedConstructor() const {
   // Hack: we store the inherited constructor in the overridden method table
-  method_iterator It = begin_overridden_methods();
-  if (It == end_overridden_methods())
+  method_iterator It = getASTContext().overridden_methods_begin(this);
+  if (It == getASTContext().overridden_methods_end(this))
     return 0;
 
   return cast<CXXConstructorDecl>(*It);
@@ -1722,8 +1731,9 @@ const CXXConstructorDecl *CXXConstructorDecl::getInheritedConstructor() const {
 void
 CXXConstructorDecl::setInheritedConstructor(const CXXConstructorDecl *BaseCtor){
   // Hack: we store the inherited constructor in the overridden method table
-  assert(size_overridden_methods() == 0 && "Base ctor already set.");
-  addOverriddenMethod(BaseCtor);
+  assert(getASTContext().overridden_methods_size(this) == 0 &&
+         "Base ctor already set.");
+  getASTContext().addOverriddenMethod(this, BaseCtor);
 }
 
 void CXXDestructorDecl::anchor() { }

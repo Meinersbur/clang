@@ -1,8 +1,8 @@
-from clang.cindex import Cursor
 from clang.cindex import CursorKind
-from clang.cindex import Index
 from clang.cindex import TypeKind
 from nose.tools import raises
+from .util import get_cursor
+from .util import get_tu
 
 kInput = """\
 
@@ -20,35 +20,6 @@ struct teststruct {
 };
 
 """
-
-def get_tu(source=kInput, lang='c'):
-    name = 't.c'
-    if lang == 'cpp':
-        name = 't.cpp'
-
-    index = Index.create()
-    tu = index.parse(name, unsaved_files=[(name, source)])
-    assert tu is not None
-    return tu
-
-def get_cursor(source, spelling):
-    children = []
-    if isinstance(source, Cursor):
-        children = source.get_children()
-    else:
-        # Assume TU
-        children = source.cursor.get_children()
-
-    for cursor in children:
-        if cursor.spelling == spelling:
-            return cursor
-
-        # Recurse into children.
-        result = get_cursor(cursor, spelling)
-        if result is not None:
-            return result
-
-    return None
 
 def test_a_struct():
     tu = get_tu(kInput)
@@ -136,6 +107,14 @@ def test_equal():
 
     assert a.type != None
     assert a.type != 'foo'
+
+def test_typekind_spelling():
+    """Ensure TypeKind.spelling works."""
+    tu = get_tu('int a;')
+    a = get_cursor(tu, 'a')
+
+    assert a is not None
+    assert a.type.kind.spelling == 'Int'
 
 def test_function_argument_types():
     """Ensure that Type.argument_types() works as expected."""
@@ -284,7 +263,7 @@ def test_is_volatile_qualified():
 def test_is_restrict_qualified():
     """Ensure Type.is_restrict_qualified works."""
 
-    tu = get_tu('struct s { void * restrict i; void * j };')
+    tu = get_tu('struct s { void * restrict i; void * j; };')
 
     i = get_cursor(tu, 'i')
     j = get_cursor(tu, 'j')

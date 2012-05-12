@@ -9,14 +9,14 @@
 
 #include "IndexingContext.h"
 
-#include "clang/AST/RecursiveASTVisitor.h"
+#include "RecursiveASTVisitor.h"
 
 using namespace clang;
 using namespace cxindex;
 
 namespace {
 
-class BodyIndexer : public RecursiveASTVisitor<BodyIndexer> {
+class BodyIndexer : public cxindex::RecursiveASTVisitor<BodyIndexer> {
   IndexingContext &IndexCtx;
   const NamedDecl *Parent;
   const DeclContext *ParentDC;
@@ -81,17 +81,33 @@ public:
   }
 
   bool VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
-    if (E->isImplicitProperty()) {
-      if (ObjCMethodDecl *MD = E->getImplicitPropertyGetter())
-        IndexCtx.handleReference(MD, E->getLocation(), Parent, ParentDC, E,
-                                 CXIdxEntityRef_Implicit);
-      if (ObjCMethodDecl *MD = E->getImplicitPropertySetter())
-        IndexCtx.handleReference(MD, E->getLocation(), Parent, ParentDC, E,
-                                 CXIdxEntityRef_Implicit);
-    } else {
+    if (E->isExplicitProperty())
       IndexCtx.handleReference(E->getExplicitProperty(), E->getLocation(),
                                Parent, ParentDC, E);
-    }
+
+    // No need to do a handleReference for the objc method, because there will
+    // be a message expr as part of PseudoObjectExpr.
+    return true;
+  }
+
+  bool VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+    if (ObjCMethodDecl *MD = E->getBoxingMethod())
+      IndexCtx.handleReference(MD, E->getLocStart(),
+                               Parent, ParentDC, E, CXIdxEntityRef_Implicit);
+    return true;
+  }
+  
+  bool VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
+    if (ObjCMethodDecl *MD = E->getDictWithObjectsMethod())
+      IndexCtx.handleReference(MD, E->getLocStart(),
+                               Parent, ParentDC, E, CXIdxEntityRef_Implicit);
+    return true;
+  }
+
+  bool VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+    if (ObjCMethodDecl *MD = E->getArrayWithObjectsMethod())
+      IndexCtx.handleReference(MD, E->getLocStart(),
+                               Parent, ParentDC, E, CXIdxEntityRef_Implicit);
     return true;
   }
 

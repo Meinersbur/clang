@@ -32,8 +32,10 @@ namespace {
     const LangOptions &LangOpts;
     OwningPtr<PathDiagnosticConsumer> SubPD;
     bool flushed;
+    const bool SupportsCrossFileDiagnostics;
   public:
     PlistDiagnostics(const std::string& prefix, const LangOptions &LangOpts,
+                     bool supportsMultipleFiles,
                      PathDiagnosticConsumer *subPD);
 
     virtual ~PlistDiagnostics() {}
@@ -49,18 +51,29 @@ namespace {
     bool supportsLogicalOpControlFlow() const { return true; }
     bool supportsAllBlockEdges() const { return true; }
     virtual bool useVerboseDescription() const { return false; }
+    virtual bool supportsCrossFileDiagnostics() const {
+      return SupportsCrossFileDiagnostics;
+    }
   };
 } // end anonymous namespace
 
 PlistDiagnostics::PlistDiagnostics(const std::string& output,
                                    const LangOptions &LO,
+                                   bool supportsMultipleFiles,
                                    PathDiagnosticConsumer *subPD)
-  : OutputFile(output), LangOpts(LO), SubPD(subPD), flushed(false) {}
+  : OutputFile(output), LangOpts(LO), SubPD(subPD), flushed(false),
+    SupportsCrossFileDiagnostics(supportsMultipleFiles) {}
 
 PathDiagnosticConsumer*
 ento::createPlistDiagnosticConsumer(const std::string& s, const Preprocessor &PP,
                                   PathDiagnosticConsumer *subPD) {
-  return new PlistDiagnostics(s, PP.getLangOptions(), subPD);
+  return new PlistDiagnostics(s, PP.getLangOpts(), false, subPD);
+}
+
+PathDiagnosticConsumer*
+ento::createPlistMultiFileDiagnosticConsumer(const std::string &s,
+                                              const Preprocessor &PP) {
+  return new PlistDiagnostics(s, PP.getLangOpts(), true, 0);
 }
 
 PathDiagnosticConsumer::PathGenerationScheme
@@ -132,10 +145,9 @@ static void EmitRange(raw_ostream &o, const SourceManager &SM,
   Indent(o, indent) << "</array>\n";
 }
 
-static raw_ostream &EmitString(raw_ostream &o,
-                                     const std::string& s) {
+static raw_ostream &EmitString(raw_ostream &o, StringRef s) {
   o << "<string>";
-  for (std::string::const_iterator I=s.begin(), E=s.end(); I!=E; ++I) {
+  for (StringRef::const_iterator I = s.begin(), E = s.end(); I != E; ++I) {
     char c = *I;
     switch (c) {
     default:   o << c; break;
@@ -197,7 +209,8 @@ static void ReportEvent(raw_ostream &o, const PathDiagnosticPiece& P,
                         const FIDMap& FM,
                         const SourceManager &SM,
                         const LangOptions &LangOpts,
-                        unsigned indent) {
+                        unsigned indent,
+                        unsigned depth) {
 
   Indent(o, indent) << "<dict>\n";
   ++indent;
@@ -223,6 +236,10 @@ static void ReportEvent(raw_ostream &o, const PathDiagnosticPiece& P,
     --indent;
     Indent(o, indent) << "</array>\n";
   }
+  
+  // Output the call depth.
+  Indent(o, indent) << "<key>depth</key>"
+                    << "<integer>" << depth << "</integer>\n";
 
   // Output the text.
   assert(!P.getString().empty());
@@ -234,7 +251,7 @@ static void ReportEvent(raw_ostream &o, const PathDiagnosticPiece& P,
   // FIXME: Really use a short string.
   Indent(o, indent) << "<key>message</key>\n";
   EmitString(o, P.getString()) << '\n';
-
+  
   // Finish up.
   --indent;
   Indent(o, indent); o << "</dict>\n";
@@ -245,44 +262,58 @@ static void ReportPiece(raw_ostream &o,
                         const FIDMap& FM, const SourceManager &SM,
                         const LangOptions &LangOpts,
                         unsigned indent,
+                        unsigned depth,
                         bool includeControlFlow);
 
 static void ReportCall(raw_ostream &o,
                        const PathDiagnosticCallPiece &P,
                        const FIDMap& FM, const SourceManager &SM,
                        const LangOptions &LangOpts,
-                       unsigned indent) {
+                       unsigned indent,
+                       unsigned depth) {
   
   IntrusiveRefCntPtr<PathDiagnosticEventPiece> callEnter =
     P.getCallEnterEvent();  
-  if (callEnter)
-    ReportPiece(o, *callEnter, FM, SM, LangOpts, indent, true);
 
+  if (callEnter)
+    ReportPiece(o, *callEnter, FM, SM, LangOpts, indent, depth, true);
+
+  IntrusiveRefCntPtr<PathDiagnosticEventPiece> callEnterWithinCaller =
+    P.getCallEnterWithinCallerEvent();
+  
+  ++depth;
+  
+  if (callEnterWithinCaller)
+    ReportPiece(o, *callEnterWithinCaller, FM, SM, LangOpts,
+                indent, depth, true);
+  
   for (PathPieces::const_iterator I = P.path.begin(), E = P.path.end();I!=E;++I)
-    ReportPiece(o, **I, FM, SM, LangOpts, indent, true);
+    ReportPiece(o, **I, FM, SM, LangOpts, indent, depth, true);
   
   IntrusiveRefCntPtr<PathDiagnosticEventPiece> callExit =
     P.getCallExitEvent();
-  if (callExit)  
-    ReportPiece(o, *callExit, FM, SM, LangOpts, indent, true);
+
+  if (callExit)
+    ReportPiece(o, *callExit, FM, SM, LangOpts, indent, depth, true);
 }
 
 static void ReportMacro(raw_ostream &o,
                         const PathDiagnosticMacroPiece& P,
                         const FIDMap& FM, const SourceManager &SM,
                         const LangOptions &LangOpts,
-                        unsigned indent) {
+                        unsigned indent,
+                        unsigned depth) {
 
   for (PathPieces::const_iterator I = P.subPieces.begin(), E=P.subPieces.end();
        I!=E; ++I) {
-    ReportPiece(o, **I, FM, SM, LangOpts, indent, false);
+    ReportPiece(o, **I, FM, SM, LangOpts, indent, depth, false);
   }
 }
 
 static void ReportDiag(raw_ostream &o, const PathDiagnosticPiece& P,
                        const FIDMap& FM, const SourceManager &SM,
                        const LangOptions &LangOpts) {
-  ReportPiece(o, P, FM, SM, LangOpts, 4, true);
+  ReportPiece(o, P, FM, SM, LangOpts, 4, 0, true);
 }
 
 static void ReportPiece(raw_ostream &o,
@@ -290,6 +321,7 @@ static void ReportPiece(raw_ostream &o,
                         const FIDMap& FM, const SourceManager &SM,
                         const LangOptions &LangOpts,
                         unsigned indent,
+                        unsigned depth,
                         bool includeControlFlow) {
   switch (P.getKind()) {
     case PathDiagnosticPiece::ControlFlow:
@@ -299,15 +331,15 @@ static void ReportPiece(raw_ostream &o,
       break;
     case PathDiagnosticPiece::Call:
       ReportCall(o, cast<PathDiagnosticCallPiece>(P), FM, SM, LangOpts,
-                 indent);
+                 indent, depth);
       break;
     case PathDiagnosticPiece::Event:
       ReportEvent(o, cast<PathDiagnosticSpotPiece>(P), FM, SM, LangOpts,
-                  indent);
+                  indent, depth);
       break;
     case PathDiagnosticPiece::Macro:
       ReportMacro(o, cast<PathDiagnosticMacroPiece>(P), FM, SM, LangOpts,
-                  indent);
+                  indent, depth);
       break;
   }
 }
@@ -414,6 +446,38 @@ void PlistDiagnostics::FlushDiagnosticsImpl(
     EmitString(o, D->getCategory()) << '\n';
     o << "   <key>type</key>";
     EmitString(o, D->getBugType()) << '\n';
+    
+    // Output information about the semantic context where
+    // the issue occurred.
+    if (const Decl *DeclWithIssue = D->getDeclWithIssue()) {
+      // FIXME: handle blocks, which have no name.
+      if (const NamedDecl *ND = dyn_cast<NamedDecl>(DeclWithIssue)) {
+        StringRef declKind;
+        switch (ND->getKind()) {
+          case Decl::CXXRecord:
+            declKind = "C++ class";
+            break;
+          case Decl::CXXMethod:
+            declKind = "C++ method";
+            break;
+          case Decl::ObjCMethod:
+            declKind = "Objective-C method";
+            break;
+          case Decl::Function:
+            declKind = "function";
+            break;
+          default:
+            break;
+        }
+        if (!declKind.empty()) {
+          const std::string &declName = ND->getDeclName().getAsString();
+          o << "  <key>issue_context_kind</key>";
+          EmitString(o, declKind) << '\n';
+          o << "  <key>issue_context</key>";
+          EmitString(o, declName) << '\n';
+        }
+      }
+    }
 
     // Output the location of the bug.
     o << "  <key>location</key>\n";

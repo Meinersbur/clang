@@ -252,7 +252,8 @@ ProgramStateRef CStringChecker::checkNonNull(CheckerContext &C,
     BugReport *report = new BugReport(*BT, os.str(), N);
 
     report->addRange(S->getSourceRange());
-    report->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, S));
+    report->addVisitor(bugreporter::getTrackNullOrUndefValueVisitor(N, S,
+                                                                    report));
     C.EmitReport(report);
     return NULL;
   }
@@ -900,9 +901,10 @@ void CStringChecker::evalCopyCommon(CheckerContext &C,
 
   // If the size is zero, there won't be any actual memory access, so
   // just bind the return value to the destination buffer and return.
-  if (stateZeroSize) {
+  if (stateZeroSize && !stateNonZeroSize) {
     stateZeroSize = stateZeroSize->BindExpr(CE, LCtx, destVal);
     C.addTransition(stateZeroSize);
+    return;
   }
 
   // If the size can be nonzero, we have to check the other arguments.
@@ -981,6 +983,9 @@ void CStringChecker::evalCopyCommon(CheckerContext &C,
 
 
 void CStringChecker::evalMemcpy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // void *memcpy(void *restrict dst, const void *restrict src, size_t n);
   // The return value is the address of the destination buffer.
   const Expr *Dest = CE->getArg(0);
@@ -990,6 +995,9 @@ void CStringChecker::evalMemcpy(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalMempcpy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // void *mempcpy(void *restrict dst, const void *restrict src, size_t n);
   // The return value is a pointer to the byte following the last written byte.
   const Expr *Dest = CE->getArg(0);
@@ -999,6 +1007,9 @@ void CStringChecker::evalMempcpy(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalMemmove(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // void *memmove(void *dst, const void *src, size_t n);
   // The return value is the address of the destination buffer.
   const Expr *Dest = CE->getArg(0);
@@ -1008,12 +1019,18 @@ void CStringChecker::evalMemmove(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalBcopy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // void bcopy(const void *src, void *dst, size_t n);
   evalCopyCommon(C, CE, C.getState(), 
                  CE->getArg(2), CE->getArg(1), CE->getArg(0));
 }
 
 void CStringChecker::evalMemcmp(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // int memcmp(const void *s1, const void *s2, size_t n);
   CurrentFunctionDescription = "memory comparison function";
 
@@ -1088,12 +1105,18 @@ void CStringChecker::evalMemcmp(CheckerContext &C, const CallExpr *CE) const {
 
 void CStringChecker::evalstrLength(CheckerContext &C,
                                    const CallExpr *CE) const {
+  if (CE->getNumArgs() < 1)
+    return;
+
   // size_t strlen(const char *s);
   evalstrLengthCommon(C, CE, /* IsStrnlen = */ false);
 }
 
 void CStringChecker::evalstrnLength(CheckerContext &C,
                                     const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   // size_t strnlen(const char *s, size_t maxlen);
   evalstrLengthCommon(C, CE, /* IsStrnlen = */ true);
 }
@@ -1224,6 +1247,9 @@ void CStringChecker::evalstrLengthCommon(CheckerContext &C, const CallExpr *CE,
 }
 
 void CStringChecker::evalStrcpy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   // char *strcpy(char *restrict dst, const char *restrict src);
   evalStrcpyCommon(C, CE, 
                    /* returnEnd = */ false, 
@@ -1232,6 +1258,9 @@ void CStringChecker::evalStrcpy(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalStrncpy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   // char *strncpy(char *restrict dst, const char *restrict src, size_t n);
   evalStrcpyCommon(C, CE, 
                    /* returnEnd = */ false, 
@@ -1240,6 +1269,9 @@ void CStringChecker::evalStrncpy(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalStpcpy(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   // char *stpcpy(char *restrict dst, const char *restrict src);
   evalStrcpyCommon(C, CE, 
                    /* returnEnd = */ true, 
@@ -1248,6 +1280,9 @@ void CStringChecker::evalStpcpy(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalStrcat(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   //char *strcat(char *restrict s1, const char *restrict s2);
   evalStrcpyCommon(C, CE, 
                    /* returnEnd = */ false, 
@@ -1256,6 +1291,9 @@ void CStringChecker::evalStrcat(CheckerContext &C, const CallExpr *CE) const {
 }
 
 void CStringChecker::evalStrncat(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   //char *strncat(char *restrict s1, const char *restrict s2, size_t n);
   evalStrcpyCommon(C, CE, 
                    /* returnEnd = */ false, 
@@ -1567,23 +1605,35 @@ void CStringChecker::evalStrcpyCommon(CheckerContext &C, const CallExpr *CE,
 }
 
 void CStringChecker::evalStrcmp(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   //int strcmp(const char *s1, const char *s2);
   evalStrcmpCommon(C, CE, /* isBounded = */ false, /* ignoreCase = */ false);
 }
 
 void CStringChecker::evalStrncmp(CheckerContext &C, const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   //int strncmp(const char *s1, const char *s2, size_t n);
   evalStrcmpCommon(C, CE, /* isBounded = */ true, /* ignoreCase = */ false);
 }
 
 void CStringChecker::evalStrcasecmp(CheckerContext &C, 
                                     const CallExpr *CE) const {
+  if (CE->getNumArgs() < 2)
+    return;
+
   //int strcasecmp(const char *s1, const char *s2);
   evalStrcmpCommon(C, CE, /* isBounded = */ false, /* ignoreCase = */ true);
 }
 
 void CStringChecker::evalStrncasecmp(CheckerContext &C, 
                                      const CallExpr *CE) const {
+  if (CE->getNumArgs() < 3)
+    return;
+
   //int strncasecmp(const char *s1, const char *s2, size_t n);
   evalStrcmpCommon(C, CE, /* isBounded = */ true, /* ignoreCase = */ true);
 }

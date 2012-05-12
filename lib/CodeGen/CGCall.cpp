@@ -254,7 +254,7 @@ CodeGenTypes::arrangeObjCMessageSendSignature(const ObjCMethodDecl *MD,
   FunctionType::ExtInfo einfo;
   einfo = einfo.withCallingConv(getCallingConventionForDecl(MD));
 
-  if (getContext().getLangOptions().ObjCAutoRefCount &&
+  if (getContext().getLangOpts().ObjCAutoRefCount &&
       MD->hasAttr<NSReturnsRetainedAttr>())
     einfo = einfo.withProducesResult(true);
 
@@ -419,16 +419,37 @@ void CodeGenTypes::GetExpandedTypes(QualType type,
     uint64_t NumElts = AT->getSize().getZExtValue();
     for (uint64_t Elt = 0; Elt < NumElts; ++Elt)
       GetExpandedTypes(AT->getElementType(), expandedTypes);
-  } else if (const RecordType *RT = type->getAsStructureType()) {
+  } else if (const RecordType *RT = type->getAs<RecordType>()) {
     const RecordDecl *RD = RT->getDecl();
     assert(!RD->hasFlexibleArrayMember() &&
            "Cannot expand structure with flexible array.");
-    for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
-         i != e; ++i) {
-      const FieldDecl *FD = *i;
-      assert(!FD->isBitField() &&
-             "Cannot expand structure with bit-field members.");
-      GetExpandedTypes(FD->getType(), expandedTypes);
+    if (RD->isUnion()) {
+      // Unions can be here only in degenerative cases - all the fields are same
+      // after flattening. Thus we have to use the "largest" field.
+      const FieldDecl *LargestFD = 0;
+      CharUnits UnionSize = CharUnits::Zero();
+
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        const FieldDecl *FD = &*i;
+        assert(!FD->isBitField() &&
+               "Cannot expand structure with bit-field members.");
+        CharUnits FieldSize = getContext().getTypeSizeInChars(FD->getType());
+        if (UnionSize < FieldSize) {
+          UnionSize = FieldSize;
+          LargestFD = FD;
+        }
+      }
+      if (LargestFD)
+        GetExpandedTypes(LargestFD->getType(), expandedTypes);
+    } else {
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        const FieldDecl &FD = *i;
+        assert(!FD.isBitField() &&
+               "Cannot expand structure with bit-field members.");
+        GetExpandedTypes(FD.getType(), expandedTypes);
+      }
     }
   } else if (const ComplexType *CT = type->getAs<ComplexType>()) {
     llvm::Type *EltTy = ConvertType(CT->getElementType());
@@ -443,32 +464,55 @@ CodeGenFunction::ExpandTypeFromArgs(QualType Ty, LValue LV,
                                     llvm::Function::arg_iterator AI) {
   assert(LV.isSimple() &&
          "Unexpected non-simple lvalue during struct expansion.");
-  llvm::Value *Addr = LV.getAddress();
 
   if (const ConstantArrayType *AT = getContext().getAsConstantArrayType(Ty)) {
     unsigned NumElts = AT->getSize().getZExtValue();
     QualType EltTy = AT->getElementType();
     for (unsigned Elt = 0; Elt < NumElts; ++Elt) {
-      llvm::Value *EltAddr = Builder.CreateConstGEP2_32(Addr, 0, Elt);
+      llvm::Value *EltAddr = Builder.CreateConstGEP2_32(LV.getAddress(), 0, Elt);
       LValue LV = MakeAddrLValue(EltAddr, EltTy);
       AI = ExpandTypeFromArgs(EltTy, LV, AI);
     }
-  } else if (const RecordType *RT = Ty->getAsStructureType()) {
+  } else if (const RecordType *RT = Ty->getAs<RecordType>()) {
     RecordDecl *RD = RT->getDecl();
-    for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
-         i != e; ++i) {
-      FieldDecl *FD = *i;
-      QualType FT = FD->getType();
+    if (RD->isUnion()) {
+      // Unions can be here only in degenerative cases - all the fields are same
+      // after flattening. Thus we have to use the "largest" field.
+      const FieldDecl *LargestFD = 0;
+      CharUnits UnionSize = CharUnits::Zero();
 
-      // FIXME: What are the right qualifiers here?
-      LValue LV = EmitLValueForField(Addr, FD, 0);
-      AI = ExpandTypeFromArgs(FT, LV, AI);
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        const FieldDecl *FD = &*i;
+        assert(!FD->isBitField() &&
+               "Cannot expand structure with bit-field members.");
+        CharUnits FieldSize = getContext().getTypeSizeInChars(FD->getType());
+        if (UnionSize < FieldSize) {
+          UnionSize = FieldSize;
+          LargestFD = FD;
+        }
+      }
+      if (LargestFD) {
+        // FIXME: What are the right qualifiers here?
+        LValue SubLV = EmitLValueForField(LV, LargestFD);
+        AI = ExpandTypeFromArgs(LargestFD->getType(), SubLV, AI);
+      }
+    } else {
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        FieldDecl *FD = &*i;
+        QualType FT = FD->getType();
+
+        // FIXME: What are the right qualifiers here?
+        LValue SubLV = EmitLValueForField(LV, FD);
+        AI = ExpandTypeFromArgs(FT, SubLV, AI);
+      }
     }
   } else if (const ComplexType *CT = Ty->getAs<ComplexType>()) {
     QualType EltTy = CT->getElementType();
-    llvm::Value *RealAddr = Builder.CreateStructGEP(Addr, 0, "real");
+    llvm::Value *RealAddr = Builder.CreateStructGEP(LV.getAddress(), 0, "real");
     EmitStoreThroughLValue(RValue::get(AI++), MakeAddrLValue(RealAddr, EltTy));
-    llvm::Value *ImagAddr = Builder.CreateStructGEP(Addr, 1, "imag");
+    llvm::Value *ImagAddr = Builder.CreateStructGEP(LV.getAddress(), 1, "imag");
     EmitStoreThroughLValue(RValue::get(AI++), MakeAddrLValue(ImagAddr, EltTy));
   } else {
     EmitStoreThroughLValue(RValue::get(AI), LV);
@@ -623,7 +667,9 @@ static void BuildAggStore(CodeGenFunction &CGF, llvm::Value *Val,
         SI->setAlignment(1);
     }
   } else {
-    CGF.Builder.CreateStore(Val, DestPtr, DestIsVolatile);
+    llvm::StoreInst *SI = CGF.Builder.CreateStore(Val, DestPtr, DestIsVolatile);
+    if (LowAlignment)
+      SI->setAlignment(1);
   }
 }
 
@@ -1467,7 +1513,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI) {
     // In ARC, end functions that return a retainable type with a call
     // to objc_autoreleaseReturnValue.
     if (AutoreleaseResult) {
-      assert(getLangOptions().ObjCAutoRefCount &&
+      assert(getLangOpts().ObjCAutoRefCount &&
              !FI.isReturnsRetained() &&
              RetTy->isObjCRetainableType());
       RV = emitAutoreleaseOfResult(*this, RV);
@@ -1662,7 +1708,7 @@ void CodeGenFunction::EmitCallArg(CallArgList &args, const Expr *E,
                                   QualType type) {
   if (const ObjCIndirectCopyRestoreExpr *CRE
         = dyn_cast<ObjCIndirectCopyRestoreExpr>(E)) {
-    assert(getContext().getLangOptions().ObjCAutoRefCount);
+    assert(getContext().getLangOpts().ObjCAutoRefCount);
     assert(getContext().hasSameType(E->getType(), type));
     return emitWritebackArg(*this, args, CRE);
   }
@@ -1717,7 +1763,7 @@ CodeGenFunction::EmitCallOrInvoke(llvm::Value *Callee,
 
   // In ObjC ARC mode with no ObjC ARC exception safety, tell the ARC
   // optimizer it can aggressively ignore unwind edges.
-  if (CGM.getLangOptions().ObjCAutoRefCount)
+  if (CGM.getLangOpts().ObjCAutoRefCount)
     AddObjCARCExceptionMetadata(Inst);
 
   return Inst;
@@ -1758,26 +1804,38 @@ void CodeGenFunction::ExpandTypeToArgs(QualType Ty, RValue RV,
         EltRV = EmitLoadOfLValue(LV);
       ExpandTypeToArgs(EltTy, EltRV, Args, IRFuncTy);
     }
-  } else if (const RecordType *RT = Ty->getAsStructureType()) {
+  } else if (const RecordType *RT = Ty->getAs<RecordType>()) {
     RecordDecl *RD = RT->getDecl();
     assert(RV.isAggregate() && "Unexpected rvalue during struct expansion");
-    llvm::Value *Addr = RV.getAggregateAddr();
-    for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
-         i != e; ++i) {
-      FieldDecl *FD = *i;
-      QualType FT = FD->getType();
-    
-      // FIXME: What are the right qualifiers here?
-      LValue LV = EmitLValueForField(Addr, FD, 0);
-      RValue FldRV;
-      if (FT->isAnyComplexType())
-        // FIXME: Volatile?
-        FldRV = RValue::getComplex(LoadComplexFromAddr(LV.getAddress(), false));
-      else if (CodeGenFunction::hasAggregateLLVMType(FT))
-        FldRV = LV.asAggregateRValue();
-      else
-        FldRV = EmitLoadOfLValue(LV);
-      ExpandTypeToArgs(FT, FldRV, Args, IRFuncTy);
+    LValue LV = MakeAddrLValue(RV.getAggregateAddr(), Ty);
+
+    if (RD->isUnion()) {
+      const FieldDecl *LargestFD = 0;
+      CharUnits UnionSize = CharUnits::Zero();
+
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        const FieldDecl *FD = &*i;
+        assert(!FD->isBitField() &&
+               "Cannot expand structure with bit-field members.");
+        CharUnits FieldSize = getContext().getTypeSizeInChars(FD->getType());
+        if (UnionSize < FieldSize) {
+          UnionSize = FieldSize;
+          LargestFD = FD;
+        }
+      }
+      if (LargestFD) {
+        RValue FldRV = EmitRValueForField(LV, LargestFD);
+        ExpandTypeToArgs(LargestFD->getType(), FldRV, Args, IRFuncTy);
+      }
+    } else {
+      for (RecordDecl::field_iterator i = RD->field_begin(), e = RD->field_end();
+           i != e; ++i) {
+        FieldDecl *FD = &*i;
+
+        RValue FldRV = EmitRValueForField(LV, FD);
+        ExpandTypeToArgs(FD->getType(), FldRV, Args, IRFuncTy);
+      }
     }
   } else if (Ty->isAnyComplexType()) {
     ComplexPairTy CV = RV.getComplexVal();
@@ -2031,7 +2089,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   // In ObjC ARC mode with no ObjC ARC exception safety, tell the ARC
   // optimizer it can aggressively ignore unwind edges.
-  if (CGM.getLangOptions().ObjCAutoRefCount)
+  if (CGM.getLangOpts().ObjCAutoRefCount)
     AddObjCARCExceptionMetadata(CS.getInstruction());
 
   // If the call doesn't return, finish the basic block and clear the

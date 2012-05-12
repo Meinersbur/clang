@@ -26,6 +26,7 @@
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/Lookup.h"
@@ -505,7 +506,7 @@ static void distributeTypeAttrsFromDeclarator(TypeProcessingState &state,
       break;
 
     case AttributeList::AT_ns_returns_retained:
-      if (!state.getSema().getLangOptions().ObjCAutoRefCount)
+      if (!state.getSema().getLangOpts().ObjCAutoRefCount)
         break;
       // fallthrough
 
@@ -548,7 +549,7 @@ static void maybeSynthesizeBlockSignature(TypeProcessingState &state,
   // faking up the function chunk is still the right thing to do.
 
   // Otherwise, we need to fake up a function declarator.
-  SourceLocation loc = declarator.getSourceRange().getBegin();
+  SourceLocation loc = declarator.getLocStart();
 
   // ...and *prepend* it to the declarator.
   declarator.AddInnermostTypeInfo(DeclaratorChunk::getFunction(
@@ -584,7 +585,7 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
   const DeclSpec &DS = declarator.getDeclSpec();
   SourceLocation DeclLoc = declarator.getIdentifierLoc();
   if (DeclLoc.isInvalid())
-    DeclLoc = DS.getSourceRange().getBegin();
+    DeclLoc = DS.getLocStart();
   
   ASTContext &Context = S.Context;
 
@@ -656,13 +657,13 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     // allowed to be completely missing a declspec.  This is handled in the
     // parser already though by it pretending to have seen an 'int' in this
     // case.
-    if (S.getLangOptions().ImplicitInt) {
+    if (S.getLangOpts().ImplicitInt) {
       // In C89 mode, we only warn if there is a completely missing declspec
       // when one is not allowed.
       if (DS.isEmpty()) {
         S.Diag(DeclLoc, diag::ext_missing_declspec)
           << DS.getSourceRange()
-        << FixItHint::CreateInsertion(DS.getSourceRange().getBegin(), "int");
+        << FixItHint::CreateInsertion(DS.getLocStart(), "int");
       }
     } else if (!DS.hasTypeSpecifier()) {
       // C99 and C++ require a type specifier.  For example, C99 6.7.2p2 says:
@@ -670,8 +671,8 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
       // specifiers in each declaration, and in the specifier-qualifier list in
       // each struct declaration and type name."
       // FIXME: Does Microsoft really have the implicit int extension in C++?
-      if (S.getLangOptions().CPlusPlus &&
-          !S.getLangOptions().MicrosoftExt) {
+      if (S.getLangOpts().CPlusPlus &&
+          !S.getLangOpts().MicrosoftExt) {
         S.Diag(DeclLoc, diag::err_missing_type_specifier)
           << DS.getSourceRange();
 
@@ -696,9 +697,9 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
         Result = Context.LongLongTy;
           
         // long long is a C99 feature.
-        if (!S.getLangOptions().C99)
+        if (!S.getLangOpts().C99)
           S.Diag(DS.getTypeSpecWidthLoc(),
-                 S.getLangOptions().CPlusPlus0x ?
+                 S.getLangOpts().CPlusPlus0x ?
                    diag::warn_cxx98_compat_longlong : diag::ext_longlong);
         break;
       }
@@ -711,15 +712,21 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
         Result = Context.UnsignedLongLongTy;
           
         // long long is a C99 feature.
-        if (!S.getLangOptions().C99)
+        if (!S.getLangOpts().C99)
           S.Diag(DS.getTypeSpecWidthLoc(),
-                 S.getLangOptions().CPlusPlus0x ?
+                 S.getLangOpts().CPlusPlus0x ?
                    diag::warn_cxx98_compat_longlong : diag::ext_longlong);
         break;
       }
     }
     break;
   }
+  case DeclSpec::TST_int128:
+    if (DS.getTypeSpecSign() == DeclSpec::TSS_unsigned)
+      Result = Context.UnsignedInt128Ty;
+    else
+      Result = Context.Int128Ty;
+    break;
   case DeclSpec::TST_half: Result = Context.HalfTy; break;
   case DeclSpec::TST_float: Result = Context.FloatTy; break;
   case DeclSpec::TST_double:
@@ -728,7 +735,7 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     else
       Result = Context.DoubleTy;
 
-    if (S.getLangOptions().OpenCL && !S.getOpenCLOptions().cl_khr_fp64) {
+    if (S.getLangOpts().OpenCL && !S.getOpenCLOptions().cl_khr_fp64) {
       S.Diag(DS.getTypeSpecTypeLoc(), diag::err_double_requires_fp64);
       declarator.setInvalidType(true);
     }
@@ -766,9 +773,6 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     ElaboratedTypeKeyword Keyword
       = ElaboratedType::getKeywordForTypeSpec(DS.getTypeSpecType());
     Result = S.getElaboratedType(Keyword, DS.getTypeSpecScope(), Result);
-
-    if (D->isInvalidDecl())
-      declarator.setInvalidType(true);
     break;
   }
   case DeclSpec::TST_typename: {
@@ -884,7 +888,7 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
 
   // Handle complex types.
   if (DS.getTypeSpecComplex() == DeclSpec::TSC_complex) {
-    if (S.getLangOptions().Freestanding)
+    if (S.getLangOpts().Freestanding)
       S.Diag(DS.getTypeSpecComplexLoc(), diag::ext_freestanding_complex);
     Result = Context.getComplexType(Result);
   } else if (DS.isTypeAltiVecVector()) {
@@ -974,6 +978,25 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
         TypeQuals && Result->isReferenceType()) {
       TypeQuals &= ~DeclSpec::TQ_const;
       TypeQuals &= ~DeclSpec::TQ_volatile;
+    }
+
+    // C90 6.5.3 constraints: "The same type qualifier shall not appear more
+    // than once in the same specifier-list or qualifier-list, either directly
+    // or via one or more typedefs."
+    if (!S.getLangOpts().C99 && !S.getLangOpts().CPlusPlus 
+        && TypeQuals & Result.getCVRQualifiers()) {
+      if (TypeQuals & DeclSpec::TQ_const && Result.isConstQualified()) {
+        S.Diag(DS.getConstSpecLoc(), diag::ext_duplicate_declspec) 
+          << "const";
+      }
+
+      if (TypeQuals & DeclSpec::TQ_volatile && Result.isVolatileQualified()) {
+        S.Diag(DS.getVolatileSpecLoc(), diag::ext_duplicate_declspec) 
+          << "volatile";
+      }
+
+      // C90 doesn't have restrict, so it doesn't force us to produce a warning
+      // in this case.
     }
 
     Qualifiers Quals = Qualifiers::fromCVRMask(TypeQuals);
@@ -1111,7 +1134,7 @@ QualType Sema::BuildPointerType(QualType T,
   assert(!T->isObjCObjectType() && "Should build ObjCObjectPointerType");
 
   // In ARC, it is forbidden to build pointers to unqualified pointers.
-  if (getLangOptions().ObjCAutoRefCount)
+  if (getLangOpts().ObjCAutoRefCount)
     T = inferARCLifetimeForPointee(*this, T, Loc, /*reference*/ false);
 
   // Build the pointer type.
@@ -1168,7 +1191,7 @@ QualType Sema::BuildReferenceType(QualType T, bool SpelledAsLValue,
   }
 
   // In ARC, it is forbidden to build references to unqualified pointers.
-  if (getLangOptions().ObjCAutoRefCount)
+  if (getLangOpts().ObjCAutoRefCount)
     T = inferARCLifetimeForPointee(*this, T, Loc, /*reference*/ true);
 
   // Handle restrict on references.
@@ -1182,9 +1205,20 @@ QualType Sema::BuildReferenceType(QualType T, bool SpelledAsLValue,
 static bool isArraySizeVLA(Sema &S, Expr *ArraySize, llvm::APSInt &SizeVal) {
   // If the size is an ICE, it certainly isn't a VLA. If we're in a GNU mode
   // (like gnu99, but not c99) accept any evaluatable value as an extension.
-  return S.VerifyIntegerConstantExpression(
-      ArraySize, &SizeVal, S.PDiag(), S.LangOpts.GNUMode,
-      S.PDiag(diag::ext_vla_folded_to_constant)).isInvalid();
+  class VLADiagnoser : public Sema::VerifyICEDiagnoser {
+  public:
+    VLADiagnoser() : Sema::VerifyICEDiagnoser(true) {}
+    
+    virtual void diagnoseNotICE(Sema &S, SourceLocation Loc, SourceRange SR) {
+    }
+    
+    virtual void diagnoseFold(Sema &S, SourceLocation Loc, SourceRange SR) {
+      S.Diag(Loc, diag::ext_vla_folded_to_constant) << SR;
+    }
+  } Diagnoser;
+  
+  return S.VerifyIntegerConstantExpression(ArraySize, &SizeVal, Diagnoser,
+                                           S.LangOpts.GNUMode).isInvalid();
 }
 
 
@@ -1210,7 +1244,7 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
                               SourceRange Brackets, DeclarationName Entity) {
 
   SourceLocation Loc = Brackets.getBegin();
-  if (getLangOptions().CPlusPlus) {
+  if (getLangOpts().CPlusPlus) {
     // C++ [dcl.array]p1:
     //   T is called the array element type; this type shall not be a reference
     //   type, the (possibly cv-qualified) type void, a function type or an 
@@ -1280,7 +1314,7 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
 
   // C99 6.7.5.2p1: The size expression shall have integer type.
   // C++11 allows contextual conversions to such types.
-  if (!getLangOptions().CPlusPlus0x &&
+  if (!getLangOpts().CPlusPlus0x &&
       ArraySize && !ArraySize->isTypeDependent() &&
       !ArraySize->getType()->isIntegralOrUnscopedEnumerationType()) {
     Diag(ArraySize->getLocStart(), diag::err_array_size_non_int)
@@ -1301,7 +1335,7 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
              isArraySizeVLA(*this, ArraySize, ConstVal)) {
     // Even in C++11, don't allow contextual conversions in the array bound
     // of a VLA.
-    if (getLangOptions().CPlusPlus0x &&
+    if (getLangOpts().CPlusPlus0x &&
         !ArraySize->getType()->isIntegralOrUnscopedEnumerationType()) {
       Diag(ArraySize->getLocStart(), diag::err_array_size_non_int)
         << ArraySize->getType() << ArraySize->getSourceRange();
@@ -1352,7 +1386,7 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
     T = Context.getConstantArrayType(T, ConstVal, ASM, Quals);
   }
   // If this is not C99, extwarn about VLA's and C99 array size modifiers.
-  if (!getLangOptions().C99) {
+  if (!getLangOpts().C99) {
     if (T->isVariableArrayType()) {
       // Prohibit the use of non-POD types in VLAs.
       QualType BaseT = Context.getBaseElementType(T);
@@ -1373,7 +1407,7 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
         Diag(Loc, diag::ext_vla);
     } else if (ASM != ArrayType::Normal || Quals != 0)
       Diag(Loc,
-           getLangOptions().CPlusPlus? diag::err_c99_array_usage_cxx
+           getLangOpts().CPlusPlus? diag::err_c99_array_usage_cxx
                                      : diag::ext_c99_array_usage) << ASM;
   }
 
@@ -1795,7 +1829,7 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
   // type (this is checked later) and we can skip this. In other languages
   // using auto, we need to check regardless.
   if (D.getDeclSpec().getTypeSpecType() == DeclSpec::TST_auto &&
-      (!SemaRef.getLangOptions().CPlusPlus0x || !D.isFunctionDeclarator())) {
+      (!SemaRef.getLangOpts().CPlusPlus0x || !D.isFunctionDeclarator())) {
     int Error = -1;
 
     switch (D.getContext()) {
@@ -1835,6 +1869,9 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     case Declarator::AliasTemplateContext:
       Error = 9; // Type alias
       break;
+    case Declarator::TrailingReturnContext:
+      Error = 10; // Function return type
+      break;
     case Declarator::TypeNameContext:
       Error = 11; // Generic
       break;
@@ -1857,7 +1894,7 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     // contains a trailing return type. That is only legal at the outermost
     // level. Check all declarator chunks (outermost first) anyway, to give
     // better diagnostics.
-    if (SemaRef.getLangOptions().CPlusPlus0x && Error != -1) {
+    if (SemaRef.getLangOpts().CPlusPlus0x && Error != -1) {
       for (unsigned i = 0, e = D.getNumTypeObjects(); i != e; ++i) {
         unsigned chunkIndex = e - i - 1;
         state.setCurrentChunkIndex(chunkIndex);
@@ -1883,11 +1920,16 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
                    diag::warn_cxx98_compat_auto_type_specifier);
   }
 
-  if (SemaRef.getLangOptions().CPlusPlus &&
+  if (SemaRef.getLangOpts().CPlusPlus &&
       OwnedTagDecl && OwnedTagDecl->isCompleteDefinition()) {
     // Check the contexts where C++ forbids the declaration of a new class
     // or enumeration in a type-specifier-seq.
     switch (D.getContext()) {
+    case Declarator::TrailingReturnContext:
+      // Class and enumeration definitions are syntactically not allowed in
+      // trailing return types.
+      llvm_unreachable("parser should not have allowed this");
+      break;
     case Declarator::FileContext:
     case Declarator::MemberContext:
     case Declarator::BlockContext:
@@ -2006,7 +2048,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   Declarator &D = state.getDeclarator();
   Sema &S = state.getSema();
   ASTContext &Context = S.Context;
-  const LangOptions &LangOpts = S.getLangOptions();
+  const LangOptions &LangOpts = S.getLangOpts();
 
   bool ImplicitlyNoexcept = false;
   if (D.getName().getKind() == UnqualifiedId::IK_OperatorFunctionId &&
@@ -2340,34 +2382,33 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           EPI.ConsumedArguments = ConsumedArguments.data();
 
         SmallVector<QualType, 4> Exceptions;
-        EPI.ExceptionSpecType = FTI.getExceptionSpecType();
+        SmallVector<ParsedType, 2> DynamicExceptions;
+        SmallVector<SourceRange, 2> DynamicExceptionRanges;
+        Expr *NoexceptExpr = 0;
+        
         if (FTI.getExceptionSpecType() == EST_Dynamic) {
-          Exceptions.reserve(FTI.NumExceptions);
-          for (unsigned ei = 0, ee = FTI.NumExceptions; ei != ee; ++ei) {
-            // FIXME: Preserve type source info.
-            QualType ET = S.GetTypeFromParser(FTI.Exceptions[ei].Ty);
-            // Check that the type is valid for an exception spec, and
-            // drop it if not.
-            if (!S.CheckSpecifiedExceptionType(ET, FTI.Exceptions[ei].Range))
-              Exceptions.push_back(ET);
+          // FIXME: It's rather inefficient to have to split into two vectors
+          // here.
+          unsigned N = FTI.NumExceptions;
+          DynamicExceptions.reserve(N);
+          DynamicExceptionRanges.reserve(N);
+          for (unsigned I = 0; I != N; ++I) {
+            DynamicExceptions.push_back(FTI.Exceptions[I].Ty);
+            DynamicExceptionRanges.push_back(FTI.Exceptions[I].Range);
           }
-          EPI.NumExceptions = Exceptions.size();
-          EPI.Exceptions = Exceptions.data();
         } else if (FTI.getExceptionSpecType() == EST_ComputedNoexcept) {
-          // If an error occurred, there's no expression here.
-          if (Expr *NoexceptExpr = FTI.NoexceptExpr) {
-            assert((NoexceptExpr->isTypeDependent() ||
-                    NoexceptExpr->getType()->getCanonicalTypeUnqualified() ==
-                        Context.BoolTy) &&
-                 "Parser should have made sure that the expression is boolean");
-            if (!NoexceptExpr->isValueDependent())
-              NoexceptExpr = S.VerifyIntegerConstantExpression(NoexceptExpr, 0,
-                S.PDiag(diag::err_noexcept_needs_constant_expression),
-                /*AllowFold*/ false).take();
-            EPI.NoexceptExpr = NoexceptExpr;
-          }
-        } else if (FTI.getExceptionSpecType() == EST_None &&
-                   ImplicitlyNoexcept && chunkIndex == 0) {
+          NoexceptExpr = FTI.NoexceptExpr;
+        }
+              
+        S.checkExceptionSpecification(FTI.getExceptionSpecType(),
+                                      DynamicExceptions,
+                                      DynamicExceptionRanges,
+                                      NoexceptExpr,
+                                      Exceptions,
+                                      EPI);
+        
+        if (FTI.getExceptionSpecType() == EST_None &&
+            ImplicitlyNoexcept && chunkIndex == 0) {
           // Only the outermost chunk is marked noexcept, of course.
           EPI.ExceptionSpecType = EST_BasicNoexcept;
         }
@@ -2492,7 +2533,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_static) &&
         !IsTypedefName &&
         D.getContext() != Declarator::TemplateTypeArgContext) {
-      SourceLocation Loc = D.getSourceRange().getBegin();
+      SourceLocation Loc = D.getLocStart();
       SourceRange RemovalRange;
       unsigned I;
       if (D.isFunctionDeclarator(I)) {
@@ -2609,6 +2650,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     case Declarator::ObjCCatchContext:
     case Declarator::BlockLiteralContext:
     case Declarator::LambdaExprContext:
+    case Declarator::TrailingReturnContext:
     case Declarator::TemplateTypeArgContext:
       // FIXME: We may want to allow parameter packs in block-literal contexts
       // in the future.
@@ -2642,7 +2684,7 @@ TypeSourceInfo *Sema::GetTypeForDeclarator(Declarator &D, Scope *S) {
   if (T.isNull())
     return Context.getNullTypeSourceInfo();
 
-  if (D.isPrototypeContext() && getLangOptions().ObjCAutoRefCount)
+  if (D.isPrototypeContext() && getLangOpts().ObjCAutoRefCount)
     inferARCWriteback(state, T);
   
   return GetFullTypeForDeclarator(state, T, ReturnTypeInfo);
@@ -2753,7 +2795,7 @@ TypeSourceInfo *Sema::GetTypeForDeclaratorCast(Declarator &D, QualType FromTy) {
   if (declSpecTy.isNull())
     return Context.getNullTypeSourceInfo();
 
-  if (getLangOptions().ObjCAutoRefCount) {
+  if (getLangOpts().ObjCAutoRefCount) {
     Qualifiers::ObjCLifetime ownership = Context.getInnerObjCOwnership(FromTy);
     if (ownership != Qualifiers::OCL_None)
       transferARCOwnership(state, declSpecTy, ownership);
@@ -2840,6 +2882,10 @@ namespace {
     }
     void VisitObjCInterfaceTypeLoc(ObjCInterfaceTypeLoc TL) {
       TL.setNameLoc(DS.getTypeSpecTypeLoc());
+      // FIXME. We should have DS.getTypeSpecTypeEndLoc(). But, it requires
+      // addition field. What we have is good enough for dispay of location
+      // of 'fixit' on interface name.
+      TL.setNameEndLoc(DS.getLocEnd());
     }
     void VisitObjCObjectTypeLoc(ObjCObjectTypeLoc TL) {
       // Handle the base type, which might not have been written explicitly.
@@ -3174,7 +3220,7 @@ TypeResult Sema::ActOnTypeName(Scope *S, Declarator &D) {
   if (D.getContext() != Declarator::ObjCParameterContext)
     checkUnusedDeclAttributes(D);
 
-  if (getLangOptions().CPlusPlus) {
+  if (getLangOpts().CPlusPlus) {
     // Check that there are no default arguments (C++ only).
     CheckExtraCXXDefaultArguments(D);
   }
@@ -3322,7 +3368,7 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
 
   // Consume lifetime attributes without further comment outside of
   // ARC mode.
-  if (!S.getLangOptions().ObjCAutoRefCount)
+  if (!S.getLangOpts().ObjCAutoRefCount)
     return true;
 
   Qualifiers::ObjCLifetime lifetime;
@@ -3393,7 +3439,7 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
 
   // Forbid __weak if the runtime doesn't support it.
   if (lifetime == Qualifiers::OCL_Weak &&
-      !S.getLangOptions().ObjCRuntimeHasWeak && !NonObjCPointer) {
+      !S.getLangOpts().ObjCRuntimeHasWeak && !NonObjCPointer) {
 
     // Actually, delay this until we know what we're parsing.
     if (S.DelayedDiagnostics.shouldDelayDiagnostics()) {
@@ -3640,7 +3686,7 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
   // ns_returns_retained is not always a type attribute, but if we got
   // here, we're treating it as one right now.
   if (attr.getKind() == AttributeList::AT_ns_returns_retained) {
-    assert(S.getLangOptions().ObjCAutoRefCount &&
+    assert(S.getLangOpts().ObjCAutoRefCount &&
            "ns_returns_retained treated as type attribute in non-ARC");
     if (attr.getNumArgs()) return true;
 
@@ -3983,7 +4029,7 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
       break;
 
     case AttributeList::AT_ns_returns_retained:
-      if (!state.getSema().getLangOptions().ObjCAutoRefCount)
+      if (!state.getSema().getLangOpts().ObjCAutoRefCount)
 	break;
       // fallthrough into the function attrs
 
@@ -4012,14 +4058,12 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
 /// case of a reference type, the referred-to type).
 ///
 /// \param E The expression whose type is required to be complete.
-/// \param PD The partial diagnostic that will be printed out if the type cannot
-/// be completed.
+/// \param Diagnoser The object that will emit a diagnostic if the type is
+/// incomplete.
 ///
 /// \returns \c true if the type of \p E is incomplete and diagnosed, \c false
 /// otherwise.
-bool Sema::RequireCompleteExprType(Expr *E, const PartialDiagnostic &PD,
-                                   std::pair<SourceLocation,
-                                             PartialDiagnostic> Note) {
+bool Sema::RequireCompleteExprType(Expr *E, TypeDiagnoser &Diagnoser){
   QualType T = E->getType();
 
   // Fast path the case where the type is already complete.
@@ -4076,7 +4120,26 @@ bool Sema::RequireCompleteExprType(Expr *E, const PartialDiagnostic &PD,
   if (const ReferenceType *Ref = T->getAs<ReferenceType>())
     T = Ref->getPointeeType();
 
-  return RequireCompleteType(E->getExprLoc(), T, PD, Note);
+  return RequireCompleteType(E->getExprLoc(), T, Diagnoser);
+}
+
+namespace {
+  struct TypeDiagnoserDiag : Sema::TypeDiagnoser {
+    unsigned DiagID;
+    
+    TypeDiagnoserDiag(unsigned DiagID)
+      : Sema::TypeDiagnoser(DiagID == 0), DiagID(DiagID) {}
+    
+    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+      if (Suppressed) return;
+      S.Diag(Loc, DiagID) << T;
+    }
+  };
+}
+
+bool Sema::RequireCompleteExprType(Expr *E, unsigned DiagID) {
+  TypeDiagnoserDiag Diagnoser(DiagID);
+  return RequireCompleteExprType(E, Diagnoser);
 }
 
 /// @brief Ensure that the type T is a complete type.
@@ -4100,11 +4163,7 @@ bool Sema::RequireCompleteExprType(Expr *E, const PartialDiagnostic &PD,
 /// @returns @c true if @p T is incomplete and a diagnostic was emitted,
 /// @c false otherwise.
 bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
-                               const PartialDiagnostic &PD,
-                               std::pair<SourceLocation, 
-                                         PartialDiagnostic> Note) {
-  unsigned diag = PD.getDiagID();
-
+                               TypeDiagnoser &Diagnoser) {
   // FIXME: Add this assertion to make sure we always get instantiation points.
   //  assert(!Loc.isInvalid() && "Invalid location in RequireCompleteType");
   // FIXME: Add this assertion to help us flush out problems with
@@ -4117,7 +4176,7 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
   NamedDecl *Def = 0;
   if (!T->isIncompleteType(&Def)) {
     // If we know about the definition but it is not visible, complain.
-    if (diag != 0 && Def && !LookupResult::isVisible(Def)) {
+    if (!Diagnoser.Suppressed && Def && !LookupResult::isVisible(Def)) {
       // Suppress this error outside of a SFINAE context if we've already
       // emitted the error once for this type. There's no usefulness in 
       // repeating the diagnostic.
@@ -4164,7 +4223,8 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
   // class template specialization, or an array with known size of such,
   // try to instantiate it.
   QualType MaybeTemplate = T;
-  if (const ConstantArrayType *Array = Context.getAsConstantArrayType(T))
+  while (const ConstantArrayType *Array
+           = Context.getAsConstantArrayType(MaybeTemplate))
     MaybeTemplate = Array->getElementType();
   if (const RecordType *Record = MaybeTemplate->getAs<RecordType>()) {
     if (ClassTemplateSpecializationDecl *ClassTemplateSpec
@@ -4172,32 +4232,28 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
       if (ClassTemplateSpec->getSpecializationKind() == TSK_Undeclared)
         return InstantiateClassTemplateSpecialization(Loc, ClassTemplateSpec,
                                                       TSK_ImplicitInstantiation,
-                                                      /*Complain=*/diag != 0);
+                                            /*Complain=*/!Diagnoser.Suppressed);
     } else if (CXXRecordDecl *Rec
                  = dyn_cast<CXXRecordDecl>(Record->getDecl())) {
-      if (CXXRecordDecl *Pattern = Rec->getInstantiatedFromMemberClass()) {
-        MemberSpecializationInfo *MSInfo = Rec->getMemberSpecializationInfo();
-        assert(MSInfo && "Missing member specialization information?");
+      CXXRecordDecl *Pattern = Rec->getInstantiatedFromMemberClass();
+      if (!Rec->isBeingDefined() && Pattern) {
+        MemberSpecializationInfo *MSI = Rec->getMemberSpecializationInfo();
+        assert(MSI && "Missing member specialization information?");
         // This record was instantiated from a class within a template.
-        if (MSInfo->getTemplateSpecializationKind() 
-                                               != TSK_ExplicitSpecialization)
+        if (MSI->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
           return InstantiateClass(Loc, Rec, Pattern,
                                   getTemplateInstantiationArgs(Rec),
                                   TSK_ImplicitInstantiation,
-                                  /*Complain=*/diag != 0);
+                                  /*Complain=*/!Diagnoser.Suppressed);
       }
     }
   }
 
-  if (diag == 0)
+  if (Diagnoser.Suppressed)
     return true;
-    
+
   // We have an incomplete type. Produce a diagnostic.
-  Diag(Loc, PD) << T;
-    
-  // If we have a note, produce it.
-  if (!Note.first.isInvalid())
-    Diag(Note.first, Note.second);
+  Diagnoser.diagnose(*this, Loc, T);
     
   // If the type was a forward declaration of a class/struct/union
   // type, produce a note.
@@ -4215,15 +4271,9 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
 }
 
 bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
-                               const PartialDiagnostic &PD) {
-  return RequireCompleteType(Loc, T, PD, 
-                             std::make_pair(SourceLocation(), PDiag(0)));
-}
-  
-bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
-                               unsigned DiagID) {
-  return RequireCompleteType(Loc, T, PDiag(DiagID),
-                             std::make_pair(SourceLocation(), PDiag(0)));
+                               unsigned DiagID) {  
+  TypeDiagnoserDiag Diagnoser(DiagID);
+  return RequireCompleteType(Loc, T, Diagnoser);
 }
 
 /// @brief Ensure that the type T is a literal type.
@@ -4240,13 +4290,12 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
 ///
 /// @param T  The type that this routine is examining for literalness.
 ///
-/// @param PD The partial diagnostic that will be printed out if T is not a
-/// literal type.
+/// @param Diagnoser Emits a diagnostic if T is not a literal type.
 ///
 /// @returns @c true if @p T is not a literal type and a diagnostic was emitted,
 /// @c false otherwise.
 bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
-                              const PartialDiagnostic &PD) {
+                              TypeDiagnoser &Diagnoser) {
   assert(!T->isDependentType() && "type should not be dependent");
 
   QualType ElemType = Context.getBaseElementType(T);
@@ -4255,10 +4304,10 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
   if (T->isLiteralType())
     return false;
 
-  if (PD.getDiagID() == 0)
+  if (Diagnoser.Suppressed)
     return true;
 
-  Diag(Loc, PD) << T;
+  Diagnoser.diagnose(*this, Loc, T);
 
   if (T->isVariableArrayType())
     return true;
@@ -4269,9 +4318,13 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
 
   const CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
 
-  // FIXME: Better diagnostic for incomplete class?
-  if (!RD->isCompleteDefinition())
+  // A partially-defined class type can't be a literal type, because a literal
+  // class type must have a trivial destructor (which can't be checked until
+  // the class definition is complete).
+  if (!RD->isCompleteDefinition()) {
+    RequireCompleteType(Loc, ElemType, diag::note_non_literal_incomplete, T);
     return true;
+  }
 
   // If the class has virtual base classes, then it's not an aggregate, and
   // cannot have any constexpr constructors or a trivial default constructor,
@@ -4282,7 +4335,7 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
       << RD->isStruct() << RD->getNumVBases();
     for (CXXRecordDecl::base_class_const_iterator I = RD->vbases_begin(),
            E = RD->vbases_end(); I != E; ++I)
-      Diag(I->getSourceRange().getBegin(),
+      Diag(I->getLocStart(),
            diag::note_constexpr_virtual_base_here) << I->getSourceRange();
   } else if (!RD->isAggregate() && !RD->hasConstexprNonCopyMoveConstructor() &&
              !RD->hasTrivialDefaultConstructor()) {
@@ -4291,7 +4344,7 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
     for (CXXRecordDecl::base_class_const_iterator I = RD->bases_begin(),
          E = RD->bases_end(); I != E; ++I) {
       if (!I->getType()->isLiteralType()) {
-        Diag(I->getSourceRange().getBegin(),
+        Diag(I->getLocStart(),
              diag::note_non_literal_base_class)
           << RD << I->getType() << I->getSourceRange();
         return true;
@@ -4299,11 +4352,11 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
     }
     for (CXXRecordDecl::field_iterator I = RD->field_begin(),
          E = RD->field_end(); I != E; ++I) {
-      if (!(*I)->getType()->isLiteralType() ||
-          (*I)->getType().isVolatileQualified()) {
-        Diag((*I)->getLocation(), diag::note_non_literal_field)
-          << RD << (*I) << (*I)->getType()
-          << (*I)->getType().isVolatileQualified();
+      if (!I->getType()->isLiteralType() ||
+          I->getType().isVolatileQualified()) {
+        Diag(I->getLocation(), diag::note_non_literal_field)
+          << RD << &*I << I->getType()
+          << I->getType().isVolatileQualified();
         return true;
       }
     }
@@ -4321,6 +4374,11 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
   }
 
   return true;
+}
+
+bool Sema::RequireLiteralType(SourceLocation Loc, QualType T, unsigned DiagID) {  
+  TypeDiagnoserDiag Diagnoser(DiagID);
+  return RequireLiteralType(Loc, T, Diagnoser);
 }
 
 /// \brief Retrieve a version of the type 'T' that is elaborated by Keyword
@@ -4450,8 +4508,7 @@ QualType Sema::BuildAtomicType(QualType T, SourceLocation Loc) {
   if (!T->isDependentType()) {
     // FIXME: It isn't entirely clear whether incomplete atomic types
     // are allowed or not; for simplicity, ban them for the moment.
-    if (RequireCompleteType(Loc, T,
-                            PDiag(diag::err_atomic_specifier_bad_type) << 0))
+    if (RequireCompleteType(Loc, T, diag::err_atomic_specifier_bad_type, 0))
       return QualType();
 
     int DisallowedKind = -1;

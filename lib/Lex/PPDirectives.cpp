@@ -124,7 +124,7 @@ void Preprocessor::ReadMacroName(Token &MacroNameTok, char isDefineUndef) {
     const IdentifierInfo &Info = Identifiers.get(Spelling);
 
     // Allow #defining |and| and friends in microsoft mode.
-    if (Info.isCPlusPlusOperatorKeyword() && getLangOptions().MicrosoftMode) {
+    if (Info.isCPlusPlusOperatorKeyword() && getLangOpts().MicrosoftMode) {
       MacroNameTok.setIdentifierInfo(getIdentifierInfo(Spelling));
       return;
     }
@@ -181,7 +181,7 @@ void Preprocessor::CheckEndOfDirective(const char *DirType, bool EnableMacros) {
     // trouble than it is worth to insert /**/ and check that there is no /**/
     // in the range also.
     FixItHint Hint;
-    if ((Features.GNUMode || Features.C99 || Features.CPlusPlus) &&
+    if ((LangOpts.GNUMode || LangOpts.C99 || LangOpts.CPlusPlus) &&
         !CurTokenLexer)
       Hint = FixItHint::CreateInsertion(Tmp.getLocation(),"//");
     Diag(Tmp, diag::ext_pp_extra_tokens_at_eol) << DirType << Hint;
@@ -619,7 +619,7 @@ TryAgain:
     setCodeCompletionReached();
     return;
   case tok::numeric_constant:  // # 7  GNU line marker directive.
-    if (getLangOptions().AsmPreprocessor)
+    if (getLangOpts().AsmPreprocessor)
       break;  // # 4 is not a preprocessor directive in .S files.
     return HandleDigitDirective(Result);
   default:
@@ -690,12 +690,12 @@ TryAgain:
       break;
         
     case tok::pp___public_macro:
-      if (getLangOptions().Modules)
+      if (getLangOpts().Modules)
         return HandleMacroPublicDirective(Result);
       break;
         
     case tok::pp___private_macro:
-      if (getLangOptions().Modules)
+      if (getLangOpts().Modules)
         return HandleMacroPrivateDirective(Result);
       break;
     }
@@ -706,7 +706,7 @@ TryAgain:
   // directives.  This is important because # may be a comment or introduce
   // various pseudo-ops.  Just return the # token and push back the following
   // token to be lexed next time.
-  if (getLangOptions().AsmPreprocessor) {
+  if (getLangOpts().AsmPreprocessor) {
     Token *Toks = new Token[2];
     // Return the # and the token after it.
     Toks[0] = SavedHash;
@@ -805,11 +805,11 @@ void Preprocessor::HandleLineDirective(Token &Tok) {
   // Enforce C99 6.10.4p3: "The digit sequence shall not specify ... a
   // number greater than 2147483647".  C90 requires that the line # be <= 32767.
   unsigned LineLimit = 32768U;
-  if (Features.C99 || Features.CPlusPlus0x)
+  if (LangOpts.C99 || LangOpts.CPlusPlus0x)
     LineLimit = 2147483648U;
   if (LineNo >= LineLimit)
     Diag(DigitTok, diag::ext_pp_line_too_big) << LineLimit;
-  else if (Features.CPlusPlus0x && LineNo >= 32768U)
+  else if (LangOpts.CPlusPlus0x && LineNo >= 32768U)
     Diag(DigitTok, diag::warn_cxx98_compat_pp_line_too_big);
 
   int FilenameID = -1;
@@ -822,8 +822,10 @@ void Preprocessor::HandleLineDirective(Token &Tok) {
     ; // ok
   else if (StrTok.isNot(tok::string_literal)) {
     Diag(StrTok, diag::err_pp_line_invalid_filename);
-    DiscardUntilEndOfDirective();
-    return;
+    return DiscardUntilEndOfDirective();
+  } else if (StrTok.hasUDSuffix()) {
+    Diag(StrTok, diag::err_invalid_string_udl);
+    return DiscardUntilEndOfDirective();
   } else {
     // Parse and validate the string, converting it into a unique ID.
     StringLiteralParser Literal(&StrTok, 1, *this);
@@ -957,6 +959,9 @@ void Preprocessor::HandleDigitDirective(Token &DigitTok) {
   else if (StrTok.isNot(tok::string_literal)) {
     Diag(StrTok, diag::err_pp_linemarker_invalid_filename);
     return DiscardUntilEndOfDirective();
+  } else if (StrTok.hasUDSuffix()) {
+    Diag(StrTok, diag::err_invalid_string_udl);
+    return DiscardUntilEndOfDirective();
   } else {
     // Parse and validate the string, converting it into a unique ID.
     StringLiteralParser Literal(&StrTok, 1, *this);
@@ -1045,6 +1050,11 @@ void Preprocessor::HandleIdentSCCSDirective(Token &Tok) {
     if (StrTok.isNot(tok::eod))
       DiscardUntilEndOfDirective();
     return;
+  }
+
+  if (StrTok.hasUDSuffix()) {
+    Diag(StrTok, diag::err_invalid_string_udl);
+    return DiscardUntilEndOfDirective();
   }
 
   // Verify that there is nothing after the string, other than EOD.
@@ -1324,7 +1334,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   const FileEntry *File = LookupFile(
       Filename, isAngled, LookupFrom, CurDir,
       Callbacks ? &SearchPath : NULL, Callbacks ? &RelativePath : NULL,
-      getLangOptions().Modules? &SuggestedModule : 0);
+      getLangOpts().Modules? &SuggestedModule : 0);
 
   if (Callbacks) {
     if (!File) {
@@ -1338,7 +1348,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
           
           // Try the lookup again, skipping the cache.
           File = LookupFile(Filename, isAngled, LookupFrom, CurDir, 0, 0,
-                            getLangOptions().Modules? &SuggestedModule : 0,
+                            getLangOpts().Modules? &SuggestedModule : 0,
                             /*SkipCache*/true);
         }
       }
@@ -1400,9 +1410,9 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     // Determine whether we are actually building the module that this
     // include directive maps to.
     bool BuildingImportedModule
-      = Path[0].first->getName() == getLangOptions().CurrentModule;
+      = Path[0].first->getName() == getLangOpts().CurrentModule;
     
-    if (!BuildingImportedModule && getLangOptions().ObjC2) {
+    if (!BuildingImportedModule && getLangOpts().ObjC2) {
       // If we're not building the imported module, warn that we're going
       // to automatically turn this inclusion directive into a module import.
       // We only do this in Objective-C, where we have a module-import syntax.
@@ -1443,8 +1453,12 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   }
 
   // Look up the file, create a File ID for it.
-  FileID FID = SourceMgr.createFileID(File, FilenameTok.getLocation(),
-                                      FileCharacter);
+  SourceLocation IncludePos = End;
+  // If the filename string was the result of macro expansions, set the include
+  // position on the file where it will be included and after the expansions.
+  if (IncludePos.isMacroID())
+    IncludePos = SourceMgr.getExpansionRange(IncludePos).second;
+  FileID FID = SourceMgr.createFileID(File, IncludePos, FileCharacter);
   assert(!FID.isInvalid() && "Expected valid file ID");
 
   // Finally, if all is good, enter the new file!
@@ -1474,13 +1488,29 @@ void Preprocessor::HandleIncludeNextDirective(SourceLocation HashLoc,
   return HandleIncludeDirective(HashLoc, IncludeNextTok, Lookup);
 }
 
+/// HandleMicrosoftImportDirective - Implements #import for Microsoft Mode
+void Preprocessor::HandleMicrosoftImportDirective(Token &Tok) {
+  // The Microsoft #import directive takes a type library and generates header
+  // files from it, and includes those.  This is beyond the scope of what clang
+  // does, so we ignore it and error out.  However, #import can optionally have
+  // trailing attributes that span multiple lines.  We're going to eat those
+  // so we can continue processing from there.
+  Diag(Tok, diag::err_pp_import_directive_ms );
+
+  // Read tokens until we get to the end of the directive.  Note that the 
+  // directive can be split over multiple lines using the backslash character.
+  DiscardUntilEndOfDirective();
+}
+
 /// HandleImportDirective - Implements #import.
 ///
 void Preprocessor::HandleImportDirective(SourceLocation HashLoc,
                                          Token &ImportTok) {
-  if (!Features.ObjC1)  // #import is standard for ObjC.
+  if (!LangOpts.ObjC1) {  // #import is standard for ObjC.
+    if (LangOpts.MicrosoftMode)
+      return HandleMicrosoftImportDirective(ImportTok);
     Diag(ImportTok, diag::ext_pp_import_directive);
-
+  }
   return HandleIncludeDirective(HashLoc, ImportTok, 0, true);
 }
 
@@ -1519,10 +1549,9 @@ void Preprocessor::HandleIncludeMacrosDirective(SourceLocation HashLoc,
 /// definition has just been read.  Lex the rest of the arguments and the
 /// closing ), updating MI with what we learn.  Return true if an error occurs
 /// parsing the arg list.
-bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI) {
+bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI, Token &Tok) {
   SmallVector<IdentifierInfo*, 32> Arguments;
 
-  Token Tok;
   while (1) {
     LexUnexpandedToken(Tok);
     switch (Tok.getKind()) {
@@ -1534,8 +1563,8 @@ bool Preprocessor::ReadMacroDefinitionArgList(MacroInfo *MI) {
       Diag(Tok, diag::err_pp_expected_ident_in_arg_list);
       return true;
     case tok::ellipsis:  // #define X(... -> C99 varargs
-      if (!Features.C99)
-        Diag(Tok, Features.CPlusPlus0x ? 
+      if (!LangOpts.C99)
+        Diag(Tok, LangOpts.CPlusPlus0x ? 
              diag::warn_cxx98_compat_variadic_macro :
              diag::ext_variadic_macro);
 
@@ -1641,7 +1670,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
   } else if (Tok.is(tok::l_paren)) {
     // This is a function-like macro definition.  Read the argument list.
     MI->setIsFunctionLike();
-    if (ReadMacroDefinitionArgList(MI)) {
+    if (ReadMacroDefinitionArgList(MI, LastTok)) {
       // Forget about MI.
       ReleaseMacroInfo(MI);
       // Throw away the rest of the line.
@@ -1661,7 +1690,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
 
     // Read the first token after the arg list for down below.
     LexUnexpandedToken(Tok);
-  } else if (Features.C99 || Features.CPlusPlus0x) {
+  } else if (LangOpts.C99 || LangOpts.CPlusPlus0x) {
     // C99 requires whitespace between the macro definition and the body.  Emit
     // a diagnostic for something like "#define X+".
     Diag(Tok, diag::ext_c99_whitespace_required_after_macro_name);
@@ -1726,7 +1755,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok) {
         // the '#' because '#' is often a comment character.  However, change
         // the kind of the token to tok::unknown so that the preprocessor isn't
         // confused.
-        if (getLangOptions().AsmPreprocessor && Tok.isNot(tok::eod)) {
+        if (getLangOpts().AsmPreprocessor && Tok.isNot(tok::eod)) {
           LastTok.setKind(tok::unknown);
         } else {
           Diag(Tok, diag::err_pp_stringize_not_parameter);

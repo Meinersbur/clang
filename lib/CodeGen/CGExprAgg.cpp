@@ -85,7 +85,7 @@ public:
                      QualType elementType, InitListExpr *E);
 
   AggValueSlot::NeedsGCBarriers_t needsGC(QualType T) {
-    if (CGF.getLangOptions().getGC() && TypeRequiresGCollection(T))
+    if (CGF.getLangOpts().getGC() && TypeRequiresGCollection(T))
       return AggValueSlot::NeedsGCBarriers;
     return AggValueSlot::DoesNotNeedGCBarriers;
   }
@@ -109,15 +109,29 @@ public:
   }
 
   // l-values.
-  void VisitDeclRefExpr(DeclRefExpr *DRE) { EmitAggLoadOfLValue(DRE); }
+  void VisitDeclRefExpr(DeclRefExpr *E) {
+    // For aggregates, we should always be able to emit the variable
+    // as an l-value unless it's a reference.  This is due to the fact
+    // that we can't actually ever see a normal l2r conversion on an
+    // aggregate in C++, and in C there's no language standard
+    // actively preventing us from listing variables in the captures
+    // list of a block.
+    if (E->getDecl()->getType()->isReferenceType()) {
+      if (CodeGenFunction::ConstantEmission result
+            = CGF.tryEmitAsConstant(E)) {
+        EmitFinalDestCopy(E, result.getReferenceLValue(CGF, E));
+        return;
+      }
+    }
+
+    EmitAggLoadOfLValue(E);
+  }
+
   void VisitMemberExpr(MemberExpr *ME) { EmitAggLoadOfLValue(ME); }
   void VisitUnaryDeref(UnaryOperator *E) { EmitAggLoadOfLValue(E); }
   void VisitStringLiteral(StringLiteral *E) { EmitAggLoadOfLValue(E); }
   void VisitCompoundLiteralExpr(CompoundLiteralExpr *E);
   void VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
-    EmitAggLoadOfLValue(E);
-  }
-  void VisitBlockDeclRefExpr(const BlockDeclRefExpr *E) {
     EmitAggLoadOfLValue(E);
   }
   void VisitPredefinedExpr(const PredefinedExpr *E) {
@@ -224,7 +238,10 @@ void AggExprEmitter::EmitMoveFromReturnSlot(const Expr *E, RValue Src) {
 
   // Otherwise, do a final copy, 
   assert(Dest.getAddr() != Src.getAggregateAddr());
-  EmitFinalDestCopy(E, Src, /*Ignore*/ true);
+  std::pair<CharUnits, CharUnits> TypeInfo = 
+    CGF.getContext().getTypeInfoInChars(E->getType());
+  CharUnits Alignment = std::min(TypeInfo.second, Dest.getAlignment());
+  EmitFinalDestCopy(E, Src, /*Ignore*/ true, Alignment.getQuantity());
 }
 
 /// EmitFinalDestCopy - Perform the final copy to DestPtr, if desired.
@@ -240,7 +257,7 @@ void AggExprEmitter::EmitFinalDestCopy(const Expr *E, RValue Src, bool Ignore,
   // volatile.
   if (Dest.isIgnored()) {
     if (!Src.isVolatileQualified() ||
-        CGF.CGM.getLangOptions().CPlusPlus ||
+        CGF.CGM.getLangOpts().CPlusPlus ||
         (IgnoreResult && Ignore))
       return;
 
@@ -334,7 +351,8 @@ void AggExprEmitter::EmitStdInitializerList(llvm::Value *destPtr,
     CGF.ErrorUnsupported(initList, "weird std::initializer_list");
     return;
   }
-  LValue start = CGF.EmitLValueForFieldInitialization(destPtr, *field, 0);
+  LValue DestLV = CGF.MakeNaturalAlignAddrLValue(destPtr, initList->getType());
+  LValue start = CGF.EmitLValueForFieldInitialization(DestLV, &*field);
   llvm::Value *arrayStart = Builder.CreateStructGEP(alloc, 0, "arraystart");
   CGF.EmitStoreThroughLValue(RValue::get(arrayStart), start);
   ++field;
@@ -343,7 +361,7 @@ void AggExprEmitter::EmitStdInitializerList(llvm::Value *destPtr,
     CGF.ErrorUnsupported(initList, "weird std::initializer_list");
     return;
   }
-  LValue endOrLength = CGF.EmitLValueForFieldInitialization(destPtr, *field, 0);
+  LValue endOrLength = CGF.EmitLValueForFieldInitialization(DestLV, &*field);
   if (ctx.hasSameType(field->getType(), elementPtr)) {
     // End pointer.
     llvm::Value *arrayEnd = Builder.CreateStructGEP(alloc,numInits, "arrayend");
@@ -898,28 +916,24 @@ void AggExprEmitter::VisitInitListExpr(InitListExpr *E) {
     return;
   }
 
-  llvm::Value *DestPtr = EnsureSlot(E->getType()).getAddr();
+  AggValueSlot Dest = EnsureSlot(E->getType());
+  LValue DestLV = CGF.MakeAddrLValue(Dest.getAddr(), E->getType(),
+                                     Dest.getAlignment());
 
   // Handle initialization of an array.
   if (E->getType()->isArrayType()) {
-    if (E->getNumInits() > 0) {
-      QualType T1 = E->getType();
-      QualType T2 = E->getInit(0)->getType();
-      if (CGF.getContext().hasSameUnqualifiedType(T1, T2)) {
-        EmitAggLoadOfLValue(E->getInit(0));
-        return;
-      }
-    }
+    if (E->isStringLiteralInit())
+      return Visit(E->getInit(0));
 
     QualType elementType =
         CGF.getContext().getAsArrayType(E->getType())->getElementType();
 
     llvm::PointerType *APType =
-      cast<llvm::PointerType>(DestPtr->getType());
+      cast<llvm::PointerType>(Dest.getAddr()->getType());
     llvm::ArrayType *AType =
       cast<llvm::ArrayType>(APType->getElementType());
 
-    EmitArrayInit(DestPtr, AType, elementType, E);
+    EmitArrayInit(Dest.getAddr(), AType, elementType, E);
     return;
   }
 
@@ -952,7 +966,7 @@ void AggExprEmitter::VisitInitListExpr(InitListExpr *E) {
     // FIXME: volatility
     FieldDecl *Field = E->getInitializedFieldInUnion();
 
-    LValue FieldLoc = CGF.EmitLValueForFieldInitialization(DestPtr, Field, 0);
+    LValue FieldLoc = CGF.EmitLValueForFieldInitialization(DestLV, Field);
     if (NumInitElements) {
       // Store the initializer into the field
       EmitInitializationToLValue(E->getInit(0), FieldLoc);
@@ -990,8 +1004,8 @@ void AggExprEmitter::VisitInitListExpr(InitListExpr *E) {
         CGF.getTypes().isZeroInitializable(E->getType()))
       break;
     
-    // FIXME: volatility
-    LValue LV = CGF.EmitLValueForFieldInitialization(DestPtr, *field, 0);
+
+    LValue LV = CGF.EmitLValueForFieldInitialization(DestLV, &*field);
     // We never generate write-barries for initialized fields.
     LV.setNonGC(true);
     
@@ -1109,7 +1123,7 @@ static void CheckAggExprForMemSetUse(AggValueSlot &Slot, const Expr *E,
   if (Slot.isZeroed() || Slot.isVolatile() || Slot.getAddr() == 0) return;
 
   // C++ objects with a user-declared constructor don't need zero'ing.
-  if (CGF.getContext().getLangOptions().CPlusPlus)
+  if (CGF.getContext().getLangOpts().CPlusPlus)
     if (const RecordType *RT = CGF.getContext()
                        .getBaseElementType(E->getType())->getAs<RecordType>()) {
       const CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
@@ -1181,7 +1195,7 @@ void CodeGenFunction::EmitAggregateCopy(llvm::Value *DestPtr,
                                         bool isVolatile, unsigned Alignment) {
   assert(!Ty->isAnyComplexType() && "Shouldn't happen for complex");
 
-  if (getContext().getLangOptions().CPlusPlus) {
+  if (getContext().getLangOpts().CPlusPlus) {
     if (const RecordType *RT = Ty->getAs<RecordType>()) {
       CXXRecordDecl *Record = cast<CXXRecordDecl>(RT->getDecl());
       assert((Record->hasTrivialCopyConstructor() || 
@@ -1240,7 +1254,7 @@ void CodeGenFunction::EmitAggregateCopy(llvm::Value *DestPtr,
   SrcPtr = Builder.CreateBitCast(SrcPtr, SBP);
 
   // Don't do any of the memmove_collectable tests if GC isn't set.
-  if (CGM.getLangOptions().getGC() == LangOptions::NonGC) {
+  if (CGM.getLangOpts().getGC() == LangOptions::NonGC) {
     // fall through
   } else if (const RecordType *RecordTy = Ty->getAs<RecordType>()) {
     RecordDecl *Record = RecordTy->getDecl();

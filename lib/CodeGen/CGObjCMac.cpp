@@ -267,6 +267,41 @@ public:
     return CGM.CreateRuntimeFunction(FTy, "objc_setProperty");
   }
 
+  llvm::Constant *getOptimizedSetPropertyFn(bool atomic, bool copy) {
+    CodeGen::CodeGenTypes &Types = CGM.getTypes();
+    ASTContext &Ctx = CGM.getContext();
+    // void objc_setProperty_atomic(id self, SEL _cmd, 
+    //                              id newValue, ptrdiff_t offset);
+    // void objc_setProperty_nonatomic(id self, SEL _cmd, 
+    //                                 id newValue, ptrdiff_t offset);
+    // void objc_setProperty_atomic_copy(id self, SEL _cmd, 
+    //                                   id newValue, ptrdiff_t offset);
+    // void objc_setProperty_nonatomic_copy(id self, SEL _cmd, 
+    //                                      id newValue, ptrdiff_t offset);
+    
+    SmallVector<CanQualType,4> Params;
+    CanQualType IdType = Ctx.getCanonicalParamType(Ctx.getObjCIdType());
+    CanQualType SelType = Ctx.getCanonicalParamType(Ctx.getObjCSelType());
+    Params.push_back(IdType);
+    Params.push_back(SelType);
+    Params.push_back(IdType);
+    Params.push_back(Ctx.getPointerDiffType()->getCanonicalTypeUnqualified());
+    llvm::FunctionType *FTy =
+    Types.GetFunctionType(Types.arrangeFunctionType(Ctx.VoidTy, Params,
+                                                    FunctionType::ExtInfo(),
+                                                    RequiredArgs::All));
+    const char *name;
+    if (atomic && copy)
+      name = "objc_setProperty_atomic_copy";
+    else if (atomic && !copy)
+      name = "objc_setProperty_atomic";
+    else if (!atomic && copy)
+      name = "objc_setProperty_nonatomic_copy";
+    else
+      name = "objc_setProperty_nonatomic";
+      
+    return CGM.CreateRuntimeFunction(FTy, name);
+  }
   
   llvm::Constant *getCopyStructFn() {
     CodeGen::CodeGenTypes &Types = CGM.getTypes();
@@ -906,7 +941,7 @@ public:
     CGObjCRuntime(cgm), VMContext(cgm.getLLVMContext()) { }
 
   virtual llvm::Constant *GenerateConstantString(const StringLiteral *SL);
-
+  
   virtual llvm::Function *GenerateMethod(const ObjCMethodDecl *OMD,
                                          const ObjCContainerDecl *CD=0);
 
@@ -1087,6 +1122,8 @@ public:
 
   virtual llvm::Constant *GetPropertyGetFunction();
   virtual llvm::Constant *GetPropertySetFunction();
+  virtual llvm::Constant *GetOptimizedPropertySetFunction(bool atomic, 
+                                                          bool copy);
   virtual llvm::Constant *GetGetStructFunction();
   virtual llvm::Constant *GetSetStructFunction();
   virtual llvm::Constant *GetCppAtomicObjectFunction();
@@ -1349,6 +1386,11 @@ public:
     return ObjCTypes.getSetPropertyFn();
   }
   
+  virtual llvm::Constant *GetOptimizedPropertySetFunction(bool atomic, 
+                                                          bool copy) {
+    return ObjCTypes.getOptimizedSetPropertyFn(atomic, copy);
+  }
+  
   virtual llvm::Constant *GetSetStructFunction() {
     return ObjCTypes.getCopyStructFn();
   }
@@ -1573,10 +1615,14 @@ llvm::Constant *CGObjCMac::GetEHType(QualType T) {
 
 llvm::Constant *CGObjCCommonMac::GenerateConstantString(
   const StringLiteral *SL) {
-  return (CGM.getLangOptions().NoConstantCFStrings == 0 ? 
+  return (CGM.getLangOpts().NoConstantCFStrings == 0 ? 
           CGM.GetAddrOfConstantCFString(SL) :
           CGM.GetAddrOfConstantString(SL));
 }
+
+enum {
+  kCFTaggedObjectID_Integer = (1 << 1) + 1
+};
 
 /// Generates a message send where the super is the receiver.  This is
 /// a message send to self with special delivery semantics indicating
@@ -1701,7 +1747,7 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
   }
   
   bool requiresnullCheck = false;
-  if (CGM.getLangOptions().ObjCAutoRefCount && Method)
+  if (CGM.getLangOpts().ObjCAutoRefCount && Method)
     for (ObjCMethodDecl::param_const_iterator i = Method->param_begin(),
          e = Method->param_end(); i != e; ++i) {
       const ParmVarDecl *ParamDecl = (*i);
@@ -1743,8 +1789,8 @@ llvm::Constant *CGObjCCommonMac::BuildGCBlockLayout(CodeGenModule &CGM,
                                                 const CGBlockInfo &blockInfo) {
   llvm::Constant *nullPtr = llvm::Constant::getNullValue(CGM.Int8PtrTy);
 
-  if (CGM.getLangOptions().getGC() == LangOptions::NonGC &&
-      !CGM.getLangOptions().ObjCAutoRefCount)
+  if (CGM.getLangOpts().getGC() == LangOptions::NonGC &&
+      !CGM.getLangOpts().ObjCAutoRefCount)
     return nullPtr;
 
   bool hasUnion = false;
@@ -1812,7 +1858,7 @@ llvm::Constant *CGObjCCommonMac::BuildGCBlockLayout(CodeGenModule &CGM,
   
   std::string BitMap;
   llvm::Constant *C = BuildIvarLayoutBitmap(BitMap);
-  if (CGM.getLangOptions().ObjCGCBitmapPrint) {
+  if (CGM.getLangOpts().ObjCGCBitmapPrint) {
     printf("\n block variable layout for block: ");
     const unsigned char *s = (unsigned char*)BitMap.c_str();
     for (unsigned i = 0, e = BitMap.size(); i < e; i++)
@@ -1868,7 +1914,7 @@ struct _objc__method_prototype_list *class_methods
 See EmitProtocolExtension().
 */
 llvm::Constant *CGObjCMac::GetOrEmitProtocol(const ObjCProtocolDecl *PD) {
-  llvm::GlobalVariable *&Entry = Protocols[PD->getIdentifier()];
+  llvm::GlobalVariable *Entry = Protocols[PD->getIdentifier()];
 
   // Early exit if a defining object has already been generated.
   if (Entry && Entry->hasInitializer())
@@ -1951,6 +1997,8 @@ llvm::Constant *CGObjCMac::GetOrEmitProtocol(const ObjCProtocolDecl *PD) {
     Entry->setSection("__OBJC,__protocol,regular,no_dead_strip");
     // FIXME: Is this necessary? Why only for protocol?
     Entry->setAlignment(4);
+
+    Protocols[PD->getIdentifier()] = Entry;
   }
   CGM.AddUsedGlobal(Entry);
 
@@ -2073,7 +2121,7 @@ PushProtocolProperties(llvm::SmallPtrSet<const IdentifierInfo*,16> &PropertySet,
     PushProtocolProperties(PropertySet, Properties, Container, (*P), ObjCTypes);
   for (ObjCContainerDecl::prop_iterator I = PROTO->prop_begin(),
        E = PROTO->prop_end(); I != E; ++I) {
-    const ObjCPropertyDecl *PD = *I;
+    const ObjCPropertyDecl *PD = &*I;
     if (!PropertySet.insert(PD->getIdentifier()))
       continue;
     llvm::Constant *Prop[] = {
@@ -2104,7 +2152,7 @@ llvm::Constant *CGObjCCommonMac::EmitPropertyList(Twine Name,
   llvm::SmallPtrSet<const IdentifierInfo*, 16> PropertySet;
   for (ObjCContainerDecl::prop_iterator I = OCD->prop_begin(),
          E = OCD->prop_end(); I != E; ++I) {
-    const ObjCPropertyDecl *PD = *I;
+    const ObjCPropertyDecl *PD = &*I;
     PropertySet.insert(PD->getIdentifier());
     llvm::Constant *Prop[] = {
       GetPropertyName(PD->getIdentifier()),
@@ -2355,7 +2403,7 @@ void CGObjCMac::GenerateClass(const ObjCImplementationDecl *ID) {
 
   for (ObjCImplementationDecl::propimpl_iterator
          i = ID->propimpl_begin(), e = ID->propimpl_end(); i != e; ++i) {
-    ObjCPropertyImplDecl *PID = *i;
+    ObjCPropertyImplDecl *PID = &*i;
 
     if (PID->getPropertyImplementation() == ObjCPropertyImplDecl::Synthesize) {
       ObjCPropertyDecl *PD = PID->getPropertyDecl();
@@ -2721,6 +2769,11 @@ llvm::Constant *CGObjCMac::GetPropertyGetFunction() {
 
 llvm::Constant *CGObjCMac::GetPropertySetFunction() {
   return ObjCTypes.getSetPropertyFn();
+}
+
+llvm::Constant *CGObjCMac::GetOptimizedPropertySetFunction(bool atomic, 
+                                                           bool copy) {
+  return ObjCTypes.getOptimizedSetPropertyFn(atomic, copy);
 }
 
 llvm::Constant *CGObjCMac::GetGetStructFunction() {
@@ -3559,7 +3612,8 @@ enum ImageInfoFlags {
 
   // A flag indicating that the module has no instances of a @synthesize of a
   // superclass variable. <rdar://problem/6803242>
-  eImageInfo_CorrectedSynthesize = (1 << 4)
+  eImageInfo_CorrectedSynthesize = (1 << 4),
+  eImageInfo_ImageIsSimulated    = (1 << 5)
 };
 
 void CGObjCCommonMac::EmitImageInfo() {
@@ -3579,7 +3633,7 @@ void CGObjCCommonMac::EmitImageInfo() {
   Mod.addModuleFlag(llvm::Module::Error, "Objective-C Image Info Section",
                     llvm::MDString::get(VMContext,Section));
 
-  if (CGM.getLangOptions().getGC() == LangOptions::NonGC) {
+  if (CGM.getLangOpts().getGC() == LangOptions::NonGC) {
     // Non-GC overrides those files which specify GC.
     Mod.addModuleFlag(llvm::Module::Override,
                       "Objective-C Garbage Collection", (uint32_t)0);
@@ -3589,7 +3643,7 @@ void CGObjCCommonMac::EmitImageInfo() {
                       "Objective-C Garbage Collection",
                       eImageInfo_GarbageCollected);
 
-    if (CGM.getLangOptions().getGC() == LangOptions::GCOnly) {
+    if (CGM.getLangOpts().getGC() == LangOptions::GCOnly) {
       // Add the ObjC GC Only value.
       Mod.addModuleFlag(llvm::Module::Error, "Objective-C GC Only",
                         eImageInfo_GCOnly);
@@ -3604,6 +3658,14 @@ void CGObjCCommonMac::EmitImageInfo() {
                         llvm::MDNode::get(VMContext, Ops));
     }
   }
+
+  // Indicate whether we're compiling this to run on a simulator.
+  const llvm::Triple &Triple = CGM.getTarget().getTriple();
+  if (Triple.getOS() == llvm::Triple::IOS &&
+      (Triple.getArch() == llvm::Triple::x86 ||
+       Triple.getArch() == llvm::Triple::x86_64))
+    Mod.addModuleFlag(llvm::Module::Error, "Objective-C Is Simulated",
+                      eImageInfo_ImageIsSimulated);
 }
 
 // struct objc_module {
@@ -3756,7 +3818,10 @@ void CGObjCCommonMac::BuildAggrIvarRecordLayout(const RecordType *RT,
                                                 bool &HasUnion) {
   const RecordDecl *RD = RT->getDecl();
   // FIXME - Use iterator.
-  SmallVector<const FieldDecl*, 16> Fields(RD->field_begin(), RD->field_end());
+  SmallVector<const FieldDecl*, 16> Fields;
+  for (RecordDecl::field_iterator i = RD->field_begin(),
+                                  e = RD->field_end(); i != e; ++i)
+    Fields.push_back(&*i);
   llvm::Type *Ty = CGM.getTypes().ConvertType(QualType(RT, 0));
   const llvm::StructLayout *RecLayout =
     CGM.getTargetData().getStructLayout(cast<llvm::StructType>(Ty));
@@ -3786,7 +3851,7 @@ void CGObjCCommonMac::BuildAggrIvarLayout(const ObjCImplementationDecl *OI,
     return;
   unsigned WordSizeInBits = CGM.getContext().getTargetInfo().getPointerWidth(0);
   unsigned ByteSizeInBits = CGM.getContext().getTargetInfo().getCharWidth();
-  if (!RD && CGM.getLangOptions().ObjCAutoRefCount) {
+  if (!RD && CGM.getLangOpts().ObjCAutoRefCount) {
     const FieldDecl *FirstField = RecFields[0];
     FirstFieldDelta = 
       ComputeIvarBaseOffset(CGM, OI, cast<ObjCIvarDecl>(FirstField));
@@ -4080,13 +4145,13 @@ llvm::Constant *CGObjCCommonMac::BuildIvarLayout(
   bool hasUnion = false;
 
   llvm::Type *PtrTy = CGM.Int8PtrTy;
-  if (CGM.getLangOptions().getGC() == LangOptions::NonGC &&
-      !CGM.getLangOptions().ObjCAutoRefCount)
+  if (CGM.getLangOpts().getGC() == LangOptions::NonGC &&
+      !CGM.getLangOpts().ObjCAutoRefCount)
     return llvm::Constant::getNullValue(PtrTy);
 
   const ObjCInterfaceDecl *OI = OMD->getClassInterface();
   SmallVector<const FieldDecl*, 32> RecFields;
-  if (CGM.getLangOptions().ObjCAutoRefCount) {
+  if (CGM.getLangOpts().ObjCAutoRefCount) {
     for (const ObjCIvarDecl *IVD = OI->all_declared_ivar_begin(); 
          IVD; IVD = IVD->getNextIvar())
       RecFields.push_back(cast<FieldDecl>(IVD));
@@ -4118,7 +4183,7 @@ llvm::Constant *CGObjCCommonMac::BuildIvarLayout(
   std::string BitMap;
   llvm::Constant *C = BuildIvarLayoutBitmap(BitMap);
   
-   if (CGM.getLangOptions().ObjCGCBitmapPrint) {
+   if (CGM.getLangOpts().ObjCGCBitmapPrint) {
     printf("\n%s ivar layout for class '%s': ",
            ForStrongLayout ? "strong" : "weak",
            OMD->getClassInterface()->getName().data());
@@ -4840,7 +4905,7 @@ bool CGObjCNonFragileABIMac::isVTableDispatchedSelector(Selector Sel) {
 
     // These are vtable-based if GC is disabled.
     // Optimistically use vtable dispatch for hybrid compiles.
-    if (CGM.getLangOptions().getGC() != LangOptions::GCOnly) {
+    if (CGM.getLangOpts().getGC() != LangOptions::GCOnly) {
       VTableDispatchMethods.insert(GetNullarySelector("retain"));
       VTableDispatchMethods.insert(GetNullarySelector("release"));
       VTableDispatchMethods.insert(GetNullarySelector("autorelease"));
@@ -4856,7 +4921,7 @@ bool CGObjCNonFragileABIMac::isVTableDispatchedSelector(Selector Sel) {
 
     // These are vtable-based if GC is enabled.
     // Optimistically use vtable dispatch for hybrid compiles.
-    if (CGM.getLangOptions().getGC() != LangOptions::NonGC) {
+    if (CGM.getLangOpts().getGC() != LangOptions::NonGC) {
       VTableDispatchMethods.insert(GetNullarySelector("hash"));
       VTableDispatchMethods.insert(GetUnarySelector("addObject"));
     
@@ -4910,7 +4975,7 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
   std::string ClassName = ID->getNameAsString();
   llvm::Constant *Values[10]; // 11 for 64bit targets!
 
-  if (CGM.getLangOptions().ObjCAutoRefCount)
+  if (CGM.getLangOpts().ObjCAutoRefCount)
     flags |= CLS_COMPILED_BY_ARC;
 
   Values[ 0] = llvm::ConstantInt::get(ObjCTypes.IntTy, flags);
@@ -4939,7 +5004,7 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
     }
     for (ObjCImplementationDecl::propimpl_iterator
            i = ID->propimpl_begin(), e = ID->propimpl_end(); i != e; ++i) {
-      ObjCPropertyImplDecl *PID = *i;
+      ObjCPropertyImplDecl *PID = &*i;
 
       if (PID->getPropertyImplementation() == ObjCPropertyImplDecl::Synthesize){
         ObjCPropertyDecl *PD = PID->getPropertyDecl();
@@ -5501,7 +5566,7 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocolRef(
 
 llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
   const ObjCProtocolDecl *PD) {
-  llvm::GlobalVariable *&Entry = Protocols[PD->getIdentifier()];
+  llvm::GlobalVariable *Entry = Protocols[PD->getIdentifier()];
 
   // Early exit if a defining object has already been generated.
   if (Entry && Entry->hasInitializer())
@@ -5598,6 +5663,8 @@ llvm::Constant *CGObjCNonFragileABIMac::GetOrEmitProtocol(
     Entry->setAlignment(
       CGM.getTargetData().getABITypeAlignment(ObjCTypes.ProtocolnfABITy));
     Entry->setSection("__DATA,__datacoal_nt,coalesced");
+
+    Protocols[PD->getIdentifier()] = Entry;
   }
   Entry->setVisibility(llvm::GlobalValue::HiddenVisibility);
   CGM.AddUsedGlobal(Entry);
@@ -5826,7 +5893,7 @@ CGObjCNonFragileABIMac::EmitVTableMessageSend(CodeGenFunction &CGF,
   }
   
   bool requiresnullCheck = false;
-  if (CGM.getLangOptions().ObjCAutoRefCount && method)
+  if (CGM.getLangOpts().ObjCAutoRefCount && method)
     for (ObjCMethodDecl::param_const_iterator i = method->param_begin(),
          e = method->param_end(); i != e; ++i) {
       const ParmVarDecl *ParamDecl = (*i);
@@ -6293,7 +6360,7 @@ CGObjCNonFragileABIMac::GetInterfaceEHType(const ObjCInterfaceDecl *ID,
                                       ID->getIdentifier()->getName()));
   }
 
-  if (CGM.getLangOptions().getVisibilityMode() == HiddenVisibility)
+  if (CGM.getLangOpts().getVisibilityMode() == HiddenVisibility)
     Entry->setVisibility(llvm::GlobalValue::HiddenVisibility);
   Entry->setAlignment(CGM.getTargetData().getABITypeAlignment(
       ObjCTypes.EHTypeTy));
@@ -6312,7 +6379,7 @@ CGObjCNonFragileABIMac::GetInterfaceEHType(const ObjCInterfaceDecl *ID,
 
 CodeGen::CGObjCRuntime *
 CodeGen::CreateMacObjCRuntime(CodeGen::CodeGenModule &CGM) {
-  if (CGM.getLangOptions().ObjCNonFragileABI)
+  if (CGM.getLangOpts().ObjCNonFragileABI)
     return new CGObjCNonFragileABIMac(CGM);
   return new CGObjCMac(CGM);
 }

@@ -13,6 +13,7 @@
 #include "clang/Driver/Action.h"
 #include "clang/Driver/ToolChain.h"
 
+#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Compiler.h"
 
@@ -198,13 +199,18 @@ private:
   mutable bool TargetIsIPhoneOSSimulator;
 
   /// The OS version we are targeting.
-  mutable unsigned TargetVersion[3];
+  mutable VersionTuple TargetVersion;
 
   /// The default macosx-version-min of this tool chain; empty until
   /// initialized.
   std::string MacosxVersionMin;
 
+  /// The default ios-version-min of this tool chain; empty until
+  /// initialized.
+  std::string iOSVersionMin;
+
   bool hasARCRuntime() const;
+  bool hasSubscriptingRuntime() const;
 
 private:
   void AddDeploymentTarget(DerivedArgList &Args) const;
@@ -229,17 +235,14 @@ public:
     // change. This will go away when we move away from argument translation.
     if (TargetInitialized && TargetIsIPhoneOS == IsIPhoneOS &&
         TargetIsIPhoneOSSimulator == IsIOSSim &&
-        TargetVersion[0] == Major && TargetVersion[1] == Minor &&
-        TargetVersion[2] == Micro)
+        TargetVersion == VersionTuple(Major, Minor, Micro))
       return;
 
     assert(!TargetInitialized && "Target already initialized!");
     TargetInitialized = true;
     TargetIsIPhoneOS = IsIPhoneOS;
     TargetIsIPhoneOSSimulator = IsIOSSim;
-    TargetVersion[0] = Major;
-    TargetVersion[1] = Minor;
-    TargetVersion[2] = Micro;
+    TargetVersion = VersionTuple(Major, Minor, Micro);
   }
 
   bool isTargetIPhoneOS() const {
@@ -252,13 +255,17 @@ public:
     return TargetIsIPhoneOSSimulator;
   }
 
+  bool isTargetMacOS() const {
+    return !isTargetIOSSimulator() &&
+           !isTargetIPhoneOS() &&
+           ARCRuntimeForSimulator == ARCSimulator_None;
+  }
+
   bool isTargetInitialized() const { return TargetInitialized; }
 
-  void getTargetVersion(unsigned (&Res)[3]) const {
+  VersionTuple getTargetVersion() const {
     assert(TargetInitialized && "Target not initialized!");
-    Res[0] = TargetVersion[0];
-    Res[1] = TargetVersion[1];
-    Res[2] = TargetVersion[2];
+    return TargetVersion;
   }
 
   /// getDarwinArchName - Get the "Darwin" arch name for a particular compiler
@@ -266,33 +273,15 @@ public:
   /// distinct architectures.
   StringRef getDarwinArchName(const ArgList &Args) const;
 
-  static bool isVersionLT(unsigned (&A)[3], unsigned (&B)[3]) {
-    for (unsigned i=0; i < 3; ++i) {
-      if (A[i] > B[i]) return false;
-      if (A[i] < B[i]) return true;
-    }
-    return false;
-  }
-
   bool isIPhoneOSVersionLT(unsigned V0, unsigned V1=0, unsigned V2=0) const {
     assert(isTargetIPhoneOS() && "Unexpected call for OS X target!");
-    unsigned B[3] = { V0, V1, V2 };
-    return isVersionLT(TargetVersion, B);
+    return TargetVersion < VersionTuple(V0, V1, V2);
   }
 
   bool isMacosxVersionLT(unsigned V0, unsigned V1=0, unsigned V2=0) const {
     assert(!isTargetIPhoneOS() && "Unexpected call for iPhoneOS target!");
-    unsigned B[3] = { V0, V1, V2 };
-    return isVersionLT(TargetVersion, B);
+    return TargetVersion < VersionTuple(V0, V1, V2);
   }
-
-  /// AddLinkSearchPathArgs - Add the linker search paths to \arg CmdArgs.
-  ///
-  /// \param Args - The input argument list.
-  /// \param CmdArgs [out] - The command argument list to append the paths
-  /// (prefixed by -L) to.
-  virtual void AddLinkSearchPathArgs(const ArgList &Args,
-                                     ArgStringList &CmdArgs) const = 0;
 
   /// AddLinkARCArgs - Add the linker arguments to link the ARC runtime library.
   virtual void AddLinkARCArgs(const ArgList &Args,
@@ -340,9 +329,13 @@ public:
     return ToolChain::IsStrictAliasingDefault();
 #endif
   }
-  
-  virtual bool IsObjCDefaultSynthPropertiesDefault() const {
+
+  virtual bool IsMathErrnoDefault() const {
     return false;
+  }
+
+  virtual bool IsObjCDefaultSynthPropertiesDefault() const {
+    return true;
   }
 
   virtual bool IsObjCNonFragileABIDefault() const {
@@ -398,9 +391,6 @@ public:
 
   /// @name Darwin ToolChain Implementation
   /// {
-
-  virtual void AddLinkSearchPathArgs(const ArgList &Args,
-                                    ArgStringList &CmdArgs) const;
 
   virtual void AddLinkRuntimeLibArgs(const ArgList &Args,
                                      ArgStringList &CmdArgs) const;
@@ -466,6 +456,17 @@ class LLVM_LIBRARY_VISIBILITY OpenBSD : public Generic_ELF {
 public:
   OpenBSD(const Driver &D, const llvm::Triple& Triple, const ArgList &Args);
 
+  virtual bool IsMathErrnoDefault() const { return false; }
+  virtual bool IsObjCNonFragileABIDefault() const { return true; }
+  virtual bool IsObjCLegacyDispatchDefault() const {
+    llvm::Triple::ArchType Arch = getTriple().getArch();
+    if (Arch == llvm::Triple::arm ||
+        Arch == llvm::Triple::x86 ||
+        Arch == llvm::Triple::x86_64)
+     return false;
+    return true;
+  }
+
   virtual Tool &SelectTool(const Compilation &C, const JobAction &JA,
                            const ActionList &Inputs) const;
 };
@@ -474,6 +475,17 @@ class LLVM_LIBRARY_VISIBILITY FreeBSD : public Generic_ELF {
 public:
   FreeBSD(const Driver &D, const llvm::Triple& Triple, const ArgList &Args);
 
+  virtual bool IsMathErrnoDefault() const { return false; }
+  virtual bool IsObjCNonFragileABIDefault() const { return true; }
+  virtual bool IsObjCLegacyDispatchDefault() const {
+    llvm::Triple::ArchType Arch = getTriple().getArch();
+    if (Arch == llvm::Triple::arm ||
+        Arch == llvm::Triple::x86 ||
+        Arch == llvm::Triple::x86_64)
+     return false;
+    return true;
+  }
+
   virtual Tool &SelectTool(const Compilation &C, const JobAction &JA,
                            const ActionList &Inputs) const;
 };
@@ -481,6 +493,17 @@ public:
 class LLVM_LIBRARY_VISIBILITY NetBSD : public Generic_ELF {
 public:
   NetBSD(const Driver &D, const llvm::Triple& Triple, const ArgList &Args);
+
+  virtual bool IsMathErrnoDefault() const { return false; }
+  virtual bool IsObjCNonFragileABIDefault() const { return true; }
+  virtual bool IsObjCLegacyDispatchDefault() const {
+    llvm::Triple::ArchType Arch = getTriple().getArch();
+    if (Arch == llvm::Triple::arm ||
+        Arch == llvm::Triple::x86 ||
+        Arch == llvm::Triple::x86_64)
+     return false;
+    return true;
+  }
 
   virtual Tool &SelectTool(const Compilation &C, const JobAction &JA,
                            const ActionList &Inputs) const;
@@ -497,6 +520,8 @@ public:
 class LLVM_LIBRARY_VISIBILITY DragonFly : public Generic_ELF {
 public:
   DragonFly(const Driver &D, const llvm::Triple& Triple, const ArgList &Args);
+
+  virtual bool IsMathErrnoDefault() const { return false; }
 
   virtual Tool &SelectTool(const Compilation &C, const JobAction &JA,
                            const ActionList &Inputs) const;

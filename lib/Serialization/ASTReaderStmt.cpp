@@ -159,9 +159,18 @@ void ASTStmtReader::VisitLabelStmt(LabelStmt *S) {
   S->setIdentLoc(ReadSourceLocation(Record, Idx));
 }
 
+void ASTStmtReader::VisitAttributedStmt(AttributedStmt *S) {
+  VisitStmt(S);
+  AttrVec Attrs;
+  Reader.ReadAttributes(F, Attrs, Record, Idx);
+  S->Attrs = Attrs;
+  S->SubStmt = Reader.ReadSubStmt();
+  S->AttrLoc = ReadSourceLocation(Record, Idx);
+}
+
 void ASTStmtReader::VisitIfStmt(IfStmt *S) {
   VisitStmt(S);
-  S->setConditionVariable(Reader.getContext(), 
+  S->setConditionVariable(Reader.getContext(),
                           ReadDeclAs<VarDecl>(Record, Idx));
   S->setCond(Reader.ReadSubExpr());
   S->setThen(Reader.ReadSubStmt());
@@ -333,6 +342,7 @@ void ASTStmtReader::VisitDeclRefExpr(DeclRefExpr *E) {
   E->DeclRefExprBits.HasFoundDecl = Record[Idx++];
   E->DeclRefExprBits.HasTemplateKWAndArgsInfo = Record[Idx++];
   E->DeclRefExprBits.HadMultipleCandidates = Record[Idx++];
+  E->DeclRefExprBits.RefersToEnclosingLocal = Record[Idx++];
   unsigned NumTemplateArgs = 0;
   if (E->hasTemplateKWAndArgsInfo())
     NumTemplateArgs = Record[Idx++];
@@ -752,14 +762,6 @@ void ASTStmtReader::VisitBlockExpr(BlockExpr *E) {
   E->setBlockDecl(ReadDeclAs<BlockDecl>(Record, Idx));
 }
 
-void ASTStmtReader::VisitBlockDeclRefExpr(BlockDeclRefExpr *E) {
-  VisitExpr(E);
-  E->setDecl(ReadDeclAs<VarDecl>(Record, Idx));
-  E->setLocation(ReadSourceLocation(Record, Idx));
-  E->setByRef(Record[Idx++]);
-  E->setConstQualAdded(Record[Idx++]);
-}
-
 void ASTStmtReader::VisitGenericSelectionExpr(GenericSelectionExpr *E) {
   VisitExpr(E);
   E->NumAssocs = Record[Idx++];
@@ -797,21 +799,12 @@ void ASTStmtReader::VisitPseudoObjectExpr(PseudoObjectExpr *E) {
 
 void ASTStmtReader::VisitAtomicExpr(AtomicExpr *E) {
   VisitExpr(E);
-  E->setOp(AtomicExpr::AtomicOp(Record[Idx++]));
-  E->setPtr(Reader.ReadSubExpr());
-  E->setOrder(Reader.ReadSubExpr());
-  E->setNumSubExprs(2);
-  if (E->getOp() != AtomicExpr::Load) {
-    E->setVal1(Reader.ReadSubExpr());
-    E->setNumSubExprs(3);
-  }
-  if (E->isCmpXChg()) {
-    E->setOrderFail(Reader.ReadSubExpr());
-    E->setVal2(Reader.ReadSubExpr());
-    E->setNumSubExprs(5);
-  }
-  E->setBuiltinLoc(ReadSourceLocation(Record, Idx));
-  E->setRParenLoc(ReadSourceLocation(Record, Idx));
+  E->Op = AtomicExpr::AtomicOp(Record[Idx++]);
+  E->NumSubExprs = AtomicExpr::getNumSubExprs(E->Op);
+  for (unsigned I = 0; I != E->NumSubExprs; ++I)
+    E->SubExprs[I] = Reader.ReadSubExpr();
+  E->BuiltinLoc = ReadSourceLocation(Record, Idx);
+  E->RParenLoc = ReadSourceLocation(Record, Idx);
 }
 
 //===----------------------------------------------------------------------===//
@@ -821,6 +814,45 @@ void ASTStmtReader::VisitObjCStringLiteral(ObjCStringLiteral *E) {
   VisitExpr(E);
   E->setString(cast<StringLiteral>(Reader.ReadSubStmt()));
   E->setAtLoc(ReadSourceLocation(Record, Idx));
+}
+
+void ASTStmtReader::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+  VisitExpr(E);
+  // could be one of several IntegerLiteral, FloatLiteral, etc.
+  E->SubExpr = Reader.ReadSubStmt();
+  E->BoxingMethod = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
+  E->Range = ReadSourceRange(Record, Idx);
+}
+
+void ASTStmtReader::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+  VisitExpr(E);
+  unsigned NumElements = Record[Idx++];
+  assert(NumElements == E->getNumElements() && "Wrong number of elements");
+  Expr **Elements = E->getElements();
+  for (unsigned I = 0, N = NumElements; I != N; ++I)
+    Elements[I] = Reader.ReadSubExpr();
+  E->ArrayWithObjectsMethod = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
+  E->Range = ReadSourceRange(Record, Idx);
+}
+
+void ASTStmtReader::VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
+  VisitExpr(E);
+  unsigned NumElements = Record[Idx++];
+  assert(NumElements == E->getNumElements() && "Wrong number of elements");
+  bool HasPackExpansions = Record[Idx++];
+  assert(HasPackExpansions == E->HasPackExpansions &&"Pack expansion mismatch");
+  ObjCDictionaryLiteral::KeyValuePair *KeyValues = E->getKeyValues();
+  ObjCDictionaryLiteral::ExpansionData *Expansions = E->getExpansionData();
+  for (unsigned I = 0; I != NumElements; ++I) {
+    KeyValues[I].Key = Reader.ReadSubExpr();
+    KeyValues[I].Value = Reader.ReadSubExpr();
+    if (HasPackExpansions) {
+      Expansions[I].EllipsisLoc = ReadSourceLocation(Record, Idx);
+      Expansions[I].NumExpansionsPlusOne = Record[Idx++];
+    }
+  }
+  E->DictWithObjectsMethod = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
+  E->Range = ReadSourceRange(Record, Idx);
 }
 
 void ASTStmtReader::VisitObjCEncodeExpr(ObjCEncodeExpr *E) {
@@ -855,13 +887,15 @@ void ASTStmtReader::VisitObjCIvarRefExpr(ObjCIvarRefExpr *E) {
 
 void ASTStmtReader::VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
   VisitExpr(E);
+  unsigned MethodRefFlags = Record[Idx++];
   bool Implicit = Record[Idx++] != 0;
   if (Implicit) {
     ObjCMethodDecl *Getter = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
     ObjCMethodDecl *Setter = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
-    E->setImplicitProperty(Getter, Setter);
+    E->setImplicitProperty(Getter, Setter, MethodRefFlags);
   } else {
-    E->setExplicitProperty(ReadDeclAs<ObjCPropertyDecl>(Record, Idx));
+    E->setExplicitProperty(ReadDeclAs<ObjCPropertyDecl>(Record, Idx),
+                           MethodRefFlags);
   }
   E->setLocation(ReadSourceLocation(Record, Idx));
   E->setReceiverLocation(ReadSourceLocation(Record, Idx));
@@ -876,6 +910,15 @@ void ASTStmtReader::VisitObjCPropertyRefExpr(ObjCPropertyRefExpr *E) {
     E->setClassReceiver(ReadDeclAs<ObjCInterfaceDecl>(Record, Idx));
     break;
   }
+}
+
+void ASTStmtReader::VisitObjCSubscriptRefExpr(ObjCSubscriptRefExpr *E) {
+  VisitExpr(E);
+  E->setRBracket(ReadSourceLocation(Record, Idx));
+  E->setBaseExpr(Reader.ReadSubExpr());
+  E->setKeyExpr(Reader.ReadSubExpr());
+  E->GetAtIndexMethodDecl = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
+  E->SetAtIndexMethodDecl = ReadDeclAs<ObjCMethodDecl>(Record, Idx);
 }
 
 void ASTStmtReader::VisitObjCMessageExpr(ObjCMessageExpr *E) {
@@ -980,6 +1023,12 @@ void ASTStmtReader::VisitObjCAtThrowStmt(ObjCAtThrowStmt *S) {
   S->setThrowLoc(ReadSourceLocation(Record, Idx));
 }
 
+void ASTStmtReader::VisitObjCBoolLiteralExpr(ObjCBoolLiteralExpr *E) {
+  VisitExpr(E);
+  E->setValue(Record[Idx++]);
+  E->setLocation(ReadSourceLocation(Record, Idx));
+}
+
 //===----------------------------------------------------------------------===//
 // C++ Expressions and Statements
 //===----------------------------------------------------------------------===//
@@ -1025,7 +1074,8 @@ void ASTStmtReader::VisitMSDependentExistsStmt(MSDependentExistsStmt *S) {
 
 void ASTStmtReader::VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
   VisitCallExpr(E);
-  E->setOperator((OverloadedOperatorKind)Record[Idx++]);
+  E->Operator = (OverloadedOperatorKind)Record[Idx++];
+  E->Range = Reader.ReadSourceRange(F, Record, Idx);
 }
 
 void ASTStmtReader::VisitCXXConstructExpr(CXXConstructExpr *E) {
@@ -1105,6 +1155,11 @@ void ASTStmtReader::VisitCXXFunctionalCastExpr(CXXFunctionalCastExpr *E) {
   VisitExplicitCastExpr(E);
   E->setTypeBeginLoc(ReadSourceLocation(Record, Idx));
   E->setRParenLoc(ReadSourceLocation(Record, Idx));
+}
+
+void ASTStmtReader::VisitUserDefinedLiteral(UserDefinedLiteral *E) {
+  VisitCallExpr(E);
+  E->UDSuffixLoc = ReadSourceLocation(Record, Idx);
 }
 
 void ASTStmtReader::VisitCXXBoolLiteralExpr(CXXBoolLiteralExpr *E) {
@@ -1585,6 +1640,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) LabelStmt(Empty);
       break;
 
+    case STMT_ATTRIBUTED:
+      S = new (Context) AttributedStmt(Empty);
+      break;
+
     case STMT_IF:
       S = new (Context) IfStmt(Empty);
       break;
@@ -1644,7 +1703,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
         /*HasFoundDecl=*/Record[ASTStmtReader::NumExprFields + 1],
         /*HasTemplateKWAndArgsInfo=*/Record[ASTStmtReader::NumExprFields + 2],
         /*NumTemplateArgs=*/Record[ASTStmtReader::NumExprFields + 2] ?
-          Record[ASTStmtReader::NumExprFields + 4] : 0);
+          Record[ASTStmtReader::NumExprFields + 5] : 0);
       break;
 
     case EXPR_INTEGER_LITERAL:
@@ -1823,16 +1882,24 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) BlockExpr(Empty);
       break;
 
-    case EXPR_BLOCK_DECL_REF:
-      S = new (Context) BlockDeclRefExpr(Empty);
-      break;
-
     case EXPR_GENERIC_SELECTION:
       S = new (Context) GenericSelectionExpr(Empty);
       break;
 
     case EXPR_OBJC_STRING_LITERAL:
       S = new (Context) ObjCStringLiteral(Empty);
+      break;
+    case EXPR_OBJC_BOXED_EXPRESSION:
+      S = new (Context) ObjCBoxedExpr(Empty);
+      break;
+    case EXPR_OBJC_ARRAY_LITERAL:
+      S = ObjCArrayLiteral::CreateEmpty(Context,
+                                        Record[ASTStmtReader::NumExprFields]);
+      break;
+    case EXPR_OBJC_DICTIONARY_LITERAL:
+      S = ObjCDictionaryLiteral::CreateEmpty(Context,
+            Record[ASTStmtReader::NumExprFields],
+            Record[ASTStmtReader::NumExprFields + 1]);
       break;
     case EXPR_OBJC_ENCODE:
       S = new (Context) ObjCEncodeExpr(Empty);
@@ -1848,6 +1915,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     case EXPR_OBJC_PROPERTY_REF_EXPR:
       S = new (Context) ObjCPropertyRefExpr(Empty);
+      break;
+    case EXPR_OBJC_SUBSCRIPT_REF_EXPR:
+      S = new (Context) ObjCSubscriptRefExpr(Empty);
       break;
     case EXPR_OBJC_KVC_REF_EXPR:
       llvm_unreachable("mismatching AST file");
@@ -1887,6 +1957,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     case STMT_OBJC_AUTORELEASE_POOL:
       S = new (Context) ObjCAutoreleasePoolStmt(Empty);
+      break;
+    case EXPR_OBJC_BOOL_LITERAL:
+      S = new (Context) ObjCBoolLiteralExpr(Empty);
       break;
     case STMT_SEH_EXCEPT:
       S = new (Context) SEHExceptStmt(Empty);
@@ -1955,6 +2028,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case EXPR_CXX_FUNCTIONAL_CAST:
       S = CXXFunctionalCastExpr::CreateEmpty(Context,
                        /*PathSize*/ Record[ASTStmtReader::NumExprFields]);
+      break;
+
+    case EXPR_USER_DEFINED_LITERAL:
+      S = new (Context) UserDefinedLiteral(Context, Empty);
       break;
 
     case EXPR_CXX_BOOL_LITERAL:

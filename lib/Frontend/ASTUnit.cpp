@@ -351,7 +351,8 @@ void ASTUnit::CacheCodeCompletionResults() {
   typedef CodeCompletionResult Result;
   SmallVector<Result, 8> Results;
   CachedCompletionAllocator = new GlobalCodeCompletionAllocator;
-  TheSema->GatherGlobalCodeCompletions(*CachedCompletionAllocator, Results);
+  TheSema->GatherGlobalCodeCompletions(*CachedCompletionAllocator,
+                                       getCodeCompletionTUInfo(), Results);
   
   // Translate global code completions into cached completions.
   llvm::DenseMap<CanQualType, unsigned> CompletionTypes;
@@ -362,9 +363,10 @@ void ASTUnit::CacheCodeCompletionResults() {
       bool IsNestedNameSpecifier = false;
       CachedCodeCompletionResult CachedResult;
       CachedResult.Completion = Results[I].CreateCodeCompletionString(*TheSema,
-                                                    *CachedCompletionAllocator);
+                                                    *CachedCompletionAllocator,
+                                                    getCodeCompletionTUInfo());
       CachedResult.ShowInContexts = getDeclShowContexts(Results[I].Declaration,
-                                                        Ctx->getLangOptions(),
+                                                        Ctx->getLangOpts(),
                                                         IsNestedNameSpecifier);
       CachedResult.Priority = Results[I].Priority;
       CachedResult.Kind = Results[I].CursorKind;
@@ -397,7 +399,7 @@ void ASTUnit::CacheCodeCompletionResults() {
       CachedCompletionResults.push_back(CachedResult);
       
       /// Handle nested-name-specifiers in C++.
-      if (TheSema->Context.getLangOptions().CPlusPlus && 
+      if (TheSema->Context.getLangOpts().CPlusPlus && 
           IsNestedNameSpecifier && !Results[I].StartsNestedNameSpecifier) {
         // The contexts in which a nested-name-specifier can appear in C++.
         unsigned NNSContexts
@@ -426,7 +428,8 @@ void ASTUnit::CacheCodeCompletionResults() {
           Results[I].StartsNestedNameSpecifier = true;
           CachedResult.Completion 
             = Results[I].CreateCodeCompletionString(*TheSema,
-                                                    *CachedCompletionAllocator);
+                                                    *CachedCompletionAllocator,
+                                                    getCodeCompletionTUInfo());
           CachedResult.ShowInContexts = RemainingContexts;
           CachedResult.Priority = CCP_NestedNameSpecifier;
           CachedResult.TypeClass = STC_Void;
@@ -447,7 +450,8 @@ void ASTUnit::CacheCodeCompletionResults() {
       CachedCodeCompletionResult CachedResult;
       CachedResult.Completion 
         = Results[I].CreateCodeCompletionString(*TheSema,
-                                                *CachedCompletionAllocator);
+                                                *CachedCompletionAllocator,
+                                                getCodeCompletionTUInfo());
       CachedResult.ShowInContexts
         = (1 << (CodeCompletionContext::CCC_TopLevel - 1))
         | (1 << (CodeCompletionContext::CCC_ObjCInterface - 1))
@@ -639,8 +643,10 @@ void ASTUnit::ConfigureDiags(IntrusiveRefCntPtr<DiagnosticsEngine> &Diags,
     DiagnosticConsumer *Client = 0;
     if (CaptureDiagnostics)
       Client = new StoredDiagnosticConsumer(AST.StoredDiagnostics);
-    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd- ArgBegin, 
-                                                ArgBegin, Client);
+    Diags = CompilerInstance::createDiagnostics(DiagOpts, ArgEnd-ArgBegin,
+                                                ArgBegin, Client,
+                                                /*ShouldOwnClient=*/true,
+                                                /*ShouldCloneClient=*/false);
   } else if (CaptureDiagnostics) {
     Diags->setClient(new StoredDiagnosticConsumer(AST.StoredDiagnostics));
   }
@@ -652,7 +658,8 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
                                   bool OnlyLocalDecls,
                                   RemappedFile *RemappedFiles,
                                   unsigned NumRemappedFiles,
-                                  bool CaptureDiagnostics) {
+                                  bool CaptureDiagnostics,
+                                  bool AllowPCHWithCompilerErrors) {
   OwningPtr<ASTUnit> AST(new ASTUnit(true));
 
   // Recover resources if we crash before exiting this method.
@@ -748,7 +755,11 @@ ASTUnit *ASTUnit::LoadFromASTFile(const std::string &Filename,
                             /*DelayInitialization=*/true);
   ASTContext &Context = *AST->Ctx;
 
-  Reader.reset(new ASTReader(PP, Context));
+  Reader.reset(new ASTReader(PP, Context,
+                             /*isysroot=*/"",
+                             /*DisableValidation=*/false,
+                             /*DisableStatCache=*/false,
+                             AllowPCHWithCompilerErrors));
   
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<ASTReader>
@@ -1129,18 +1140,12 @@ bool ASTUnit::Parse(llvm::MemoryBuffer *OverrideMainBuffer) {
   }
 
   Act->Execute();
-  
-  // Steal the created target, context, and preprocessor.
-  TheSema.reset(Clang->takeSema());
-  Consumer.reset(Clang->takeASTConsumer());
-  Ctx = &Clang->getASTContext();
-  PP = &Clang->getPreprocessor();
-  Clang->setSourceManager(0);
-  Clang->setFileManager(0);
-  Target = &Clang->getTarget();
-  Reader = Clang->getModuleManager();
+
+  transferASTDataFromCompilerInstance(*Clang);
   
   Act->EndSourceFile();
+
+  FailedParseDiagnostics.clear();
 
   return false;
 
@@ -1150,7 +1155,11 @@ error:
     delete OverrideMainBuffer;
     SavedMainFileBuffer = 0;
   }
-  
+
+  // Keep the ownership of the data in the ASTUnit because the client may
+  // want to see the diagnostics.
+  transferASTDataFromCompilerInstance(*Clang);
+  FailedParseDiagnostics.swap(StoredDiagnostics);
   StoredDiagnostics.clear();
   NumStoredDiagnosticsFromDriver = 0;
   return true;
@@ -1638,6 +1647,18 @@ void ASTUnit::RealizeTopLevelDeclsFromPreamble() {
   TopLevelDecls.insert(TopLevelDecls.begin(), Resolved.begin(), Resolved.end());
 }
 
+void ASTUnit::transferASTDataFromCompilerInstance(CompilerInstance &CI) {
+  // Steal the created target, context, and preprocessor.
+  TheSema.reset(CI.takeSema());
+  Consumer.reset(CI.takeASTConsumer());
+  Ctx = &CI.getASTContext();
+  PP = &CI.getPreprocessor();
+  CI.setSourceManager(0);
+  CI.setFileManager(0);
+  Target = &CI.getTarget();
+  Reader = CI.getModuleManager();
+}
+
 StringRef ASTUnit::getMainFileName() const {
   return Invocation->getFrontendOpts().Inputs[0].File;
 }
@@ -1666,7 +1687,8 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
                                              bool OnlyLocalDecls,
                                              bool CaptureDiagnostics,
                                              bool PrecompilePreamble,
-                                             bool CacheCodeCompletionResults) {
+                                             bool CacheCodeCompletionResults,
+                                             OwningPtr<ASTUnit> *ErrAST) {
   assert(CI && "A CompilerInvocation is required");
 
   OwningPtr<ASTUnit> OwnAST;
@@ -1761,8 +1783,13 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
   llvm::CrashRecoveryContextCleanupRegistrar<TopLevelDeclTrackerAction>
     ActCleanup(TrackerAct.get());
 
-  if (!Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0]))
+  if (!Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0])) {
+    AST->transferASTDataFromCompilerInstance(*Clang);
+    if (OwnAST && ErrAST)
+      ErrAST->swap(OwnAST);
+
     return 0;
+  }
 
   if (Persistent && !TrackerAct) {
     Clang->getPreprocessor().addPPCallbacks(
@@ -1775,16 +1802,9 @@ ASTUnit *ASTUnit::LoadFromCompilerInvocationAction(CompilerInvocation *CI,
     Clang->setASTConsumer(new MultiplexConsumer(Consumers));
   }
   Act->Execute();
-  
+
   // Steal the created target, context, and preprocessor.
-  AST->TheSema.reset(Clang->takeSema());
-  AST->Consumer.reset(Clang->takeASTConsumer());
-  AST->Ctx = &Clang->getASTContext();
-  AST->PP = &Clang->getPreprocessor();
-  Clang->setSourceManager(0);
-  Clang->setFileManager(0);
-  AST->Target = &Clang->getTarget();
-  AST->Reader = Clang->getModuleManager();
+  AST->transferASTDataFromCompilerInstance(*Clang);
   
   Act->EndSourceFile();
 
@@ -1862,7 +1882,10 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
                                       bool RemappedFilesKeepOriginalName,
                                       bool PrecompilePreamble,
                                       TranslationUnitKind TUKind,
-                                      bool CacheCodeCompletionResults) {
+                                      bool CacheCodeCompletionResults,
+                                      bool AllowPCHWithCompilerErrors,
+                                      bool SkipFunctionBodies,
+                                      OwningPtr<ASTUnit> *ErrAST) {
   if (!Diags.getPtr()) {
     // No diagnostics engine was provided, so create our own diagnostics object
     // with the default options.
@@ -1898,11 +1921,14 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
       CI->getPreprocessorOpts().addRemappedFile(RemappedFiles[I].first, fname);
     }
   }
-  CI->getPreprocessorOpts().RemappedFilesKeepOriginalName =
-                                                  RemappedFilesKeepOriginalName;
+  PreprocessorOptions &PPOpts = CI->getPreprocessorOpts();
+  PPOpts.RemappedFilesKeepOriginalName = RemappedFilesKeepOriginalName;
+  PPOpts.AllowPCHWithCompilerErrors = AllowPCHWithCompilerErrors;
   
   // Override the resources path.
   CI->getHeaderSearchOpts().ResourceDir = ResourceFilesPath;
+
+  CI->getFrontendOpts().SkipFunctionBodies = SkipFunctionBodies;
 
   // Create the AST unit.
   OwningPtr<ASTUnit> AST;
@@ -1925,7 +1951,17 @@ ASTUnit *ASTUnit::LoadFromCommandLine(const char **ArgBegin,
   llvm::CrashRecoveryContextCleanupRegistrar<ASTUnit>
     ASTUnitCleanup(AST.get());
 
-  return AST->LoadFromCompilerInvocation(PrecompilePreamble) ? 0 : AST.take();
+  if (AST->LoadFromCompilerInvocation(PrecompilePreamble)) {
+    // Some error occurred, if caller wants to examine diagnostics, pass it the
+    // ASTUnit.
+    if (ErrAST) {
+      AST->StoredDiagnostics.swap(AST->FailedParseDiagnostics);
+      ErrAST->swap(AST);
+    }
+    return 0;
+  }
+
+  return AST.take();
 }
 
 bool ASTUnit::Reparse(RemappedFile *RemappedFiles, unsigned NumRemappedFiles) {
@@ -1982,9 +2018,9 @@ bool ASTUnit::Reparse(RemappedFile *RemappedFiles, unsigned NumRemappedFiles) {
       CurrentTopLevelHashValue != CompletionCacheTopLevelHashValue)
     CacheCodeCompletionResults();
 
-  // We now need to clear out the completion allocator for
-  // clang_getCursorCompletionString; it'll be recreated if necessary.
-  CursorCompletionAllocator = 0;
+  // We now need to clear out the completion info related to this translation
+  // unit; it'll be recreated if necessary.
+  CCTUInfo.reset();
   
   return Result;
 }
@@ -2026,7 +2062,7 @@ namespace {
         | (1LL << (CodeCompletionContext::CCC_ParenthesizedExpression - 1))
         | (1LL << (CodeCompletionContext::CCC_Recovery - 1));
 
-      if (AST.getASTContext().getLangOptions().CPlusPlus)
+      if (AST.getASTContext().getLangOpts().CPlusPlus)
         NormalContexts |= (1LL << (CodeCompletionContext::CCC_EnumTag - 1))
                    | (1LL << (CodeCompletionContext::CCC_UnionTag - 1))
                    | (1LL << (CodeCompletionContext::CCC_ClassOrStructTag - 1));
@@ -2045,6 +2081,10 @@ namespace {
     
     virtual CodeCompletionAllocator &getAllocator() {
       return Next.getAllocator();
+    }
+
+    virtual CodeCompletionTUInfo &getCodeCompletionTUInfo() {
+      return Next.getCodeCompletionTUInfo();
     }
   };
 }
@@ -2117,7 +2157,7 @@ static void CalculateHiddenNames(const CodeCompletionContext &Context,
       unsigned HiddenIDNS = (Decl::IDNS_Type | Decl::IDNS_Member | 
                              Decl::IDNS_Namespace | Decl::IDNS_Ordinary |
                              Decl::IDNS_NonMemberOperator);
-      if (Ctx.getLangOptions().CPlusPlus)
+      if (Ctx.getLangOpts().CPlusPlus)
         HiddenIDNS |= Decl::IDNS_Tag;
       Hiding = (IDNS & HiddenIDNS);
     }
@@ -2177,7 +2217,7 @@ void AugmentedCodeCompleteConsumer::ProcessCodeCompleteResults(Sema &S,
     if (!Context.getPreferredType().isNull()) {
       if (C->Kind == CXCursor_MacroDefinition) {
         Priority = getMacroUsagePriority(C->Completion->getTypedText(),
-                                         S.getLangOptions(),
+                                         S.getLangOpts(),
                                Context.getPreferredType()->isAnyPointerType());        
       } else if (C->Type) {
         CanQualType Expected
@@ -2203,8 +2243,8 @@ void AugmentedCodeCompleteConsumer::ProcessCodeCompleteResults(Sema &S,
         Context.getKind() == CodeCompletionContext::CCC_MacroNameUse) {
       // Create a new code-completion string that just contains the
       // macro name, without its arguments.
-      CodeCompletionBuilder Builder(getAllocator(), CCP_CodePattern,
-                                    C->Availability);
+      CodeCompletionBuilder Builder(getAllocator(), getCodeCompletionTUInfo(),
+                                    CCP_CodePattern, C->Availability);
       Builder.AddTypedTextChunk(C->Completion->getTypedText());
       CursorKind = CXCursor_NotImplemented;
       Priority = CCP_CodePattern;
@@ -2330,6 +2370,8 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
                                 FrontendOpts.ShowGlobalSymbolsInCodeCompletion);
   Clang->setCodeCompletionConsumer(AugmentedConsumer);
 
+  Clang->getFrontendOpts().SkipFunctionBodies = true;
+
   // If we have a precompiled preamble, try to use it. We only allow
   // the use of the precompiled preamble if we're if the completion
   // point is within the main file, after the end of the precompiled
@@ -2388,9 +2430,6 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
 }
 
 CXSaveError ASTUnit::Save(StringRef File) {
-  if (getDiagnostics().hasUnrecoverableErrorOccurred())
-    return CXSaveError_TranslationErrors;
-
   // Write to a temporary file and later rename it to the actual file, to avoid
   // possible race conditions.
   SmallString<128> TempPath;
@@ -2407,8 +2446,10 @@ CXSaveError ASTUnit::Save(StringRef File) {
 
   serialize(Out);
   Out.close();
-  if (Out.has_error())
+  if (Out.has_error()) {
+    Out.clear_error();
     return CXSaveError_Unknown;
+  }
 
   if (llvm::sys::fs::rename(TempPath.str(), File)) {
     bool exists;
@@ -2420,14 +2461,13 @@ CXSaveError ASTUnit::Save(StringRef File) {
 }
 
 bool ASTUnit::serialize(raw_ostream &OS) {
-  if (getDiagnostics().hasErrorOccurred())
-    return true;
+  bool hasErrors = getDiagnostics().hasErrorOccurred();
 
   SmallString<128> Buffer;
   llvm::BitstreamWriter Stream(Buffer);
   ASTWriter Writer(Stream);
   // FIXME: Handle modules
-  Writer.WriteAST(getSema(), 0, std::string(), 0, "");
+  Writer.WriteAST(getSema(), 0, std::string(), 0, "", hasErrors);
   
   // Write the generated bitstream to "Out".
   if (!Buffer.empty())
