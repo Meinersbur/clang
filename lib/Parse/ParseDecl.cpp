@@ -2199,7 +2199,14 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
 
     // Microsoft single token adornments.
     case tok::kw___forceinline:
-      // FIXME: Add handling here!
+      isInvalid = DS.SetFunctionSpecInline(Loc, PrevSpec, DiagID);
+      {
+        // piggyback on GNU attribute always_inline functionality 
+        IdentifierInfo *AttrName = PP.getIdentifierInfo("always_inline");
+        DS.getAttributes().addNew(AttrName,
+          Loc, 0, Loc, 0,
+          SourceLocation(), 0, 0, false);
+      }
       break;
 
     case tok::kw___ptr64:
