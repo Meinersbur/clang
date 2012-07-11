@@ -260,7 +260,7 @@ add_subdirectory(tools)
 add_subdirectory(runtime)
 
 # TODO: docs.
-add_subdirectory(test)
+#add_subdirectory(test)
 
 if( LLVM_INCLUDE_TESTS )
   if( NOT CLANG_BUILT_STANDALONE )
