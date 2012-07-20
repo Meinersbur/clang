@@ -196,6 +196,12 @@ model can be used.
   function names, file names and line numbers (by such tools as gdb or addr2line).
   Debug info for variables or function parameters is not produced, which reduces
   the size of the resulting binary.
+
+  <li><tt>-ftls-model</tt> controls which TLS model to use for thread-local
+  variables. This can be overridden per variable using the
+  <a href="#tlsmodel"><tt>tls_model</tt> attribute</a> mentioned above.
+  For more details, see the <a href="UsersManual.html#opt_ftls-model">User's
+  Manual</a>.</li>
 </ul>
 
 <!-- = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = -->
@@ -218,21 +224,7 @@ model can be used.
 <h3 id="objcchanges">Objective-C Language Changes in Clang</h3>
 <!-- = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = -->
 
-<ul>
-  <li>
-    <p>It is now an error to compare against the addresses of Objective-C
-       literals. This is usually a simple mistake (using <code>==</code> instead
-       of <code>-isEqual:</code>), and the result depends on the implementation
-       of the various literals, none of which are guaranteed to be uniqued or
-       always newly-allocated.</p>
-    <p>In the past, we allowed comparisons against literal strings
-       (<code>@"..."</code>), since they are currently uniqued across
-       translation units at link time. This is an implementation detail and
-       should not be relied upon. If you are using such code, please use global
-       string constants instead (<code>NSString * const MyConst = @"..."</code>)
-       or use <code>-isEqual:</code>.</p>
-  </li>
-</ul>
+<p>...</p>
 
 <!-- = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = -->
 <h3 id="apichanges">Internal API Changes</h3>

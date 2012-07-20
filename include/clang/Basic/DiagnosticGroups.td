@@ -57,7 +57,9 @@ def DeprecatedImplementations :DiagGroup<"deprecated-implementations">;
 def : DiagGroup<"disabled-optimization">;
 def : DiagGroup<"discard-qual">;
 def : DiagGroup<"div-by-zero">;
-def Doxygen : DiagGroup<"doxygen">;
+def DocumentationHTML : DiagGroup<"documentation-html">;
+def DocumentationPedantic : DiagGroup<"documentation-pedantic">;
+def Documentation : DiagGroup<"documentation", [DocumentationHTML]>;
 def EmptyBody : DiagGroup<"empty-body">;
 def ExtraTokens : DiagGroup<"extra-tokens">;
 
@@ -265,7 +267,6 @@ def AutomaticReferenceCounting : DiagGroup<"arc",
                                             ARCRetainCycles,
                                             ARCNonPodMemAccess]>;
 def Selector : DiagGroup<"selector">;
-def NonfragileAbi2 : DiagGroup<"nonfragile-abi2">;
 def Protocol : DiagGroup<"protocol">;
 def SuperSubClassMismatch : DiagGroup<"super-class-method-mismatch">;
 def OverridingMethodMismatch : DiagGroup<"overriding-method-mismatch">;
@@ -434,4 +435,9 @@ def ObjCRedundantAPIUse : DiagGroup<"objc-redundant-api-use", [
 
 def ObjCCocoaAPI : DiagGroup<"objc-cocoa-api", [
     ObjCRedundantAPIUse
+  ]>;
+
+def ObjCStringComparison : DiagGroup<"objc-string-compare">;
+def ObjCLiteralComparison : DiagGroup<"objc-literal-compare", [
+    ObjCStringComparison
   ]>;

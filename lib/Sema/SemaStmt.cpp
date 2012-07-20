@@ -370,12 +370,10 @@ Sema::ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
 }
 
 StmtResult Sema::ActOnAttributedStmt(SourceLocation AttrLoc,
-                                     const AttrVec &Attrs,
+                                     ArrayRef<const Attr*> Attrs,
                                      Stmt *SubStmt) {
-  // Fill in the declaration and return it. Variable length will require to
-  // change this to AttributedStmt::Create(Context, ....);
-  // and probably using ArrayRef
-  AttributedStmt *LS = new (Context) AttributedStmt(AttrLoc, Attrs, SubStmt);
+  // Fill in the declaration and return it.
+  AttributedStmt *LS = AttributedStmt::Create(Context, AttrLoc, Attrs, SubStmt);
   return Owned(LS);
 }
 
@@ -1059,6 +1057,55 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
     return StmtError();
 
   return Owned(SS);
+}
+
+void
+Sema::DiagnoseAssignmentEnum(QualType DstType, QualType SrcType,
+                             Expr *SrcExpr) {
+  unsigned DIAG = diag::warn_not_in_enum_assignement;
+  if (Diags.getDiagnosticLevel(DIAG, SrcExpr->getExprLoc()) 
+      == DiagnosticsEngine::Ignored)
+    return;
+  
+  if (const EnumType *ET = DstType->getAs<EnumType>())
+    if (!Context.hasSameType(SrcType, DstType) &&
+        SrcType->isIntegerType()) {
+      if (!SrcExpr->isTypeDependent() && !SrcExpr->isValueDependent() &&
+          SrcExpr->isIntegerConstantExpr(Context)) {
+        // Get the bitwidth of the enum value before promotions.
+        unsigned DstWith = Context.getIntWidth(DstType);
+        bool DstIsSigned = DstType->isSignedIntegerOrEnumerationType();
+
+        llvm::APSInt RhsVal = SrcExpr->EvaluateKnownConstInt(Context);
+        const EnumDecl *ED = ET->getDecl();
+        typedef SmallVector<std::pair<llvm::APSInt, EnumConstantDecl*>, 64>
+        EnumValsTy;
+        EnumValsTy EnumVals;
+        
+        // Gather all enum values, set their type and sort them,
+        // allowing easier comparison with rhs constant.
+        for (EnumDecl::enumerator_iterator EDI = ED->enumerator_begin();
+             EDI != ED->enumerator_end(); ++EDI) {
+          llvm::APSInt Val = EDI->getInitVal();
+          AdjustAPSInt(Val, DstWith, DstIsSigned);
+          EnumVals.push_back(std::make_pair(Val, *EDI));
+        }
+        if (EnumVals.empty())
+          return;
+        std::stable_sort(EnumVals.begin(), EnumVals.end(), CmpEnumVals);
+        EnumValsTy::iterator EIend =
+        std::unique(EnumVals.begin(), EnumVals.end(), EqEnumVals);
+        
+        // See which case values aren't in enum.
+        EnumValsTy::const_iterator EI = EnumVals.begin();
+        while (EI != EIend && EI->first < RhsVal)
+          EI++;
+        if (EI == EIend || EI->first != RhsVal) {
+          Diag(SrcExpr->getExprLoc(), diag::warn_not_in_enum_assignement)
+          << DstType;
+        }
+      }
+    }
 }
 
 StmtResult
@@ -2037,7 +2084,7 @@ const VarDecl *Sema::getCopyElisionCandidate(QualType ReturnType,
   // ... the expression is the name of a non-volatile automatic object
   // (other than a function or catch-clause parameter)) ...
   const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(E->IgnoreParens());
-  if (!DR)
+  if (!DR || DR->refersToEnclosingLocal())
     return 0;
   const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl());
   if (!VD)

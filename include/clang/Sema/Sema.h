@@ -37,6 +37,7 @@
 #include "clang/Basic/TypeTraits.h"
 #include "clang/Basic/ExpressionTraits.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -1313,6 +1314,12 @@ public:
                                          unsigned NumDecls);
   DeclGroupPtrTy BuildDeclaratorGroup(Decl **Group, unsigned NumDecls,
                                       bool TypeMayContainAuto = true);
+
+  /// Should be called on all declarations that might have attached
+  /// documentation comments.
+  void ActOnDocumentableDecl(Decl *D);
+  void ActOnDocumentableDecls(Decl **Group, unsigned NumDecls);
+
   void ActOnFinishKNRParamDeclarations(Scope *S, Declarator &D,
                                        SourceLocation LocAfterDecls);
   void CheckForFunctionRedefinition(FunctionDecl *FD);
@@ -2117,9 +2124,10 @@ public:
                                                unsigned Quals);
   CXXMethodDecl *LookupCopyingAssignment(CXXRecordDecl *Class, unsigned Quals,
                                          bool RValueThis, unsigned ThisQuals);
-  CXXConstructorDecl *LookupMovingConstructor(CXXRecordDecl *Class);
-  CXXMethodDecl *LookupMovingAssignment(CXXRecordDecl *Class, bool RValueThis,
-                                        unsigned ThisQuals);
+  CXXConstructorDecl *LookupMovingConstructor(CXXRecordDecl *Class,
+                                              unsigned Quals);
+  CXXMethodDecl *LookupMovingAssignment(CXXRecordDecl *Class, unsigned Quals,
+                                        bool RValueThis, unsigned ThisQuals);
   CXXDestructorDecl *LookupDestructor(CXXRecordDecl *Class);
 
   LiteralOperatorLookupResult LookupLiteralOperator(Scope *S, LookupResult &R,
@@ -2467,7 +2475,8 @@ public:
   StmtResult ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
                             SourceLocation ColonLoc, Stmt *SubStmt);
 
-  StmtResult ActOnAttributedStmt(SourceLocation AttrLoc, const AttrVec &Attrs,
+  StmtResult ActOnAttributedStmt(SourceLocation AttrLoc,
+                                 ArrayRef<const Attr*> Attrs,
                                  Stmt *SubStmt);
 
   StmtResult ActOnIfStmt(SourceLocation IfLoc,
@@ -4299,6 +4308,11 @@ public:
                                      Expr *AssertExpr,
                                      Expr *AssertMessageExpr,
                                      SourceLocation RParenLoc);
+  Decl *BuildStaticAssertDeclaration(SourceLocation StaticAssertLoc,
+                                     Expr *AssertExpr,
+                                     StringLiteral *AssertMessageExpr,
+                                     SourceLocation RParenLoc,
+                                     bool Failed);
 
   FriendDecl *CheckFriendTypeDecl(SourceLocation Loc,
                                   SourceLocation FriendLoc,
@@ -5205,10 +5219,11 @@ public:
   /// \brief Determine the number of arguments in the given pack expansion
   /// type.
   ///
-  /// This routine already assumes that the pack expansion type can be
-  /// expanded and that the number of arguments in the expansion is
+  /// This routine assumes that the number of arguments in the expansion is
   /// consistent across all of the unexpanded parameter packs in its pattern.
-  unsigned getNumArgumentsInExpansion(QualType T,
+  ///
+  /// Returns an empty Optional if the type can't be expanded.
+  llvm::Optional<unsigned> getNumArgumentsInExpansion(QualType T,
                             const MultiLevelTemplateArgumentList &TemplateArgs);
 
   /// \brief Determine whether the given declarator contains any unexpanded
@@ -5614,16 +5629,14 @@ public:
     /// template-id.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           TemplateDecl *Template,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we are instantiating a default argument in a
     /// template-id.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           FunctionTemplateDecl *FunctionTemplate,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           ActiveTemplateInstantiation::InstantiationKind Kind,
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange = SourceRange());
@@ -5633,15 +5646,13 @@ public:
     /// specialization.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           ClassTemplatePartialSpecializationDecl *PartialSpec,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange = SourceRange());
 
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           ParmVarDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we are substituting prior template arguments into a
@@ -5649,15 +5660,13 @@ public:
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           NonTypeTemplateParmDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           TemplateTemplateParmDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
     /// \brief Note that we are checking the default template argument
@@ -5665,8 +5674,7 @@ public:
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           TemplateDecl *Template,
                           NamedDecl *Param,
-                          const TemplateArgument *TemplateArgs,
-                          unsigned NumTemplateArgs,
+                          ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
 
@@ -6447,7 +6455,7 @@ public:
                               bool AllowExplicit = false);
 
   // DefaultVariadicArgumentPromotion - Like DefaultArgumentPromotion, but
-  // will return ExprError() if the resulting type is not a POD type.
+  // will create a runtime trap if the resulting type is not a POD type.
   ExprResult DefaultVariadicArgumentPromotion(Expr *E, VariadicCallType CT,
                                               FunctionDecl *FDecl);
 
@@ -6543,6 +6551,11 @@ public:
                                 QualType DstType, QualType SrcType,
                                 Expr *SrcExpr, AssignmentAction Action,
                                 bool *Complained = 0);
+  
+  /// DiagnoseAssignmentEnum - Warn if assignment to enum is a constant
+  /// integer not in the range of enum values.
+  void DiagnoseAssignmentEnum(QualType DstType, QualType SrcType,
+                              Expr *SrcExpr);
 
   /// CheckAssignmentConstraints - Perform type checking for assignment,
   /// argument passing, variable initialization, and function return values.
@@ -7061,6 +7074,7 @@ private:
 
   ExprResult CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
+  bool CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
 
   bool SemaBuiltinVAStart(CallExpr *TheCall);
   bool SemaBuiltinUnorderedCompare(CallExpr *TheCall);
@@ -7103,20 +7117,23 @@ private:
                                                unsigned format_idx,
                                                unsigned firstDataArg,
                                                FormatStringType Type,
+                                               VariadicCallType CallType,
                                                bool inFunctionCall = true);
 
   void CheckFormatString(const StringLiteral *FExpr, const Expr *OrigFormatExpr,
                          Expr **Args, unsigned NumArgs, bool HasVAListArg,
                          unsigned format_idx, unsigned firstDataArg,
-                         FormatStringType Type, bool inFunctionCall);
+                         FormatStringType Type, bool inFunctionCall,
+                         VariadicCallType CallType);
 
-  bool CheckFormatArguments(const FormatAttr *Format, CallExpr *TheCall);
   bool CheckFormatArguments(const FormatAttr *Format, Expr **Args,
                             unsigned NumArgs, bool IsCXXMember,
+                            VariadicCallType CallType,
                             SourceLocation Loc, SourceRange Range);
   bool CheckFormatArguments(Expr **Args, unsigned NumArgs,
                             bool HasVAListArg, unsigned format_idx,
                             unsigned firstDataArg, FormatStringType Type,
+                            VariadicCallType CallType,
                             SourceLocation Loc, SourceRange range);
 
   void CheckNonNullArguments(const NonNullAttr *NonNull,
