@@ -30,6 +30,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 using namespace clang;
 using namespace sema;
@@ -152,10 +153,11 @@ void Sema::DiagnoseUnusedExprResult(const Stmt *S) {
   if (!E)
     return;
 
+  const Expr *WarnExpr;
   SourceLocation Loc;
   SourceRange R1, R2;
   if (SourceMgr.isInSystemMacro(E->getExprLoc()) ||
-      !E->isUnusedResultAWarning(Loc, R1, R2, Context))
+      !E->isUnusedResultAWarning(WarnExpr, Loc, R1, R2, Context))
     return;
 
   // Okay, we have an unused result.  Depending on what the base expression is,
@@ -170,7 +172,7 @@ void Sema::DiagnoseUnusedExprResult(const Stmt *S) {
   if (DiagnoseUnusedComparison(*this, E))
     return;
 
-  E = E->IgnoreParenImpCasts();
+  E = WarnExpr;
   if (const CallExpr *CE = dyn_cast<CallExpr>(E)) {
     if (E->getType()->isVoidType())
       return;
@@ -226,6 +228,11 @@ void Sema::DiagnoseUnusedExprResult(const Stmt *S) {
         << FixItHint::CreateRemoval(TL.getStarLoc());
       return;
     }
+  }
+
+  if (E->isGLValue() && E->getType().isVolatileQualified()) {
+    Diag(Loc, diag::warn_unused_volatile) << R1 << R2;
+    return;
   }
 
   DiagRuntimeBehavior(Loc, 0, PDiag(DiagID) << R1 << R2);
@@ -363,12 +370,10 @@ Sema::ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
 }
 
 StmtResult Sema::ActOnAttributedStmt(SourceLocation AttrLoc,
-                                     const AttrVec &Attrs,
+                                     ArrayRef<const Attr*> Attrs,
                                      Stmt *SubStmt) {
-  // Fill in the declaration and return it. Variable length will require to
-  // change this to AttributedStmt::Create(Context, ....);
-  // and probably using ArrayRef
-  AttributedStmt *LS = new (Context) AttributedStmt(AttrLoc, Attrs, SubStmt);
+  // Fill in the declaration and return it.
+  AttributedStmt *LS = AttributedStmt::Create(Context, AttrLoc, Attrs, SubStmt);
   return Owned(LS);
 }
 
@@ -523,45 +528,45 @@ Sema::ActOnStartOfSwitchStmt(SourceLocation SwitchLoc, Expr *Cond,
 
   class SwitchConvertDiagnoser : public ICEConvertDiagnoser {
     Expr *Cond;
-    
+
   public:
     SwitchConvertDiagnoser(Expr *Cond)
       : ICEConvertDiagnoser(false, true), Cond(Cond) { }
-    
+
     virtual DiagnosticBuilder diagnoseNotInt(Sema &S, SourceLocation Loc,
                                              QualType T) {
       return S.Diag(Loc, diag::err_typecheck_statement_requires_integer) << T;
     }
-    
+
     virtual DiagnosticBuilder diagnoseIncomplete(Sema &S, SourceLocation Loc,
                                                  QualType T) {
       return S.Diag(Loc, diag::err_switch_incomplete_class_type)
                << T << Cond->getSourceRange();
     }
-    
+
     virtual DiagnosticBuilder diagnoseExplicitConv(Sema &S, SourceLocation Loc,
                                                    QualType T,
                                                    QualType ConvTy) {
       return S.Diag(Loc, diag::err_switch_explicit_conversion) << T << ConvTy;
     }
-    
+
     virtual DiagnosticBuilder noteExplicitConv(Sema &S, CXXConversionDecl *Conv,
                                                QualType ConvTy) {
       return S.Diag(Conv->getLocation(), diag::note_switch_conversion)
         << ConvTy->isEnumeralType() << ConvTy;
     }
-    
+
     virtual DiagnosticBuilder diagnoseAmbiguous(Sema &S, SourceLocation Loc,
                                                 QualType T) {
       return S.Diag(Loc, diag::err_switch_multiple_conversions) << T;
     }
-    
+
     virtual DiagnosticBuilder noteAmbiguous(Sema &S, CXXConversionDecl *Conv,
                                             QualType ConvTy) {
       return S.Diag(Conv->getLocation(), diag::note_switch_conversion)
       << ConvTy->isEnumeralType() << ConvTy;
     }
-    
+
     virtual DiagnosticBuilder diagnoseConversion(Sema &S, SourceLocation Loc,
                                                  QualType T,
                                                  QualType ConvTy) {
@@ -768,8 +773,30 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
 
         if (i != 0 && CaseVals[i].first == CaseVals[i-1].first) {
           // If we have a duplicate, report it.
-          Diag(CaseVals[i].second->getLHS()->getLocStart(),
-               diag::err_duplicate_case) << CaseVals[i].first.toString(10);
+          // First, determine if either case value has a name
+          StringRef PrevString, CurrString;
+          Expr *PrevCase = CaseVals[i-1].second->getLHS()->IgnoreParenCasts();
+          Expr *CurrCase = CaseVals[i].second->getLHS()->IgnoreParenCasts();
+          if (DeclRefExpr *DeclRef = dyn_cast<DeclRefExpr>(PrevCase)) {
+            PrevString = DeclRef->getDecl()->getName();
+          }
+          if (DeclRefExpr *DeclRef = dyn_cast<DeclRefExpr>(CurrCase)) {
+            CurrString = DeclRef->getDecl()->getName();
+          }
+          llvm::SmallString<16> CaseValStr;
+          CaseVals[i-1].first.toString(CaseValStr);
+
+          if (PrevString == CurrString)
+            Diag(CaseVals[i].second->getLHS()->getLocStart(),
+                 diag::err_duplicate_case) <<
+                 (PrevString.empty() ? CaseValStr.str() : PrevString);
+          else
+            Diag(CaseVals[i].second->getLHS()->getLocStart(),
+                 diag::err_duplicate_case_differing_expr) <<
+                 (PrevString.empty() ? CaseValStr.str() : PrevString) <<
+                 (CurrString.empty() ? CaseValStr.str() : CurrString) <<
+                 CaseValStr;
+
           Diag(CaseVals[i-1].second->getLHS()->getLocStart(),
                diag::note_duplicate_case_prev);
           // FIXME: We really want to remove the bogus case stmt from the
@@ -918,7 +945,7 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
            EDI != ED->enumerator_end(); ++EDI) {
         llvm::APSInt Val = EDI->getInitVal();
         AdjustAPSInt(Val, CondWidth, CondIsSigned);
-        EnumVals.push_back(std::make_pair(Val, &*EDI));
+        EnumVals.push_back(std::make_pair(Val, *EDI));
       }
       std::stable_sort(EnumVals.begin(), EnumVals.end(), CmpEnumVals);
       EnumValsTy::iterator EIend =
@@ -1032,6 +1059,55 @@ Sema::ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
   return Owned(SS);
 }
 
+void
+Sema::DiagnoseAssignmentEnum(QualType DstType, QualType SrcType,
+                             Expr *SrcExpr) {
+  unsigned DIAG = diag::warn_not_in_enum_assignement;
+  if (Diags.getDiagnosticLevel(DIAG, SrcExpr->getExprLoc()) 
+      == DiagnosticsEngine::Ignored)
+    return;
+  
+  if (const EnumType *ET = DstType->getAs<EnumType>())
+    if (!Context.hasSameType(SrcType, DstType) &&
+        SrcType->isIntegerType()) {
+      if (!SrcExpr->isTypeDependent() && !SrcExpr->isValueDependent() &&
+          SrcExpr->isIntegerConstantExpr(Context)) {
+        // Get the bitwidth of the enum value before promotions.
+        unsigned DstWith = Context.getIntWidth(DstType);
+        bool DstIsSigned = DstType->isSignedIntegerOrEnumerationType();
+
+        llvm::APSInt RhsVal = SrcExpr->EvaluateKnownConstInt(Context);
+        const EnumDecl *ED = ET->getDecl();
+        typedef SmallVector<std::pair<llvm::APSInt, EnumConstantDecl*>, 64>
+        EnumValsTy;
+        EnumValsTy EnumVals;
+        
+        // Gather all enum values, set their type and sort them,
+        // allowing easier comparison with rhs constant.
+        for (EnumDecl::enumerator_iterator EDI = ED->enumerator_begin();
+             EDI != ED->enumerator_end(); ++EDI) {
+          llvm::APSInt Val = EDI->getInitVal();
+          AdjustAPSInt(Val, DstWith, DstIsSigned);
+          EnumVals.push_back(std::make_pair(Val, *EDI));
+        }
+        if (EnumVals.empty())
+          return;
+        std::stable_sort(EnumVals.begin(), EnumVals.end(), CmpEnumVals);
+        EnumValsTy::iterator EIend =
+        std::unique(EnumVals.begin(), EnumVals.end(), EqEnumVals);
+        
+        // See which case values aren't in enum.
+        EnumValsTy::const_iterator EI = EnumVals.begin();
+        while (EI != EIend && EI->first < RhsVal)
+          EI++;
+        if (EI == EIend || EI->first != RhsVal) {
+          Diag(SrcExpr->getExprLoc(), diag::warn_not_in_enum_assignement)
+          << DstType;
+        }
+      }
+    }
+}
+
 StmtResult
 Sema::ActOnWhileStmt(SourceLocation WhileLoc, FullExprArg Cond,
                      Decl *CondVar, Stmt *Body) {
@@ -1087,18 +1163,15 @@ namespace {
     llvm::SmallPtrSet<VarDecl*, 8> &Decls;
     llvm::SmallVector<SourceRange, 10> &Ranges;
     bool Simple;
-    PartialDiagnostic &PDiag;
 public:
   typedef EvaluatedExprVisitor<DeclExtractor> Inherited;
 
   DeclExtractor(Sema &S, llvm::SmallPtrSet<VarDecl*, 8> &Decls,
-                llvm::SmallVector<SourceRange, 10> &Ranges,
-                PartialDiagnostic &PDiag) :
+                llvm::SmallVector<SourceRange, 10> &Ranges) :
       Inherited(S.Context),
       Decls(Decls),
       Ranges(Ranges),
-      Simple(true),
-      PDiag(PDiag) {}
+      Simple(true) {}
 
   bool isSimple() { return Simple; }
 
@@ -1167,7 +1240,6 @@ public:
   class DeclMatcher : public EvaluatedExprVisitor<DeclMatcher> {
     llvm::SmallPtrSet<VarDecl*, 8> &Decls;
     bool FoundDecl;
-    //bool EvalDecl;
 
 public:
   typedef EvaluatedExprVisitor<DeclMatcher> Inherited;
@@ -1245,7 +1317,7 @@ public:
     PartialDiagnostic PDiag = S.PDiag(diag::warn_variables_not_in_loop_body);
     llvm::SmallPtrSet<VarDecl*, 8> Decls;
     llvm::SmallVector<SourceRange, 10> Ranges;
-    DeclExtractor DE(S, Decls, Ranges, PDiag);
+    DeclExtractor DE(S, Decls, Ranges);
     DE.Visit(Second);
 
     // Don't analyze complex conditionals.
@@ -1360,9 +1432,10 @@ StmtResult Sema::ActOnForEachLValueExpr(Expr *E) {
 }
 
 ExprResult
-Sema::ActOnObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
-  assert(collection);
-
+Sema::CheckObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
+  if (!collection)
+    return ExprError();
+  
   // Bail out early if we've got a type-dependent expression.
   if (collection->isTypeDependent()) return Owned(collection);
 
@@ -1408,7 +1481,7 @@ Sema::ActOnObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
     // If there's an interface, look in both the public and private APIs.
     if (iface) {
       method = iface->lookupInstanceMethod(selector);
-      if (!method) method = LookupPrivateInstanceMethod(selector, iface);
+      if (!method) method = iface->lookupPrivateMethod(selector);
     }
 
     // Also check protocol qualifiers.
@@ -1432,8 +1505,12 @@ Sema::ActOnObjCForCollectionOperand(SourceLocation forLoc, Expr *collection) {
 StmtResult
 Sema::ActOnObjCForCollectionStmt(SourceLocation ForLoc,
                                  SourceLocation LParenLoc,
-                                 Stmt *First, Expr *Second,
-                                 SourceLocation RParenLoc, Stmt *Body) {
+                                 Stmt *First, Expr *collection,
+                                 SourceLocation RParenLoc) {
+  
+  ExprResult CollectionExprResult = 
+    CheckObjCForCollectionOperand(ForLoc, collection);
+  
   if (First) {
     QualType FirstType;
     if (DeclStmt *DS = dyn_cast<DeclStmt>(First)) {
@@ -1461,11 +1538,15 @@ Sema::ActOnObjCForCollectionStmt(SourceLocation ForLoc,
     if (!FirstType->isDependentType() &&
         !FirstType->isObjCObjectPointerType() &&
         !FirstType->isBlockPointerType())
-        Diag(ForLoc, diag::err_selector_element_type)
-          << FirstType << First->getSourceRange();
+        return StmtError(Diag(ForLoc, diag::err_selector_element_type)
+                           << FirstType << First->getSourceRange());
   }
-
-  return Owned(new (Context) ObjCForCollectionStmt(First, Second, Body,
+  
+  if (CollectionExprResult.isInvalid())
+    return StmtError();
+  
+  return Owned(new (Context) ObjCForCollectionStmt(First, 
+                                                   CollectionExprResult.take(), 0, 
                                                    ForLoc, RParenLoc));
 }
 
@@ -1600,6 +1681,11 @@ static ExprResult BuildForRangeBeginEndCall(Sema &SemaRef, Scope *S,
 
 }
 
+static bool ObjCEnumerationCollection(Expr *Collection) {
+  return !Collection->isTypeDependent()
+          && Collection->getType()->getAs<ObjCObjectPointerType>() != 0;
+}
+
 /// ActOnCXXForRangeStmt - Check and build a C++0x for-range statement.
 ///
 /// C++0x [stmt.ranged]:
@@ -1624,6 +1710,10 @@ Sema::ActOnCXXForRangeStmt(SourceLocation ForLoc, SourceLocation LParenLoc,
                            SourceLocation RParenLoc) {
   if (!First || !Range)
     return StmtError();
+  
+  if (ObjCEnumerationCollection(Range))
+    return ActOnObjCForCollectionStmt(ForLoc, LParenLoc, First, Range,
+                                      RParenLoc);
 
   DeclStmt *DS = dyn_cast<DeclStmt>(First);
   assert(DS && "first part of for range not a decl stmt");
@@ -1875,6 +1965,17 @@ Sema::BuildCXXForRangeStmt(SourceLocation ForLoc, SourceLocation ColonLoc,
                                              ColonLoc, RParenLoc));
 }
 
+/// FinishObjCForCollectionStmt - Attach the body to a objective-C foreach 
+/// statement.
+StmtResult Sema::FinishObjCForCollectionStmt(Stmt *S, Stmt *B) {
+  if (!S || !B)
+    return StmtError();
+  ObjCForCollectionStmt * ForStmt = cast<ObjCForCollectionStmt>(S);
+  
+  ForStmt->setBody(B);
+  return S;
+}
+
 /// FinishCXXForRangeStmt - Attach the body to a C++0x for-range statement.
 /// This is a separate step from ActOnCXXForRangeStmt because analysis of the
 /// body cannot be performed until after the type of the range variable is
@@ -1883,6 +1984,9 @@ StmtResult Sema::FinishCXXForRangeStmt(Stmt *S, Stmt *B) {
   if (!S || !B)
     return StmtError();
 
+  if (isa<ObjCForCollectionStmt>(S))
+    return FinishObjCForCollectionStmt(S, B);
+  
   CXXForRangeStmt *ForStmt = cast<CXXForRangeStmt>(S);
   ForStmt->setBody(B);
 
@@ -1980,7 +2084,7 @@ const VarDecl *Sema::getCopyElisionCandidate(QualType ReturnType,
   // ... the expression is the name of a non-volatile automatic object
   // (other than a function or catch-clause parameter)) ...
   const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(E->IgnoreParens());
-  if (!DR)
+  if (!DR || DR->refersToEnclosingLocal())
     return 0;
   const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl());
   if (!VD)
@@ -2033,8 +2137,7 @@ Sema::PerformMoveOrCopyInitialization(const InitializedEntity &Entity,
   if (AllowNRVO &&
       (NRVOCandidate || getCopyElisionCandidate(ResultType, Value, true))) {
     ImplicitCastExpr AsRvalue(ImplicitCastExpr::OnStack,
-                              Value->getType(), CK_LValueToRValue,
-                              Value, VK_XValue);
+                              Value->getType(), CK_NoOp, Value, VK_XValue);
 
     Expr *InitExpr = &AsRvalue;
     InitializationKind Kind
@@ -2069,8 +2172,7 @@ Sema::PerformMoveOrCopyInitialization(const InitializedEntity &Entity,
         // Promote "AsRvalue" to the heap, since we now need this
         // expression node to persist.
         Value = ImplicitCastExpr::Create(Context, Value->getType(),
-                                         CK_LValueToRValue, Value, 0,
-                                         VK_XValue);
+                                         CK_NoOp, Value, 0, VK_XValue);
 
         // Complete type-checking the initialization of the return type
         // using the constructor we found.
@@ -2097,8 +2199,12 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
   // [expr.prim.lambda]p4 in C++11; block literals follow a superset of those
   // rules which allows multiple return statements.
   CapturingScopeInfo *CurCap = cast<CapturingScopeInfo>(getCurFunction());
+  QualType FnRetType = CurCap->ReturnType;
+
+  // For blocks/lambdas with implicit return types, we check each return
+  // statement individually, and deduce the common return type when the block
+  // or lambda is completed.
   if (CurCap->HasImplicitReturnType) {
-    QualType ReturnT;
     if (RetValExp && !isa<InitListExpr>(RetValExp)) {
       ExprResult Result = DefaultFunctionArrayLvalueConversion(RetValExp);
       if (Result.isInvalid())
@@ -2106,9 +2212,9 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
       RetValExp = Result.take();
 
       if (!RetValExp->isTypeDependent())
-        ReturnT = RetValExp->getType();
+        FnRetType = RetValExp->getType();
       else
-        ReturnT = Context.DependentTy;
+        FnRetType = CurCap->ReturnType = Context.DependentTy;
     } else { 
       if (RetValExp) {
         // C++11 [expr.lambda.prim]p4 bans inferring the result from an
@@ -2118,21 +2224,14 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
           << RetValExp->getSourceRange();
       }
 
-      ReturnT = Context.VoidTy;
+      FnRetType = Context.VoidTy;
     }
-    // We require the return types to strictly match here.
-    if (!CurCap->ReturnType.isNull() &&
-        !CurCap->ReturnType->isDependentType() &&
-        !ReturnT->isDependentType() &&
-        !Context.hasSameType(ReturnT, CurCap->ReturnType)) { 
-      Diag(ReturnLoc, diag::err_typecheck_missing_return_type_incompatible) 
-          << ReturnT << CurCap->ReturnType
-          << (getCurLambda() != 0);
-      return StmtError();
-    }
-    CurCap->ReturnType = ReturnT;
+
+    // Although we'll properly infer the type of the block once it's completed,
+    // make sure we provide a return type now for better error recovery.
+    if (CurCap->ReturnType.isNull())
+      CurCap->ReturnType = FnRetType;
   }
-  QualType FnRetType = CurCap->ReturnType;
   assert(!FnRetType.isNull());
 
   if (BlockScopeInfo *CurBlock = dyn_cast<BlockScopeInfo>(CurCap)) {
@@ -2200,10 +2299,12 @@ Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
   ReturnStmt *Result = new (Context) ReturnStmt(ReturnLoc, RetValExp,
                                                 NRVOCandidate);
 
-  // If we need to check for the named return value optimization, save the
-  // return statement in our scope for later processing.
-  if (getLangOpts().CPlusPlus && FnRetType->isRecordType() && 
-      !CurContext->isDependentContext())
+  // If we need to check for the named return value optimization,
+  // or if we need to infer the return type,
+  // save the return statement in our scope for later processing.
+  if (CurCap->HasImplicitReturnType ||
+      (getLangOpts().CPlusPlus && FnRetType->isRecordType() &&
+       !CurContext->isDependentContext()))
     FunctionScopes.back()->Returns.push_back(Result);
 
   return Owned(Result);
@@ -2321,7 +2422,7 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
         // FIXME: The diagnostics here don't really describe what is happening.
         InitializedEntity Entity =
             InitializedEntity::InitializeTemporary(RelatedRetType);
-        
+
         ExprResult Res = PerformCopyInitialization(Entity, SourceLocation(),
                                                    RetValExp);
         if (Res.isInvalid()) {
@@ -2365,7 +2466,7 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp) {
   if (getLangOpts().CPlusPlus && FnRetType->isRecordType() &&
       !CurContext->isDependentContext())
     FunctionScopes.back()->Returns.push_back(Result);
-  
+
   return Owned(Result);
 }
 
@@ -2409,13 +2510,12 @@ static bool isOperandMentioned(unsigned OpNo,
   for (unsigned p = 0, e = AsmStrPieces.size(); p != e; ++p) {
     const AsmStmt::AsmStringPiece &Piece = AsmStrPieces[p];
     if (!Piece.isOperand()) continue;
-    
+
     // If this is a reference to the input and if the input was the smaller
     // one, then we have to reject this asm.
     if (Piece.getOperandNo() == OpNo)
       return true;
   }
- 
   return false;
 }
 
@@ -2600,7 +2700,7 @@ StmtResult Sema::ActOnAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     // then we can promote the smaller one to a larger input and the asm string
     // won't notice.
     bool SmallerValueMentioned = false;
-    
+
     // If this is a reference to the input and if the input was the smaller
     // one, then we have to reject this asm.
     if (isOperandMentioned(InputOpNo, Pieces)) {
@@ -2621,7 +2721,7 @@ StmtResult Sema::ActOnAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     if (!SmallerValueMentioned && InputDomain != AD_Other &&
         OutputConstraintInfos[TiedTo].allowsRegister())
       continue;
-    
+
     // Either both of the operands were mentioned or the smaller one was
     // mentioned.  One more special case that we'll allow: if the tied input is
     // integer, unmentioned, and is a constant, then we'll allow truncating it
@@ -2636,13 +2736,160 @@ StmtResult Sema::ActOnAsmStmt(SourceLocation AsmLoc, bool IsSimple,
       NS->setInputExpr(i, InputExpr);
       continue;
     }
-    
+
     Diag(InputExpr->getLocStart(),
          diag::err_asm_tying_incompatible_types)
       << InTy << OutTy << OutputExpr->getSourceRange()
       << InputExpr->getSourceRange();
     return StmtError();
   }
+
+  return Owned(NS);
+}
+
+// needSpaceAsmToken - This function handles whitespace around asm punctuation.
+// Returns true if a space should be emitted.
+static inline bool needSpaceAsmToken(Token currTok) {
+  static Token prevTok;
+
+  // No need for space after prevToken.
+  switch(prevTok.getKind()) {
+  default:
+    break;
+  case tok::l_square:
+  case tok::r_square:
+  case tok::l_brace:
+  case tok::r_brace:
+  case tok::colon:
+    prevTok = currTok;
+    return false;
+  }
+
+  // No need for a space before currToken.
+  switch(currTok.getKind()) {
+  default:
+    break;
+  case tok::l_square:
+  case tok::r_square:
+  case tok::l_brace:
+  case tok::r_brace:
+  case tok::comma:
+  case tok::colon:
+    prevTok = currTok;
+    return false;
+  }
+  prevTok = currTok;
+  return true;
+}
+
+static std::string PatchMSAsmString(Sema &SemaRef, bool &IsSimple,
+                                    SourceLocation AsmLoc,
+                                    ArrayRef<Token> AsmToks,
+                                    const TargetInfo &TI) {
+  // Assume simple asm stmt until we parse a non-register identifer.
+  IsSimple = true;
+
+  if (AsmToks.empty())
+    return "";
+
+  std::string Res;
+  IdentifierInfo *II = AsmToks[0].getIdentifierInfo();
+  Res = II->getName().str();
+
+  // Check the operands.
+  for (unsigned i = 1, e = AsmToks.size(); i != e; ++i) {
+    if (needSpaceAsmToken(AsmToks[i]))
+        Res += " ";
+
+    switch (AsmToks[i].getKind()) {
+    default:
+      //llvm_unreachable("Unknown token.");
+      break;
+    case tok::comma: Res += ","; break;
+    case tok::colon: Res += ":"; break;
+    case tok::l_square: Res += "["; break;
+    case tok::r_square: Res += "]"; break;
+    case tok::l_brace: Res += "{"; break;
+    case tok::r_brace: Res += "}"; break;
+    case tok::numeric_constant: {
+      SmallString<32> TokenBuf;
+      TokenBuf.resize(32);
+      bool StringInvalid = false;
+      const char *ThisTokBuf = &TokenBuf[0];
+      unsigned ThisTokLen =
+        Lexer::getSpelling(AsmToks[i], ThisTokBuf, SemaRef.getSourceManager(),
+                           SemaRef.getLangOpts(), &StringInvalid);
+      Res += StringRef(ThisTokBuf, ThisTokLen);
+      break;
+    }
+    case tok::identifier: {
+      II = AsmToks[i].getIdentifierInfo();
+      StringRef Name = II->getName();
+
+      // Valid registers don't need modification.
+      if (TI.isValidGCCRegisterName(Name)) {
+        Res += Name;
+        break;
+      }
+
+      // TODO: Lookup the identifier.
+      IsSimple = false;
+    }
+    } // AsmToks[i].getKind()
+  }
+  return Res;
+}
+
+// Build the unmodified MSAsmString.
+static std::string buildMSAsmString(Sema &SemaRef,
+                                    ArrayRef<Token> AsmToks,
+                                    ArrayRef<unsigned> LineEnds) {
+  if (AsmToks.empty())
+    return "";
+
+  SmallString<512> Asm;
+  SmallString<512> TokenBuf;
+  TokenBuf.resize(512);
+  unsigned AsmLineNum = 0;
+  for (unsigned i = 0, e = AsmToks.size(); i < e; ++i) {
+    const char *ThisTokBuf = &TokenBuf[0];
+    bool StringInvalid = false;
+    unsigned ThisTokLen =
+      Lexer::getSpelling(AsmToks[i], ThisTokBuf, SemaRef.getSourceManager(),
+                         SemaRef.getLangOpts(), &StringInvalid);
+    if (i && (!AsmLineNum || i != LineEnds[AsmLineNum-1]) &&
+        needSpaceAsmToken(AsmToks[i]))
+      Asm += ' ';
+    Asm += StringRef(ThisTokBuf, ThisTokLen);
+    if (i + 1 == LineEnds[AsmLineNum] && i + 1 != AsmToks.size()) {
+      Asm += '\n';
+      ++AsmLineNum;
+    }
+  }
+  return Asm.c_str();
+}
+
+StmtResult Sema::ActOnMSAsmStmt(SourceLocation AsmLoc,
+                                ArrayRef<Token> AsmToks,
+                                ArrayRef<unsigned> LineEnds,
+                                SourceLocation EndLoc) {
+  // MS-style inline assembly is not fully supported, so emit a warning.
+  Diag(AsmLoc, diag::warn_unsupported_msasm);
+
+  std::string AsmString = buildMSAsmString(*this, AsmToks, LineEnds);
+
+  bool IsSimple;
+  // Rewrite operands to appease the AsmParser.
+  std::string PatchedAsmString =
+    PatchMSAsmString(*this, IsSimple, AsmLoc, AsmToks, Context.getTargetInfo());
+
+  // Silence compiler warnings.  Eventually, the PatchedAsmString will be
+  // passed to the AsmParser.
+  (void)PatchedAsmString;
+
+  MSAsmStmt *NS =
+    new (Context) MSAsmStmt(Context, AsmLoc, IsSimple, /* IsVolatile */ true,
+                            AsmToks, LineEnds, AsmString, EndLoc);
 
   return Owned(NS);
 }
@@ -2713,7 +2960,6 @@ Sema::ActOnObjCAtThrowStmt(SourceLocation AtLoc, Expr *Throw,
     if (!AtCatchParent)
       return StmtError(Diag(AtLoc, diag::error_rethrow_used_outside_catch));
   }
-  
   return BuildObjCAtThrowStmt(AtLoc, Throw);
 }
 

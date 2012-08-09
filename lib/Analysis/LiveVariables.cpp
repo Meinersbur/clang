@@ -455,6 +455,12 @@ LiveVariablesImpl::runOnBlock(const CFGBlock *block,
   for (CFGBlock::const_reverse_iterator it = block->rbegin(),
        ei = block->rend(); it != ei; ++it) {
     const CFGElement &elem = *it;
+
+    if (const CFGAutomaticObjDtor *Dtor = dyn_cast<CFGAutomaticObjDtor>(&elem)){
+      val.liveDecls = DSetFact.add(val.liveDecls, Dtor->getVarDecl());
+      continue;
+    }
+
     if (!isa<CFGStmt>(elem))
       continue;
     
@@ -484,6 +490,11 @@ LiveVariables::computeLiveness(AnalysisDeclContext &AC,
   // No CFG?  Bail out.
   CFG *cfg = AC.getCFG();
   if (!cfg)
+    return 0;
+
+  // The analysis currently has scalability issues for very large CFGs.
+  // Bail out if it looks too large.
+  if (cfg->getNumBlockIDs() > 300000)
     return 0;
 
   LiveVariablesImpl *LV = new LiveVariablesImpl(AC, killAtAssign);

@@ -114,6 +114,8 @@ static QualType GetBaseType(QualType T) {
       BaseType = FTy->getResultType();
     else if (const VectorType *VTy = BaseType->getAs<VectorType>())
       BaseType = VTy->getElementType();
+    else if (const ReferenceType *RTy = BaseType->getAs<ReferenceType>())
+      BaseType = RTy->getPointeeType();
     else
       llvm_unreachable("Unknown declarator!");
   }
@@ -173,8 +175,10 @@ void DeclContext::dumpDeclContext() const {
   Printer.VisitDeclContext(const_cast<DeclContext *>(this), /*Indent=*/false);
 }
 
-void Decl::dump() const {
-  print(llvm::errs());
+void Decl::dump(raw_ostream &Out) const {
+  PrintingPolicy Policy = getASTContext().getPrintingPolicy();
+  Policy.Dump = true;
+  print(Out, Policy, /*Indentation*/ 0, /*PrintInstantiation*/ true);
 }
 
 raw_ostream& DeclPrinter::Indent(unsigned Indentation) {
@@ -582,7 +586,10 @@ void DeclPrinter::VisitFieldDecl(FieldDecl *D) {
 
   Expr *Init = D->getInClassInitializer();
   if (!Policy.SuppressInitializers && Init) {
-    Out << " = ";
+    if (D->getInClassInitStyle() == ICIS_ListInit)
+      Out << " ";
+    else
+      Out << " = ";
     Init->printPretty(Out, Context, 0, Policy, Indentation);
   }
   prettyPrintAttributes(D);
@@ -913,7 +920,7 @@ void DeclPrinter::VisitObjCInterfaceDecl(ObjCInterfaceDecl *OID) {
     Indentation += Policy.Indentation;
     for (ObjCInterfaceDecl::ivar_iterator I = OID->ivar_begin(),
          E = OID->ivar_end(); I != E; ++I) {
-      Indent() << I->getType().getAsString(Policy) << ' ' << *I << ";\n";
+      Indent() << I->getType().getAsString(Policy) << ' ' << **I << ";\n";
     }
     Indentation -= Policy.Indentation;
     Out << "}\n";
