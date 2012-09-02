@@ -288,7 +288,7 @@ void ASTStmtReader::VisitDeclStmt(DeclStmt *S) {
   }
 }
 
-void ASTStmtReader::VisitAsmStmt(AsmStmt *S) {
+void ASTStmtReader::VisitGCCAsmStmt(GCCAsmStmt *S) {
   VisitStmt(S);
   unsigned NumOutputs = Record[Idx++];
   unsigned NumInputs = Record[Idx++];
@@ -297,7 +297,6 @@ void ASTStmtReader::VisitAsmStmt(AsmStmt *S) {
   S->setRParenLoc(ReadSourceLocation(Record, Idx));
   S->setVolatile(Record[Idx++]);
   S->setSimple(Record[Idx++]);
-  S->setMSAsm(Record[Idx++]);
 
   S->setAsmString(cast_or_null<StringLiteral>(Reader.ReadSubStmt()));
 
@@ -1517,6 +1516,11 @@ void ASTStmtReader::VisitSEHTryStmt(SEHTryStmt *S) {
   S->Children[SEHTryStmt::HANDLER] = Reader.ReadSubStmt();
 }
 
+void ASTStmtReader::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
+  VisitStmt(S);
+  S->LeaveLoc = ReadSourceLocation(Record, Idx);
+}
+
 //===----------------------------------------------------------------------===//
 // CUDA Expressions and Statements
 //===----------------------------------------------------------------------===//
@@ -1701,8 +1705,12 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) DeclStmt(Empty);
       break;
 
-    case STMT_ASM:
-      S = new (Context) AsmStmt(Empty);
+    case STMT_GCCASM:
+      S = new (Context) GCCAsmStmt(Empty);
+      break;
+
+    case STMT_MSASM:
+      S = new (Context) MSAsmStmt(Empty);
       break;
 
     case EXPR_PREDEFINED:
@@ -1982,6 +1990,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     case STMT_SEH_TRY:
       S = new (Context) SEHTryStmt(Empty);
+      break;
+    case STMT_SEH_LEAVE:
+      S = new (Context) SEHLeaveStmt(Empty);
       break;
     case STMT_CXX_CATCH:
       S = new (Context) CXXCatchStmt(Empty);

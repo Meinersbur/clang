@@ -282,6 +282,26 @@ void Sema::AddAnyMethodToGlobalPool(Decl *D) {
     AddFactoryMethodToGlobalPool(MDecl, true);
 }
 
+/// StrongPointerToObjCPointer - returns true when pointer to ObjC pointer
+/// is __strong, or when it is any other type. It returns false when
+/// pointer to ObjC pointer is not __strong.
+static bool
+StrongPointerToObjCPointer(Sema &S, ParmVarDecl *Param) {
+  QualType T = Param->getType();
+  if (!T->isObjCIndirectLifetimeType())
+    return true;
+  if (!T->isPointerType() && !T->isReferenceType())
+    return true;
+  T = T->isPointerType() 
+        ? T->getAs<PointerType>()->getPointeeType() 
+        : T->getAs<ReferenceType>()->getPointeeType();
+  if (T->isObjCLifetimeType()) {
+    Qualifiers::ObjCLifetime lifetime = T.getObjCLifetime();
+    return lifetime == Qualifiers::OCL_Strong;
+  }
+  return true;
+}
+
 /// ActOnStartOfObjCMethodDef - This routine sets up parameters; invisible
 /// and user declared, in the method definition's AST.
 void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
@@ -313,6 +333,12 @@ void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
         RequireCompleteType(Param->getLocation(), Param->getType(),
                             diag::err_typecheck_decl_incomplete_type))
           Param->setInvalidDecl();
+    if (!Param->isInvalidDecl() &&
+        getLangOpts().ObjCAutoRefCount &&
+        !StrongPointerToObjCPointer(*this, Param))
+      Diag(Param->getLocation(), diag::warn_arc_strong_pointer_objc_pointer) <<
+            Param->getType();
+    
     if ((*PI)->getIdentifier())
       PushOnScopeChains(*PI, FnBodyScope);
   }
@@ -2435,26 +2461,49 @@ CvtQTToAstBitMask(ObjCDeclSpec::ObjCDeclQualifier PQTVal) {
 }
 
 static inline
+unsigned countAlignAttr(const AttrVec &A) {
+  unsigned count=0;
+  for (AttrVec::const_iterator i = A.begin(), e = A.end(); i != e; ++i)
+    if ((*i)->getKind() == attr::Aligned)
+      ++count;
+  return count;
+}
+
+static inline
 bool containsInvalidMethodImplAttribute(ObjCMethodDecl *IMD,
                                         const AttrVec &A) {
   // If method is only declared in implementation (private method),
   // No need to issue any diagnostics on method definition with attributes.
   if (!IMD)
     return false;
-
+  
   // method declared in interface has no attribute. 
-  // But implementation has attributes. This is invalid
+  // But implementation has attributes. This is invalid.
+  // Except when implementation has 'Align' attribute which is
+  // immaterial to method declared in interface.
   if (!IMD->hasAttrs())
-    return true;
+    return (A.size() > countAlignAttr(A));
 
   const AttrVec &D = IMD->getAttrs();
-  if (D.size() != A.size())
-    return true;
 
+  unsigned countAlignOnImpl = countAlignAttr(A);
+  if (!countAlignOnImpl && (A.size() != D.size()))
+    return true;
+  else if (countAlignOnImpl) {
+    unsigned countAlignOnDecl = countAlignAttr(D);
+    if (countAlignOnDecl && (A.size() != D.size()))
+      return true;
+    else if (!countAlignOnDecl && 
+             ((A.size()-countAlignOnImpl) != D.size()))
+      return true;
+  }
+  
   // attributes on method declaration and definition must match exactly.
   // Note that we have at most a couple of attributes on methods, so this
   // n*n search is good enough.
   for (AttrVec::const_iterator i = A.begin(), e = A.end(); i != e; ++i) {
+    if ((*i)->getKind() == attr::Aligned)
+      continue;
     bool match = false;
     for (AttrVec::const_iterator i1 = D.begin(), e1 = D.end(); i1 != e1; ++i1) {
       if ((*i)->getKind() == (*i1)->getKind()) {
@@ -2465,6 +2514,7 @@ bool containsInvalidMethodImplAttribute(ObjCMethodDecl *IMD,
     if (!match)
       return true;
   }
+  
   return false;
 }
 

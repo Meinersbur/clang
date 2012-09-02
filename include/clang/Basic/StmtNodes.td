@@ -28,11 +28,10 @@ def SwitchCase : Stmt<1>;
 def CaseStmt : DStmt<SwitchCase>;
 def DefaultStmt : DStmt<SwitchCase>;
 
-// GNU Extensions
-def AsmStmt : Stmt;
-
-// MS Extensions
-def MSAsmStmt : Stmt;
+// Asm statements
+def AsmStmt : Stmt<1>;
+def GCCAsmStmt : DStmt<AsmStmt>;
+def MSAsmStmt : DStmt<AsmStmt>;
 
 // Obj-C statements
 def ObjCAtTryStmt : Stmt;
@@ -165,6 +164,7 @@ def OpaqueValueExpr : DStmt<Expr>;
 // Microsoft Extensions.
 def CXXUuidofExpr : DStmt<Expr>; 
 def SEHTryStmt : Stmt;
+def SEHLeaveStmt : Stmt;
 def SEHExceptStmt : Stmt;
 def SEHFinallyStmt : Stmt;
 def MSDependentExistsStmt : Stmt;

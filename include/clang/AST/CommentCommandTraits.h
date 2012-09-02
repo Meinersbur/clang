@@ -28,25 +28,36 @@ namespace comments {
 /// in comments.
 class CommandTraits {
 public:
+  CommandTraits() { }
+
   /// \brief Check if a given command is a verbatim-like block command.
   ///
   /// A verbatim-like block command eats every character (except line starting
   /// decorations) until matching end command is seen or comment end is hit.
   ///
-  /// \param BeginName name of the command that starts the verbatim block.
+  /// \param StartName name of the command that starts the verbatim block.
   /// \param [out] EndName name of the command that ends the verbatim block.
   ///
   /// \returns true if a given command is a verbatim block command.
   bool isVerbatimBlockCommand(StringRef StartName, StringRef &EndName) const;
 
   /// \brief Register a new verbatim block command.
-  void addVerbatimBlockCommand(StringRef BeginName, StringRef EndName);
+  void addVerbatimBlockCommand(StringRef StartName, StringRef EndName);
 
   /// \brief Check if a given command is a verbatim line command.
   ///
   /// A verbatim-like line command eats everything until a newline is seen or
   /// comment end is hit.
   bool isVerbatimLineCommand(StringRef Name) const;
+
+  /// \brief Check if a given command is a command that contains a declaration
+  /// for the entity being documented.
+  ///
+  /// For example:
+  /// \code
+  ///   \fn void f(int a);
+  /// \endcode
+  bool isDeclarationCommand(StringRef Name) const;
 
   /// \brief Register a new verbatim line command.
   void addVerbatimLineCommand(StringRef Name);
@@ -79,7 +90,7 @@ public:
 
 private:
   struct VerbatimBlockCommand {
-    StringRef BeginName;
+    StringRef StartName;
     StringRef EndName;
   };
 

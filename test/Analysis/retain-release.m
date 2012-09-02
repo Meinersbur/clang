@@ -828,8 +828,8 @@ int RDar6320065_test() {
 @end
 
 void test_RDar6859457(RDar6859457 *x, void *bytes, NSUInteger dataLength) {
-  [x NoCopyString]; // no-warning
-  [x noCopyString]; // no-warning
+  [x NoCopyString]; // expected-warning{{leak}}
+  [x noCopyString]; // expected-warning{{leak}}
   [NSData dataWithBytesNoCopy:bytes length:dataLength];  // no-warning
   [NSData dataWithBytesNoCopy:bytes length:dataLength freeWhenDone:1]; // no-warning
 }
@@ -1748,7 +1748,7 @@ extern id NSApp;
 @end
 //===----------------------------------------------------------------------===//
 // Test returning allocated memory in a struct.
-// 
+//
 // We currently don't have a general way to track pointers that "escape".
 // Here we test that RetainCountChecker doesn't get excited about returning
 // allocated CF objects in struct fields.
@@ -1855,3 +1855,46 @@ id makeCollectableNonLeak() {
   [objCObject release]; // +1
   return [objCObject autorelease]; // +0
 }
+
+
+void consumeAndStopTracking(id NS_CONSUMED obj, void (^callback)(void));
+void CFConsumeAndStopTracking(CFTypeRef CF_CONSUMED obj, void (^callback)(void));
+
+void testConsumeAndStopTracking() {
+  id retained = [@[] retain]; // +1
+  consumeAndStopTracking(retained, ^{}); // no-warning
+
+  id doubleRetained = [[@[] retain] retain]; // +2
+  consumeAndStopTracking(doubleRetained, ^{
+    [doubleRetained release];
+  }); // no-warning
+
+  id unretained = @[]; // +0
+  consumeAndStopTracking(unretained, ^{}); // expected-warning {{Incorrect decrement of the reference count of an object that is not owned at this point by the caller}}
+}
+
+void testCFConsumeAndStopTracking() {
+  id retained = [@[] retain]; // +1
+  CFConsumeAndStopTracking((CFTypeRef)retained, ^{}); // no-warning
+
+  id doubleRetained = [[@[] retain] retain]; // +2
+  CFConsumeAndStopTracking((CFTypeRef)doubleRetained, ^{
+    [doubleRetained release];
+  }); // no-warning
+
+  id unretained = @[]; // +0
+  CFConsumeAndStopTracking((CFTypeRef)unretained, ^{}); // expected-warning {{Incorrect decrement of the reference count of an object that is not owned at this point by the caller}}
+}
+//===----------------------------------------------------------------------===//
+// Test 'pragma clang arc_cf_code_audited' support.
+//===----------------------------------------------------------------------===//
+
+typedef void *MyCFType;
+#pragma clang arc_cf_code_audited begin
+MyCFType CreateMyCFType();
+#pragma clang arc_cf_code_audited end 
+    
+void test_custom_cf() {
+  MyCFType x = CreateMyCFType(); // expected-warning {{leak of an object stored into 'x'}}
+}
+

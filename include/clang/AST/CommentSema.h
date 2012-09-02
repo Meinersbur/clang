@@ -30,8 +30,8 @@ namespace comments {
 class CommandTraits;
 
 class Sema {
-  Sema(const Sema&);           // DO NOT IMPLEMENT
-  void operator=(const Sema&); // DO NOT IMPLEMENT
+  Sema(const Sema &) LLVM_DELETED_FUNCTION;
+  void operator=(const Sema &) LLVM_DELETED_FUNCTION;
 
   /// Allocator for AST nodes.
   llvm::BumpPtrAllocator &Allocator;
@@ -45,13 +45,6 @@ class Sema {
 
   /// Information about the declaration this comment is attached to.
   DeclInfo *ThisDeclInfo;
-
-  /// Comment AST nodes that correspond to \c ParamVars for which we have
-  /// found a \\param command or NULL if no documentation was found so far.
-  ///
-  /// Has correct size and contains valid values if \c DeclInfo->IsFilled is
-  /// true.
-  llvm::SmallVector<ParamCommandComment *, 8> ParamVarDocs;
 
   /// Comment AST nodes that correspond to parameter names in
   /// \c TemplateParameters.
@@ -190,6 +183,10 @@ public:
   /// used only once per comment, e.g., \\brief and \\returns.
   void checkBlockCommandDuplicate(const BlockCommandComment *Command);
 
+  /// Resolve parameter names to parameter indexes in function declaration.
+  /// Emit diagnostics about unknown parametrs.
+  void resolveParamCommandIndexes(const FullComment *FC);
+
   bool isFunctionDecl();
   bool isTemplateOrSpecialization();
 
@@ -218,9 +215,6 @@ public:
 
   InlineCommandComment::RenderKind
   getInlineCommandRenderKind(StringRef Name) const;
-
-  bool isHTMLEndTagOptional(StringRef Name);
-  bool isHTMLEndTagForbidden(StringRef Name);
 };
 
 } // end namespace comments

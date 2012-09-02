@@ -30,17 +30,15 @@ using namespace clang;
 namespace  {
   class StmtPrinter : public StmtVisitor<StmtPrinter> {
     raw_ostream &OS;
-    ASTContext &Context;
     unsigned IndentLevel;
     clang::PrinterHelper* Helper;
     PrintingPolicy Policy;
 
   public:
-    StmtPrinter(raw_ostream &os, ASTContext &C, PrinterHelper* helper,
+    StmtPrinter(raw_ostream &os, PrinterHelper* helper,
                 const PrintingPolicy &Policy,
                 unsigned Indentation = 0)
-      : OS(os), Context(C), IndentLevel(Indentation), Helper(helper),
-        Policy(Policy) {}
+      : OS(os), IndentLevel(Indentation), Helper(helper), Policy(Policy) {}
 
     void PrintStmt(Stmt *S) {
       PrintStmt(S, Policy.Indentation);
@@ -181,7 +179,7 @@ void StmtPrinter::VisitAttributedStmt(AttributedStmt *Node) {
       first = false;
     }
     // TODO: check this
-    (*it)->printPretty(OS, Context);
+    (*it)->printPretty(OS, Policy);
   }
   OS << "]] ";
   PrintStmt(Node->getSubStmt(), 0);
@@ -368,7 +366,7 @@ void StmtPrinter::VisitReturnStmt(ReturnStmt *Node) {
 }
 
 
-void StmtPrinter::VisitAsmStmt(AsmStmt *Node) {
+void StmtPrinter::VisitGCCAsmStmt(GCCAsmStmt *Node) {
   Indent() << "asm ";
 
   if (Node->isVolatile())
@@ -424,7 +422,7 @@ void StmtPrinter::VisitAsmStmt(AsmStmt *Node) {
     if (i != 0)
       OS << ", ";
 
-    VisitStringLiteral(Node->getClobber(i));
+    VisitStringLiteral(Node->getClobberStringLiteral(i));
   }
 
   OS << ");\n";
@@ -432,7 +430,12 @@ void StmtPrinter::VisitAsmStmt(AsmStmt *Node) {
 
 void StmtPrinter::VisitMSAsmStmt(MSAsmStmt *Node) {
   // FIXME: Implement MS style inline asm statement printer.
-  Indent() << "asm ()";
+  Indent() << "__asm ";
+  if (Node->hasBraces())
+    OS << "{\n";
+  OS << *(Node->getAsmString()) << "\n";
+  if (Node->hasBraces())
+    Indent() << "}\n";
 }
 
 void StmtPrinter::VisitObjCAtTryStmt(ObjCAtTryStmt *Node) {
@@ -534,6 +537,11 @@ void StmtPrinter::VisitSEHTryStmt(SEHTryStmt *Node) {
   OS << "\n";
 }
 
+void StmtPrinter::VisitSEHLeaveStmt(SEHLeaveStmt *Node) {
+  Indent() << "__leave;";
+  OS << "\n";
+}
+
 void StmtPrinter::PrintRawSEHFinallyStmt(SEHFinallyStmt *Node) {
   OS << "__finally ";
   PrintRawCompoundStmt(Node->getBlock());
@@ -543,7 +551,7 @@ void StmtPrinter::PrintRawSEHFinallyStmt(SEHFinallyStmt *Node) {
 void StmtPrinter::PrintRawSEHExceptHandler(SEHExceptStmt *Node) {
   OS << "__except (";
   VisitExpr(Node->getFilterExpr());
-  OS << ")\n";
+  OS << ") ";
   PrintRawCompoundStmt(Node->getBlock());
   OS << "\n";
 }
@@ -1390,7 +1398,7 @@ void StmtPrinter::VisitCXXNewExpr(CXXNewExpr *E) {
   std::string TypeS;
   if (Expr *Size = E->getArraySize()) {
     llvm::raw_string_ostream s(TypeS);
-    Size->printPretty(s, Context, Helper, Policy);
+    Size->printPretty(s, Helper, Policy);
     s.flush();
     TypeS = "[" + TypeS + "]";
   }
@@ -1799,13 +1807,12 @@ void StmtPrinter::VisitAsTypeExpr(AsTypeExpr *Node) {
 // Stmt method implementations
 //===----------------------------------------------------------------------===//
 
-void Stmt::dumpPretty(ASTContext& Context) const {
-  printPretty(llvm::errs(), Context, 0,
-              PrintingPolicy(Context.getLangOpts()));
+void Stmt::dumpPretty(ASTContext &Context) const {
+  printPretty(llvm::errs(), 0, PrintingPolicy(Context.getLangOpts()));
 }
 
-void Stmt::printPretty(raw_ostream &OS, ASTContext& Context,
-                       PrinterHelper* Helper,
+void Stmt::printPretty(raw_ostream &OS,
+                       PrinterHelper *Helper,
                        const PrintingPolicy &Policy,
                        unsigned Indentation) const {
   if (this == 0) {
@@ -1813,12 +1820,12 @@ void Stmt::printPretty(raw_ostream &OS, ASTContext& Context,
     return;
   }
 
-  if (Policy.Dump && &Context) {
-    dump(OS, Context.getSourceManager());
+  if (Policy.DumpSourceManager) {
+    dump(OS, *Policy.DumpSourceManager);
     return;
   }
 
-  StmtPrinter P(OS, Context, Helper, Policy, Indentation);
+  StmtPrinter P(OS, Helper, Policy, Indentation);
   P.Visit(const_cast<Stmt*>(this));
 }
 

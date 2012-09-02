@@ -104,11 +104,12 @@ void PathPieces::flattenTo(PathPieces &Primary, PathPieces &Current,
 PathDiagnostic::~PathDiagnostic() {}
 
 PathDiagnostic::PathDiagnostic(const Decl *declWithIssue,
-                               StringRef bugtype, StringRef desc,
-                               StringRef category)
+                               StringRef bugtype, StringRef verboseDesc,
+                               StringRef shortDesc, StringRef category)
   : DeclWithIssue(declWithIssue),
     BugType(StripTrailingDots(bugtype)),
-    Desc(StripTrailingDots(desc)),
+    VerboseDesc(StripTrailingDots(verboseDesc)),
+    ShortDesc(StripTrailingDots(shortDesc)),
     Category(StripTrailingDots(category)),
     path(pathImpl) {}
 
@@ -157,13 +158,13 @@ void PathDiagnosticConsumer::HandlePathDiagnostic(PathDiagnostic *D) {
           return; // FIXME: Emit a warning?
       
         // Check the source ranges.
-        for (PathDiagnosticPiece::range_iterator RI = piece->ranges_begin(),
-             RE = piece->ranges_end();
-             RI != RE; ++RI) {
-          SourceLocation L = SMgr.getExpansionLoc(RI->getBegin());
+        ArrayRef<SourceRange> Ranges = piece->getRanges();
+        for (ArrayRef<SourceRange>::iterator I = Ranges.begin(),
+                                             E = Ranges.end(); I != E; ++I) {
+          SourceLocation L = SMgr.getExpansionLoc(I->getBegin());
           if (!L.isFileID() || SMgr.getFileID(L) != FID)
             return; // FIXME: Emit a warning?
-          L = SMgr.getExpansionLoc(RI->getEnd());
+          L = SMgr.getExpansionLoc(I->getEnd());
           if (!L.isFileID() || SMgr.getFileID(L) != FID)
             return; // FIXME: Emit a warning?
         }
@@ -227,8 +228,8 @@ struct CompareDiagnostics {
       return false;
     
     // Next, compare by bug description.
-    StringRef XDesc = X->getDescription();
-    StringRef YDesc = Y->getDescription();
+    StringRef XDesc = X->getVerboseDescription();
+    StringRef YDesc = Y->getVerboseDescription();
     if (XDesc < YDesc)
       return true;
     if (XDesc != YDesc)
@@ -240,8 +241,8 @@ struct CompareDiagnostics {
 };  
 }
 
-void
-PathDiagnosticConsumer::FlushDiagnostics(SmallVectorImpl<std::string> *Files) {
+void PathDiagnosticConsumer::FlushDiagnostics(
+                                     PathDiagnosticConsumer::FilesMade *Files) {
   if (flushed)
     return;
   
@@ -269,6 +270,39 @@ PathDiagnosticConsumer::FlushDiagnostics(SmallVectorImpl<std::string> *Files) {
     const PathDiagnostic *D = *it;
     delete D;
   }
+}
+
+void PathDiagnosticConsumer::FilesMade::addDiagnostic(const PathDiagnostic &PD,
+                                                      StringRef ConsumerName,
+                                                      StringRef FileName) {
+  llvm::FoldingSetNodeID NodeID;
+  NodeID.Add(PD);
+  void *InsertPos;
+  PDFileEntry *Entry = FindNodeOrInsertPos(NodeID, InsertPos);
+  if (!Entry) {
+    Entry = Alloc.Allocate<PDFileEntry>();
+    Entry = new (Entry) PDFileEntry(NodeID);
+    InsertNode(Entry, InsertPos);
+  }
+  
+  // Allocate persistent storage for the file name.
+  char *FileName_cstr = (char*) Alloc.Allocate(FileName.size(), 1);
+  memcpy(FileName_cstr, FileName.data(), FileName.size());
+
+  Entry->files.push_back(std::make_pair(ConsumerName,
+                                        StringRef(FileName_cstr,
+                                                  FileName.size())));
+}
+
+PathDiagnosticConsumer::PDFileEntry::ConsumerFiles *
+PathDiagnosticConsumer::FilesMade::getFiles(const PathDiagnostic &PD) {
+  llvm::FoldingSetNodeID NodeID;
+  NodeID.Add(PD);
+  void *InsertPos;
+  PDFileEntry *Entry = FindNodeOrInsertPos(NodeID, InsertPos);
+  if (!Entry)
+    return 0;
+  return &Entry->files;
 }
 
 //===----------------------------------------------------------------------===//
@@ -587,24 +621,6 @@ void PathDiagnosticLocation::flatten() {
   }
 }
 
-PathDiagnosticLocation PathDiagnostic::getLocation() const {
-  assert(path.size() > 0 &&
-         "getLocation() requires a non-empty PathDiagnostic.");
-  
-  PathDiagnosticPiece *p = path.rbegin()->getPtr();
-  
-  while (true) {
-    if (PathDiagnosticCallPiece *cp = dyn_cast<PathDiagnosticCallPiece>(p)) {
-      assert(!cp->path.empty());
-      p = cp->path.rbegin()->getPtr();
-      continue;
-    }
-    break;
-  }
-  
-  return p->getLocation();
-}
-
 //===----------------------------------------------------------------------===//
 // Manipulation of PathDiagnosticCallPieces.
 //===----------------------------------------------------------------------===//
@@ -718,7 +734,9 @@ void PathDiagnosticPiece::Profile(llvm::FoldingSetNodeID &ID) const {
   ID.AddString(str);
   // FIXME: Add profiling support for code hints.
   ID.AddInteger((unsigned) getDisplayHint());
-  for (range_iterator I = ranges_begin(), E = ranges_end(); I != E; ++I) {
+  ArrayRef<SourceRange> Ranges = getRanges();
+  for (ArrayRef<SourceRange>::iterator I = Ranges.begin(), E = Ranges.end();
+                                        I != E; ++I) {
     ID.AddInteger(I->getBegin().getRawEncoding());
     ID.AddInteger(I->getEnd().getRawEncoding());
   }  
@@ -751,10 +769,9 @@ void PathDiagnosticMacroPiece::Profile(llvm::FoldingSetNodeID &ID) const {
 }
 
 void PathDiagnostic::Profile(llvm::FoldingSetNodeID &ID) const {
-  if (!path.empty())
-    getLocation().Profile(ID);
+  ID.Add(getLocation());
   ID.AddString(BugType);
-  ID.AddString(Desc);
+  ID.AddString(VerboseDesc);
   ID.AddString(Category);
 }
 

@@ -2576,7 +2576,8 @@ public:
   bool isEABI() const {
     StringRef Env =
       getContext().getTargetInfo().getTriple().getEnvironmentName();
-    return (Env == "gnueabi" || Env == "eabi" || Env == "androideabi");
+    return (Env == "gnueabi" || Env == "eabi" ||
+            Env == "android" || Env == "androideabi");
   }
 
 private:
@@ -2757,13 +2758,10 @@ ABIArgInfo ARMABIInfo::classifyArgumentType(QualType Ty) const {
     }
   }
 
-  // FIXME: byval for AAPCS is not yet supported; we need it for performance
-  // and to support large alignment.
-  if (getABIKind() == ARMABIInfo::APCS) {
-    if (getContext().getTypeSizeInChars(Ty) > CharUnits::fromQuantity(64) ||
-        getContext().getTypeAlign(Ty) > 64) {
-      return ABIArgInfo::getIndirect(0, /*ByVal=*/true);
-    }
+  // Support byval for ARM.
+  if (getContext().getTypeSizeInChars(Ty) > CharUnits::fromQuantity(64) ||
+      getContext().getTypeAlign(Ty) > 64) {
+    return ABIArgInfo::getIndirect(0, /*ByVal=*/true);
   }
 
   // Otherwise, pass by coercing to a structure of the appropriate size.

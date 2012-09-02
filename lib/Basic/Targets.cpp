@@ -316,7 +316,7 @@ protected:
     DefineStd(Builder, "linux", Opts);
     Builder.defineMacro("__gnu_linux__");
     Builder.defineMacro("__ELF__");
-    if (Triple.getEnvironment() == llvm::Triple::ANDROIDEABI)
+    if (Triple.getEnvironment() == llvm::Triple::Android)
       Builder.defineMacro("__ANDROID__", "1");
     if (Opts.POSIXThreads)
       Builder.defineMacro("_REENTRANT");
@@ -792,8 +792,6 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
   Builder.defineMacro("__POWERPC__");
   if (PointerWidth == 64) {
     Builder.defineMacro("_ARCH_PPC64");
-    Builder.defineMacro("_LP64");
-    Builder.defineMacro("__LP64__");
     Builder.defineMacro("__powerpc64__");
     Builder.defineMacro("__ppc64__");
   } else {
@@ -2074,10 +2072,6 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
                                      MacroBuilder &Builder) const {
   // Target identification.
   if (PointerWidth == 64) {
-    if (getLongWidth() == 64) {
-      Builder.defineMacro("_LP64");
-      Builder.defineMacro("__LP64__");
-    }
     Builder.defineMacro("__amd64__");
     Builder.defineMacro("__amd64");
     Builder.defineMacro("__x86_64");
@@ -3089,9 +3083,8 @@ public:
                                 unsigned &NumAliases) const;
   virtual bool validateAsmConstraint(const char *&Name,
                                      TargetInfo::ConstraintInfo &Info) const {
-    // FIXME: Check if this is complete
     switch (*Name) {
-    default:
+    default: break;
     case 'l': // r0-r7
     case 'h': // r8-r15
     case 'w': // VFP Floating point register single precision
@@ -3708,8 +3701,12 @@ public:
     Features[CPU] = true;
   }
 
-  virtual void getArchDefines(const LangOptions &Opts,
-                              MacroBuilder &Builder) const {
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "mips", Opts);
+    Builder.defineMacro("_mips");
+    Builder.defineMacro("__REGISTER_PREFIX__", "");
+
     switch (FloatABI) {
     case HardFloat:
       Builder.defineMacro("__mips_hard_float", Twine(1));
@@ -3743,10 +3740,11 @@ public:
     Builder.defineMacro("_MIPS_SZPTR", Twine(getPointerWidth(0)));
     Builder.defineMacro("_MIPS_SZINT", Twine(getIntWidth()));
     Builder.defineMacro("_MIPS_SZLONG", Twine(getLongWidth()));
+
+    Builder.defineMacro("_MIPS_ARCH", "\"" + CPU + "\"");
+    Builder.defineMacro("_MIPS_ARCH_" + StringRef(CPU).upper());
   }
 
-  virtual void getTargetDefines(const LangOptions &Opts,
-                                MacroBuilder &Builder) const = 0;
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
                                  unsigned &NumRecords) const {
     Records = BuiltinInfo;
@@ -3866,9 +3864,9 @@ public:
     } else
       return false;
   }
-  virtual void getArchDefines(const LangOptions &Opts,
-                              MacroBuilder &Builder) const {
-    MipsTargetInfoBase::getArchDefines(Opts, Builder);
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    MipsTargetInfoBase::getTargetDefines(Opts, Builder);
 
     if (ABI == "o32") {
       Builder.defineMacro("__mips_o32");
@@ -3928,12 +3926,9 @@ public:
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
-    DefineStd(Builder, "mips", Opts);
-    Builder.defineMacro("_mips");
     DefineStd(Builder, "MIPSEB", Opts);
     Builder.defineMacro("_MIPSEB");
-    Builder.defineMacro("__REGISTER_PREFIX__", "");
-    getArchDefines(Opts, Builder);
+    Mips32TargetInfoBase::getTargetDefines(Opts, Builder);
   }
 };
 
@@ -3946,12 +3941,9 @@ public:
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
-    DefineStd(Builder, "mips", Opts);
-    Builder.defineMacro("_mips");
     DefineStd(Builder, "MIPSEL", Opts);
     Builder.defineMacro("_MIPSEL");
-    Builder.defineMacro("__REGISTER_PREFIX__", "");
-    getArchDefines(Opts, Builder);
+    Mips32TargetInfoBase::getTargetDefines(Opts, Builder);
   }
 };
 
@@ -3981,9 +3973,12 @@ public:
 
     return true;
   }
-  virtual void getArchDefines(const LangOptions &Opts,
-                              MacroBuilder &Builder) const {
-    MipsTargetInfoBase::getArchDefines(Opts, Builder);
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    MipsTargetInfoBase::getTargetDefines(Opts, Builder);
+
+    Builder.defineMacro("__mips64");
+    Builder.defineMacro("__mips64__");
 
     if (ABI == "n32") {
       Builder.defineMacro("__mips_n32");
@@ -4055,12 +4050,9 @@ public:
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
-    DefineStd(Builder, "mips", Opts);
-    Builder.defineMacro("_mips");
     DefineStd(Builder, "MIPSEB", Opts);
     Builder.defineMacro("_MIPSEB");
-    Builder.defineMacro("__REGISTER_PREFIX__", "");
-    getArchDefines(Opts, Builder);
+    Mips64TargetInfoBase::getTargetDefines(Opts, Builder);
   }
 };
 
@@ -4082,12 +4074,9 @@ public:
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
-    DefineStd(Builder, "mips", Opts);
-    Builder.defineMacro("_mips");
     DefineStd(Builder, "MIPSEL", Opts);
     Builder.defineMacro("_MIPSEL");
-    Builder.defineMacro("__REGISTER_PREFIX__", "");
-    getArchDefines(Opts, Builder);
+    Mips64TargetInfoBase::getTargetDefines(Opts, Builder);
   }
 };
 } // end anonymous namespace.

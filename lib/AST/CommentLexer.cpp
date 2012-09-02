@@ -28,6 +28,9 @@ bool isHTMLHexCharacterReferenceCharacter(char C) {
          (C >= 'a' && C <= 'f') ||
          (C >= 'A' && C <= 'F');
 }
+
+#include "clang/AST/CommentHTMLTags.inc"
+
 } // unnamed namespace
 
 StringRef Lexer::resolveHTMLNamedCharacterReference(StringRef Name) const {
@@ -585,8 +588,12 @@ void Lexer::setupAndLexHTMLStartTag(Token &T) {
   assert(BufferPtr[0] == '<' &&
          isHTMLIdentifierStartingCharacter(BufferPtr[1]));
   const char *TagNameEnd = skipHTMLIdentifier(BufferPtr + 2, CommentEnd);
-
   StringRef Name(BufferPtr + 1, TagNameEnd - (BufferPtr + 1));
+  if (!isHTMLTagName(Name)) {
+    formTextToken(T, TagNameEnd);
+    return;
+  }
+
   formTokenWithChars(T, TagNameEnd, tok::html_start_tag);
   T.setHTMLTagStartName(Name);
 
@@ -665,11 +672,16 @@ void Lexer::setupAndLexHTMLEndTag(Token &T) {
 
   const char *TagNameBegin = skipWhitespace(BufferPtr + 2, CommentEnd);
   const char *TagNameEnd = skipHTMLIdentifier(TagNameBegin, CommentEnd);
+  StringRef Name(TagNameBegin, TagNameEnd - TagNameBegin);
+  if (!isHTMLTagName(Name)) {
+    formTextToken(T, TagNameEnd);
+    return;
+  }
 
   const char *End = skipWhitespace(TagNameEnd, CommentEnd);
 
   formTokenWithChars(T, End, tok::html_end_tag);
-  T.setHTMLTagEndName(StringRef(TagNameBegin, TagNameEnd - TagNameBegin));
+  T.setHTMLTagEndName(Name);
 
   if (BufferPtr != CommentEnd && *BufferPtr == '>')
     State = LS_HTMLEndTag;
@@ -683,11 +695,11 @@ void Lexer::lexHTMLEndTag(Token &T) {
 }
 
 Lexer::Lexer(llvm::BumpPtrAllocator &Allocator, const CommandTraits &Traits,
-             SourceLocation FileLoc, const CommentOptions &CommOpts,
+             SourceLocation FileLoc,
              const char *BufferStart, const char *BufferEnd):
     Allocator(Allocator), Traits(Traits),
     BufferStart(BufferStart), BufferEnd(BufferEnd),
-    FileLoc(FileLoc), CommOpts(CommOpts), BufferPtr(BufferStart),
+    FileLoc(FileLoc), BufferPtr(BufferStart),
     CommentState(LCS_BeforeComment), State(LS_Normal) {
 }
 

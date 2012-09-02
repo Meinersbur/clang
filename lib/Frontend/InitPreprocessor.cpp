@@ -247,7 +247,7 @@ static void AddObjCXXARCLibstdcxxDefines(const LangOptions &LangOpts,
         << "};\n"
         << "\n";
       
-    if (LangOpts.ObjCRuntimeHasWeak) {
+    if (LangOpts.ObjCARCWeak) {
       Out << "template<typename _Tp>\n"
           << "struct __is_scalar<__attribute__((objc_ownership(weak))) _Tp> {\n"
           << "  enum { __value = 0 };\n"
@@ -429,10 +429,6 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
       Builder.append("#define __identifier(x) x");
       Builder.append("class type_info;");
     }
-
-    if (LangOpts.CPlusPlus0x) {
-      Builder.defineMacro("_HAS_CHAR16_T_LANGUAGE_SUPPORT", "1");
-    }
   }
 
   if (LangOpts.Optimize)
@@ -457,6 +453,13 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
     Builder.defineMacro("__BYTE_ORDER__", "__ORDER_BIG_ENDIAN__");
   else
     Builder.defineMacro("__BYTE_ORDER__", "__ORDER_LITTLE_ENDIAN__");
+
+
+  if (TI.getPointerWidth(0) == 64 && TI.getLongWidth() == 64
+      && TI.getIntWidth() == 32) {
+    Builder.defineMacro("_LP64");
+    Builder.defineMacro("__LP64__");
+  }
 
   // Define type sizing macros based on the target properties.
   assert(TI.getCharWidth() == 8 && "Only support 8-bit char so far");

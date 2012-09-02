@@ -753,7 +753,8 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
   case DeclSpec::TST_class:
   case DeclSpec::TST_enum:
   case DeclSpec::TST_union:
-  case DeclSpec::TST_struct: {
+  case DeclSpec::TST_struct:
+  case DeclSpec::TST_interface: {
     TypeDecl *D = dyn_cast_or_null<TypeDecl>(DS.getRepAsDecl());
     if (!D) {
       // This can happen in C++ with ambiguous lookups.
@@ -1582,14 +1583,6 @@ QualType Sema::BuildMemberPointerType(QualType T, QualType Class,
     return QualType();
   }
 
-  // In the Microsoft ABI, the class is allowed to be an incomplete
-  // type. In such cases, the compiler makes a worst-case assumption.
-  // We make no such assumption right now, so emit an error if the
-  // class isn't a complete type.
-  if (Context.getTargetInfo().getCXXABI() == CXXABI_Microsoft &&
-      RequireCompleteType(Loc, Class, diag::err_incomplete_type))
-    return QualType();
-
   return Context.getMemberPointerType(T, Class.getTypePtr());
 }
 
@@ -1853,30 +1846,31 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       case TTK_Struct: Error = 1; /* Struct member */ break;
       case TTK_Union:  Error = 2; /* Union member */ break;
       case TTK_Class:  Error = 3; /* Class member */ break;
+      case TTK_Interface: Error = 4; /* Interface member */ break;
       }
       break;
     case Declarator::CXXCatchContext:
     case Declarator::ObjCCatchContext:
-      Error = 4; // Exception declaration
+      Error = 5; // Exception declaration
       break;
     case Declarator::TemplateParamContext:
-      Error = 5; // Template parameter
+      Error = 6; // Template parameter
       break;
     case Declarator::BlockLiteralContext:
-      Error = 6; // Block literal
+      Error = 7; // Block literal
       break;
     case Declarator::TemplateTypeArgContext:
-      Error = 7; // Template type argument
+      Error = 8; // Template type argument
       break;
     case Declarator::AliasDeclContext:
     case Declarator::AliasTemplateContext:
-      Error = 9; // Type alias
+      Error = 10; // Type alias
       break;
     case Declarator::TrailingReturnContext:
-      Error = 10; // Function return type
+      Error = 11; // Function return type
       break;
     case Declarator::TypeNameContext:
-      Error = 11; // Generic
+      Error = 12; // Generic
       break;
     case Declarator::FileContext:
     case Declarator::BlockContext:
@@ -1887,11 +1881,11 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     }
 
     if (D.getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_typedef)
-      Error = 8;
+      Error = 9;
 
     // In Objective-C it is an error to use 'auto' on a function declarator.
     if (D.isFunctionDeclarator())
-      Error = 10;
+      Error = 11;
 
     // C++11 [dcl.spec.auto]p2: 'auto' is always fine if the declarator
     // contains a trailing return type. That is only legal at the outermost
@@ -2258,6 +2252,51 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         ASM = ArrayType::Normal;
         D.setInvalidType(true);
       }
+
+      // C99 6.7.5.2p1: The optional type qualifiers and the keyword static
+      // shall appear only in a declaration of a function parameter with an
+      // array type, ...
+      if (ASM == ArrayType::Static || ATI.TypeQuals) {
+        if (!(D.isPrototypeContext() ||
+              D.getContext() == Declarator::KNRTypeListContext)) {
+          S.Diag(DeclType.Loc, diag::err_array_static_outside_prototype) <<
+              (ASM == ArrayType::Static ? "'static'" : "type qualifier");
+          // Remove the 'static' and the type qualifiers.
+          if (ASM == ArrayType::Static)
+            ASM = ArrayType::Normal;
+          ATI.TypeQuals = 0;
+          D.setInvalidType(true);
+        }
+
+        // C99 6.7.5.2p1: ... and then only in the outermost array type
+        // derivation.
+        unsigned x = chunkIndex;
+        while (x != 0) {
+          // Walk outwards along the declarator chunks.
+          x--;
+          const DeclaratorChunk &DC = D.getTypeObject(x);
+          switch (DC.Kind) {
+          case DeclaratorChunk::Paren:
+            continue;
+          case DeclaratorChunk::Array:
+          case DeclaratorChunk::Pointer:
+          case DeclaratorChunk::Reference:
+          case DeclaratorChunk::MemberPointer:
+            S.Diag(DeclType.Loc, diag::err_array_static_not_outermost) <<
+              (ASM == ArrayType::Static ? "'static'" : "type qualifier");
+            if (ASM == ArrayType::Static)
+              ASM = ArrayType::Normal;
+            ATI.TypeQuals = 0;
+            D.setInvalidType(true);
+            break;
+          case DeclaratorChunk::Function:
+          case DeclaratorChunk::BlockPointer:
+            // These are invalid anyway, so just ignore.
+            break;
+          }
+        }
+      }
+
       T = S.BuildArrayType(T, ASM, ArraySize, ATI.TypeQuals,
                            SourceRange(DeclType.Loc, DeclType.EndLoc), Name);
       break;
@@ -3224,7 +3263,6 @@ namespace {
       assert(Chunk.Kind == DeclaratorChunk::Function);
       TL.setLocalRangeBegin(Chunk.Loc);
       TL.setLocalRangeEnd(Chunk.EndLoc);
-      TL.setTrailingReturn(Chunk.Fun.hasTrailingReturnType());
 
       const DeclaratorChunk::FunctionTypeInfo &FTI = Chunk.Fun;
       for (unsigned i = 0, e = TL.getNumArgs(), tpi = 0; i != e; ++i) {
@@ -3544,7 +3582,7 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
 
   // Forbid __weak if the runtime doesn't support it.
   if (lifetime == Qualifiers::OCL_Weak &&
-      !S.getLangOpts().ObjCRuntimeHasWeak && !NonObjCPointer) {
+      !S.getLangOpts().ObjCARCWeak && !NonObjCPointer) {
 
     // Actually, delay this until we know what we're parsing.
     if (S.DelayedDiagnostics.shouldDelayDiagnostics()) {
@@ -3567,11 +3605,12 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
     while (const PointerType *ptr = T->getAs<PointerType>())
       T = ptr->getPointeeType();
     if (const ObjCObjectPointerType *ObjT = T->getAs<ObjCObjectPointerType>()) {
-      ObjCInterfaceDecl *Class = ObjT->getInterfaceDecl();
-      if (Class->isArcWeakrefUnavailable()) {
-          S.Diag(AttrLoc, diag::err_arc_unsupported_weak_class);
-          S.Diag(ObjT->getInterfaceDecl()->getLocation(),
-                 diag::note_class_declared);
+      if (ObjCInterfaceDecl *Class = ObjT->getInterfaceDecl()) {
+        if (Class->isArcWeakrefUnavailable()) {
+            S.Diag(AttrLoc, diag::err_arc_unsupported_weak_class);
+            S.Diag(ObjT->getInterfaceDecl()->getLocation(),
+                   diag::note_class_declared);
+        }
       }
     }
   }
@@ -4385,6 +4424,20 @@ bool Sema::RequireCompleteType(SourceLocation Loc, QualType T,
   return RequireCompleteType(Loc, T, Diagnoser);
 }
 
+/// \brief Get diagnostic %select index for tag kind for
+/// literal type diagnostic message.
+/// WARNING: Indexes apply to particular diagnostics only!
+///
+/// \returns diagnostic %select index.
+static unsigned getLiteralDiagFromTagKind(TagTypeKind Tag) {
+  switch (Tag) {
+  case TTK_Struct: return 0;
+  case TTK_Interface: return 1;
+  case TTK_Class:  return 2;
+  default: llvm_unreachable("Invalid tag kind for literal type diagnostic!");
+  }
+}
+
 /// @brief Ensure that the type T is a literal type.
 ///
 /// This routine checks whether the type @p T is a literal type. If @p T is an
@@ -4441,7 +4494,7 @@ bool Sema::RequireLiteralType(SourceLocation Loc, QualType T,
   // of constexpr constructors.
   if (RD->getNumVBases()) {
     Diag(RD->getLocation(), diag::note_non_literal_virtual_base)
-      << RD->isStruct() << RD->getNumVBases();
+      << getLiteralDiagFromTagKind(RD->getTagKind()) << RD->getNumVBases();
     for (CXXRecordDecl::base_class_const_iterator I = RD->vbases_begin(),
            E = RD->vbases_end(); I != E; ++I)
       Diag(I->getLocStart(),
