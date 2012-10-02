@@ -1,22 +1,29 @@
 set(LLVM_LINK_COMPONENTS support)
 
 add_clang_library(clangTooling
-  CommandLineClangTool.cpp
-  CompilationDatabase.cpp
-  Refactoring.cpp
-  Tooling.cpp
   ArgumentsAdjusters.cpp
+  CommonOptionsParser.cpp
+  CompilationDatabase.cpp
+  JSONCompilationDatabase.cpp
+  Refactoring.cpp
   RefactoringCallbacks.cpp
+  Tooling.cpp
   )
 
 add_dependencies(clangTooling
+  ClangAttrClasses
+  ClangAttrList
+  ClangDeclNodes
   ClangDiagnosticCommon
-)
+  ClangDiagnosticFrontend
+  ClangStmtNodes
+  )
 
 target_link_libraries(clangTooling
   clangBasic
   clangFrontend
   clangAST
   clangASTMatchers
-  clangRewrite
+  clangRewriteCore
+  clangRewriteFrontend
   )

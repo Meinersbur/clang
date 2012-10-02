@@ -16,6 +16,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -91,6 +92,16 @@ ObjCPropertyDecl::findPropertyDecl(const DeclContext *DC,
       return PD;
 
   return 0;
+}
+
+IdentifierInfo *
+ObjCPropertyDecl::getDefaultSynthIvarName(ASTContext &Ctx) const {
+  SmallString<128> ivarName;
+  {
+    llvm::raw_svector_ostream os(ivarName);
+    os << '_' << getIdentifier()->getName();
+  }
+  return &Ctx.Idents.get(ivarName.str());
 }
 
 /// FindPropertyDeclaration - Finds declaration of the property given its name
@@ -363,9 +374,12 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
   return NULL;
 }
 
+// Will search "local" class/category implementations for a method decl.
+// If failed, then we search in class's root for an instance method.
+// Returns 0 if no method is found.
 ObjCMethodDecl *ObjCInterfaceDecl::lookupPrivateMethod(
                                    const Selector &Sel,
-                                   bool Instance) {
+                                   bool Instance) const {
   // FIXME: Should make sure no callers ever do this.
   if (!hasDefinition())
     return 0;
@@ -377,7 +391,23 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupPrivateMethod(
   if (ObjCImplementationDecl *ImpDecl = getImplementation())
     Method = Instance ? ImpDecl->getInstanceMethod(Sel) 
                       : ImpDecl->getClassMethod(Sel);
-  
+
+  // Look through local category implementations associated with the class.
+  if (!Method)
+    Method = Instance ? getCategoryInstanceMethod(Sel)
+                      : getCategoryClassMethod(Sel);
+
+  // Before we give up, check if the selector is an instance method.
+  // But only in the root. This matches gcc's behavior and what the
+  // runtime expects.
+  if (!Instance && !Method && !getSuperClass()) {
+    Method = lookupInstanceMethod(Sel);
+    // Look through local category implementations associated
+    // with the root class.
+    if (!Method)
+      Method = lookupPrivateMethod(Sel, true);
+  }
+
   if (!Method && getSuperClass())
     return getSuperClass()->lookupPrivateMethod(Sel, Instance);
   return Method;

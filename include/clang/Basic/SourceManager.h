@@ -62,7 +62,6 @@ class LangOptions;
 class ASTWriter;
 class ASTReader;
 
-/// \namespace
 /// \brief Public enums and private classes that are part of the
 /// SourceManager implementation.
 ///
@@ -221,7 +220,7 @@ namespace SrcMgr {
 
   private:
     // Disable assignments.
-    ContentCache &operator=(const ContentCache& RHS);
+    ContentCache &operator=(const ContentCache& RHS) LLVM_DELETED_FUNCTION;
   };
 
   /// \brief Information about a FileID, basically just the logical file
@@ -647,8 +646,8 @@ class SourceManager : public RefCountedBase<SourceManager> {
   mutable llvm::DenseMap<FileID, MacroArgsMap *> MacroArgsCacheMap;
 
   // SourceManager doesn't support copy construction.
-  explicit SourceManager(const SourceManager&);
-  void operator=(const SourceManager&);
+  explicit SourceManager(const SourceManager&) LLVM_DELETED_FUNCTION;
+  void operator=(const SourceManager&) LLVM_DELETED_FUNCTION;
 public:
   SourceManager(DiagnosticsEngine &Diag, FileManager &FileMgr,
                 bool UserFilesAreVolatile = false);
@@ -779,7 +778,7 @@ public:
                             const llvm::MemoryBuffer *Buffer,
                             bool DoNotFree = false);
 
-  /// \brief Override the the given source file with another one.
+  /// \brief Override the given source file with another one.
   ///
   /// \param SourceFile the source file which will be overriden.
   ///
@@ -1517,13 +1516,12 @@ private:
       return true;
 
     // If it is the last local entry, then it does if the location is local.
-    if (static_cast<unsigned>(FID.ID+1) == LocalSLocEntryTable.size()) {
+    if (FID.ID+1 == static_cast<int>(LocalSLocEntryTable.size()))
       return SLocOffset < NextLocalOffset;
-    }
 
     // Otherwise, the entry after it has to not include it. This works for both
     // local and loaded entries.
-    return SLocOffset < getSLocEntry(FileID::get(FID.ID+1)).getOffset();
+    return SLocOffset < getSLocEntryByID(FID.ID+1).getOffset();
   }
 
   /// \brief Create a new fileID for the specified ContentCache and

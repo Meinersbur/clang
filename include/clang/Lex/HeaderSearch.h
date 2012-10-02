@@ -132,7 +132,6 @@ class HeaderSearch {
   };
 
   FileManager &FileMgr;
-  DiagnosticsEngine &Diags;
   /// \#include search path information.  Requests for \#include "x" search the
   /// directory of the \#including file first, then each directory in SearchDirs
   /// consecutively. Requests for <x> search the current dir first, then each
@@ -207,10 +206,9 @@ class HeaderSearch {
   unsigned NumFrameworkLookups, NumSubFrameworkLookups;
 
   // HeaderSearch doesn't support default or copy construction.
-  explicit HeaderSearch();
-  explicit HeaderSearch(const HeaderSearch&);
-  void operator=(const HeaderSearch&);
-  
+  HeaderSearch(const HeaderSearch&) LLVM_DELETED_FUNCTION;
+  void operator=(const HeaderSearch&) LLVM_DELETED_FUNCTION;
+
   friend class DirectoryLookup;
   
 public:
@@ -409,7 +407,7 @@ public:
   bool isFileMultipleIncludeGuarded(const FileEntry *File);
 
   /// CreateHeaderMap - This method returns a HeaderMap for the specified
-  /// FileEntry, uniquing them through the the 'HeaderMaps' datastructure.
+  /// FileEntry, uniquing them through the 'HeaderMaps' datastructure.
   const HeaderMap *CreateHeaderMap(const FileEntry *FE);
 
   /// \brief Retrieve the name of the module file that should be used to 

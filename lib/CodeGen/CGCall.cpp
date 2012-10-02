@@ -983,14 +983,18 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
   case ABIArgInfo::Ignore:
     break;
 
-  case ABIArgInfo::Indirect:
-    PAL.push_back(llvm::AttributeWithIndex::get(Index,
-                                                llvm::Attribute::StructRet));
+  case ABIArgInfo::Indirect: {
+    llvm::Attributes SRETAttrs = llvm::Attribute::StructRet;
+    if (RetAI.getInReg())
+      SRETAttrs |= llvm::Attribute::InReg;
+    PAL.push_back(llvm::AttributeWithIndex::get(Index, SRETAttrs));
+
     ++Index;
     // sret disables readnone and readonly
     FuncAttrs &= ~(llvm::Attribute::ReadOnly |
                    llvm::Attribute::ReadNone);
     break;
+  }
 
   case ABIArgInfo::Expand:
     llvm_unreachable("Invalid ABI kind for return argument");
@@ -999,14 +1003,6 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
   if (RetAttrs)
     PAL.push_back(llvm::AttributeWithIndex::get(0, RetAttrs));
 
-  // FIXME: RegParm should be reduced in case of global register variable.
-  signed RegParm;
-  if (FI.getHasRegParm())
-    RegParm = FI.getRegParm();
-  else
-    RegParm = CodeGenOpts.NumRegisterParameters;
-
-  unsigned PointerWidth = getContext().getTargetInfo().getPointerWidth(0);
   for (CGFunctionInfo::const_arg_iterator it = FI.arg_begin(),
          ie = FI.arg_end(); it != ie; ++it) {
     QualType ParamType = it->type;
@@ -1024,22 +1020,22 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
         Attrs |= llvm::Attribute::ZExt;
       // FALL THROUGH
     case ABIArgInfo::Direct:
-      if (RegParm > 0 &&
-          (ParamType->isIntegerType() || ParamType->isPointerType() ||
-           ParamType->isReferenceType())) {
-        RegParm -=
-        (Context.getTypeSize(ParamType) + PointerWidth - 1) / PointerWidth;
-        if (RegParm >= 0)
+      if (AI.getInReg())
           Attrs |= llvm::Attribute::InReg;
-      }
+
       // FIXME: handle sseregparm someday...
 
       // Increment Index if there is padding.
       Index += (AI.getPaddingType() != 0);
 
       if (llvm::StructType *STy =
-            dyn_cast<llvm::StructType>(AI.getCoerceToType()))
-        Index += STy->getNumElements()-1;  // 1 will be added below.
+          dyn_cast<llvm::StructType>(AI.getCoerceToType())) {
+        unsigned Extra = STy->getNumElements()-1;  // 1 will be added below.
+        if (Attrs != llvm::Attribute::None)
+          for (unsigned I = 0; I < Extra; ++I)
+            PAL.push_back(llvm::AttributeWithIndex::get(Index + I, Attrs));
+        Index += Extra;
+      }
       break;
 
     case ABIArgInfo::Indirect:
@@ -1047,7 +1043,7 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
         Attrs |= llvm::Attribute::ByVal;
 
       Attrs |=
-        llvm::Attribute::constructAlignmentFromInt(AI.getIndirectAlign());
+        llvm::Attributes::constructAlignmentFromInt(AI.getIndirectAlign());
       // byval disables readnone and readonly.
       FuncAttrs &= ~(llvm::Attribute::ReadOnly |
                      llvm::Attribute::ReadNone);
@@ -1367,12 +1363,23 @@ static llvm::Value *tryEmitFusedAutoreleaseOfResult(CodeGenFunction &CGF,
                                           .objc_retainAutoreleasedReturnValue) {
     doRetainAutorelease = false;
 
-    // Look for an inline asm immediately preceding the call and kill it, too.
-    llvm::Instruction *prev = call->getPrevNode();
-    if (llvm::CallInst *asmCall = dyn_cast_or_null<llvm::CallInst>(prev))
-      if (asmCall->getCalledValue()
-            == CGF.CGM.getARCEntrypoints().retainAutoreleasedReturnValueMarker)
-        insnsToKill.push_back(prev);
+    // If we emitted an assembly marker for this call (and the
+    // ARCEntrypoints field should have been set if so), go looking
+    // for that call.  If we can't find it, we can't do this
+    // optimization.  But it should always be the immediately previous
+    // instruction, unless we needed bitcasts around the call.
+    if (CGF.CGM.getARCEntrypoints().retainAutoreleasedReturnValueMarker) {
+      llvm::Instruction *prev = call->getPrevNode();
+      assert(prev);
+      if (isa<llvm::BitCastInst>(prev)) {
+        prev = prev->getPrevNode();
+        assert(prev);
+      }
+      assert(isa<llvm::CallInst>(prev));
+      assert(cast<llvm::CallInst>(prev)->getCalledValue() ==
+               CGF.CGM.getARCEntrypoints().retainAutoreleasedReturnValueMarker);
+      insnsToKill.push_back(prev);
+    }
   } else {
     return 0;
   }
@@ -1405,7 +1412,8 @@ static llvm::Value *tryEmitFusedAutoreleaseOfResult(CodeGenFunction &CGF,
 static llvm::Value *tryRemoveRetainOfSelf(CodeGenFunction &CGF,
                                           llvm::Value *result) {
   // This is only applicable to a method with an immutable 'self'.
-  const ObjCMethodDecl *method = dyn_cast<ObjCMethodDecl>(CGF.CurCodeDecl);
+  const ObjCMethodDecl *method =
+    dyn_cast_or_null<ObjCMethodDecl>(CGF.CurCodeDecl);
   if (!method) return 0;
   const VarDecl *self = method->getSelfDecl();
   if (!self->getType().isConstQualified()) return 0;

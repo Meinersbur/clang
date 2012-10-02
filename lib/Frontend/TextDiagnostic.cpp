@@ -20,6 +20,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include <algorithm>
+#include <cctype>
 
 using namespace clang;
 
@@ -184,7 +185,7 @@ static void expandTabs(std::string &SourceLine, unsigned TabStop) {
 ///  characters will appear at (numbering the first column as 0).
 ///
 /// If a byte 'i' corresponds to muliple columns (e.g. the byte contains a tab
-///  character) then the the array will map that byte to the first column the
+///  character) then the array will map that byte to the first column the
 ///  tab appears at and the next value in the map will have been incremented
 ///  more than once.
 ///
@@ -273,14 +274,44 @@ struct SourceColumnMap {
   }
   int columns() const { return m_byteToColumn.back(); }
   int bytes() const { return m_columnToByte.back(); }
+
+  /// \brief Map a byte to the column which it is at the start of, or return -1
+  /// if it is not at the start of a column (for a UTF-8 trailing byte).
   int byteToColumn(int n) const {
     assert(0<=n && n<static_cast<int>(m_byteToColumn.size()));
     return m_byteToColumn[n];
   }
+
+  /// \brief Map a byte to the first column which contains it.
+  int byteToContainingColumn(int N) const {
+    assert(0 <= N && N < static_cast<int>(m_byteToColumn.size()));
+    while (m_byteToColumn[N] == -1)
+      --N;
+    return m_byteToColumn[N];
+  }
+
+  /// \brief Map a column to the byte which starts the column, or return -1 if
+  /// the column the second or subsequent column of an expanded tab or similar
+  /// multi-column entity.
   int columnToByte(int n) const {
     assert(0<=n && n<static_cast<int>(m_columnToByte.size()));
     return m_columnToByte[n];
   }
+
+  /// \brief Map from a byte index to the next byte which starts a column.
+  int startOfNextColumn(int N) const {
+    assert(0 <= N && N < static_cast<int>(m_columnToByte.size() - 1));
+    while (byteToColumn(++N) == -1) {}
+    return N;
+  }
+
+  /// \brief Map from a byte index to the previous byte which starts a column.
+  int startOfPreviousColumn(int N) const {
+    assert(0 < N && N < static_cast<int>(m_columnToByte.size()));
+    while (byteToColumn(N--) == -1) {}
+    return N;
+  }
+
   StringRef getSourceLine() const {
     return m_SourceLine;
   }
@@ -401,21 +432,20 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
 
       // Skip over any whitespace we see here; we're looking for
       // another bit of interesting text.
+      // FIXME: Detect non-ASCII whitespace characters too.
       while (NewStart &&
-             (map.byteToColumn(NewStart)==-1 ||
-             isspace(static_cast<unsigned char>(SourceLine[NewStart]))))
-        --NewStart;
+             isspace(static_cast<unsigned char>(SourceLine[NewStart])))
+        NewStart = map.startOfPreviousColumn(NewStart);
 
       // Skip over this bit of "interesting" text.
-      while (NewStart &&
-             (map.byteToColumn(NewStart)!=-1 &&
-             !isspace(static_cast<unsigned char>(SourceLine[NewStart]))))
-        --NewStart;
+      while (NewStart) {
+        unsigned Prev = map.startOfPreviousColumn(NewStart);
+        if (isspace(static_cast<unsigned char>(SourceLine[Prev])))
+          break;
+        NewStart = Prev;
+      }
 
-      // Move up to the non-whitespace character we just saw.
-      if (NewStart)
-        ++NewStart;
-
+      assert(map.byteToColumn(NewStart) != -1);
       unsigned NewColumns = map.byteToColumn(SourceEnd) -
                               map.byteToColumn(NewStart);
       if (NewColumns <= TargetColumns) {
@@ -429,17 +459,17 @@ static void selectInterestingSourceRegion(std::string &SourceLine,
 
       // Skip over any whitespace we see here; we're looking for
       // another bit of interesting text.
-      while (NewEnd<SourceLine.size() &&
-             (map.byteToColumn(NewEnd)==-1 ||
-             isspace(static_cast<unsigned char>(SourceLine[NewEnd]))))
-        ++NewEnd;
+      // FIXME: Detect non-ASCII whitespace characters too.
+      while (NewEnd < SourceLine.size() &&
+             isspace(static_cast<unsigned char>(SourceLine[NewEnd])))
+        NewEnd = map.startOfNextColumn(NewEnd);
 
       // Skip over this bit of "interesting" text.
-      while (NewEnd<SourceLine.size() &&
-             (map.byteToColumn(NewEnd)!=-1 &&
-             !isspace(static_cast<unsigned char>(SourceLine[NewEnd]))))
-        ++NewEnd;
+      while (NewEnd < SourceLine.size() &&
+             !isspace(static_cast<unsigned char>(SourceLine[NewEnd])))
+        NewEnd = map.startOfNextColumn(NewEnd);
 
+      assert(map.byteToColumn(NewEnd) != -1);
       unsigned NewColumns = map.byteToColumn(NewEnd) -
                               map.byteToColumn(SourceStart);
       if (NewColumns <= TargetColumns) {
@@ -904,8 +934,6 @@ void TextDiagnostic::emitSnippetAndCaret(
 
   unsigned LineNo = SM.getLineNumber(FID, FileOffset);
   unsigned ColNo = SM.getColumnNumber(FID, FileOffset);
-  unsigned CaretEndColNo
-    = ColNo + Lexer::MeasureTokenLength(Loc, SM, LangOpts);
 
   // Rewind from the current position to the start of the line.
   const char *TokPtr = BufStart+FileOffset;
@@ -917,11 +945,6 @@ void TextDiagnostic::emitSnippetAndCaret(
   const char *LineEnd = TokPtr;
   while (*LineEnd != '\n' && *LineEnd != '\r' && *LineEnd != '\0')
     ++LineEnd;
-
-  // FIXME: This shouldn't be necessary, but the CaretEndColNo can extend past
-  // the source line length as currently being computed. See
-  // test/Misc/message-length.c.
-  CaretEndColNo = std::min(CaretEndColNo, unsigned(LineEnd - LineStart));
 
   // Copy the line of code into an std::string for ease of manipulation.
   std::string SourceLine(LineStart, LineEnd);
@@ -939,7 +962,7 @@ void TextDiagnostic::emitSnippetAndCaret(
     highlightRange(*I, LineNo, FID, sourceColMap, CaretLine, SM);
 
   // Next, insert the caret itself.
-  ColNo = sourceColMap.byteToColumn(ColNo-1);
+  ColNo = sourceColMap.byteToContainingColumn(ColNo-1);
   if (CaretLine.size()<ColNo+1)
     CaretLine.resize(ColNo+1, ' ');
   CaretLine[ColNo] = '^';
@@ -1086,7 +1109,7 @@ void TextDiagnostic::highlightRange(const CharSourceRange &R,
     while (StartColNo < map.getSourceLine().size() &&
            (map.getSourceLine()[StartColNo] == ' ' ||
             map.getSourceLine()[StartColNo] == '\t'))
-      ++StartColNo;
+      StartColNo = map.startOfNextColumn(StartColNo);
 
     // Pick the last non-whitespace column.
     if (EndColNo > map.getSourceLine().size())
@@ -1094,7 +1117,7 @@ void TextDiagnostic::highlightRange(const CharSourceRange &R,
     while (EndColNo-1 &&
            (map.getSourceLine()[EndColNo-1] == ' ' ||
             map.getSourceLine()[EndColNo-1] == '\t'))
-      --EndColNo;
+      EndColNo = map.startOfPreviousColumn(EndColNo);
 
     // If the start/end passed each other, then we are trying to highlight a
     // range that just exists in whitespace, which must be some sort of other
@@ -1106,8 +1129,8 @@ void TextDiagnostic::highlightRange(const CharSourceRange &R,
   assert(EndColNo <= map.getSourceLine().size() && "Invalid range!");
 
   // Fill the range with ~'s.
-  StartColNo = map.byteToColumn(StartColNo);
-  EndColNo = map.byteToColumn(EndColNo);
+  StartColNo = map.byteToContainingColumn(StartColNo);
+  EndColNo = map.byteToContainingColumn(EndColNo);
 
   assert(StartColNo <= EndColNo && "Invalid range!");
   if (CaretLine.size() < EndColNo)
@@ -1124,23 +1147,28 @@ std::string TextDiagnostic::buildFixItInsertionLine(
   std::string FixItInsertionLine;
   if (Hints.empty() || !DiagOpts.ShowFixits)
     return FixItInsertionLine;
-  unsigned PrevHintEnd = 0;
+  unsigned PrevHintEndCol = 0;
 
   for (ArrayRef<FixItHint>::iterator I = Hints.begin(), E = Hints.end();
        I != E; ++I) {
     if (!I->CodeToInsert.empty()) {
       // We have an insertion hint. Determine whether the inserted
-      // code is on the same line as the caret.
+      // code contains no newlines and is on the same line as the caret.
       std::pair<FileID, unsigned> HintLocInfo
         = SM.getDecomposedExpansionLoc(I->RemoveRange.getBegin());
-      if (LineNo == SM.getLineNumber(HintLocInfo.first, HintLocInfo.second)) {
+      if (LineNo == SM.getLineNumber(HintLocInfo.first, HintLocInfo.second) &&
+          StringRef(I->CodeToInsert).find_first_of("\n\r") == StringRef::npos) {
         // Insert the new code into the line just below the code
         // that the user wrote.
-        unsigned HintColNo
+        // Note: When modifying this function, be very careful about what is a
+        // "column" (printed width, platform-dependent) and what is a
+        // "byte offset" (SourceManager "column").
+        unsigned HintByteOffset
           = SM.getColumnNumber(HintLocInfo.first, HintLocInfo.second) - 1;
-        // hint must start inside the source or right at the end
-        assert(HintColNo<static_cast<unsigned>(map.bytes())+1);
-        HintColNo = map.byteToColumn(HintColNo);
+
+        // The hint must start inside the source or right at the end
+        assert(HintByteOffset < static_cast<unsigned>(map.bytes())+1);
+        unsigned HintCol = map.byteToContainingColumn(HintByteOffset);
 
         // If we inserted a long previous hint, push this one forwards, and add
         // an extra space to show that this is not part of the previous
@@ -1149,32 +1177,27 @@ std::string TextDiagnostic::buildFixItInsertionLine(
         //
         // Note that if this hint is located immediately after the previous
         // hint, no space will be added, since the location is more important.
-        if (HintColNo < PrevHintEnd)
-          HintColNo = PrevHintEnd + 1;
+        if (HintCol < PrevHintEndCol)
+          HintCol = PrevHintEndCol + 1;
 
-        // FIXME: if the fixit includes tabs or other characters that do not
-        //  take up a single column per byte when displayed then
-        //  I->CodeToInsert.size() is not a column number and we're mixing
-        //  units (columns + bytes). We should get printable versions
-        //  of each fixit before using them.
-        unsigned LastColumnModified
-          = HintColNo + I->CodeToInsert.size();
+        // FIXME: This function handles multibyte characters in the source, but
+        // not in the fixits. This assertion is intended to catch unintended
+        // use of multibyte characters in fixits. If we decide to do this, we'll
+        // have to track separate byte widths for the source and fixit lines.
+        assert((size_t)llvm::sys::locale::columnWidth(I->CodeToInsert) ==
+               I->CodeToInsert.size());
 
-        if (LastColumnModified <= static_cast<unsigned>(map.bytes())) {
-          // If we're right in the middle of a multibyte character skip to
-          // the end of it.
-          while (map.byteToColumn(LastColumnModified) == -1)
-            ++LastColumnModified;
-          LastColumnModified = map.byteToColumn(LastColumnModified);
-        }
-
+        // This relies on one byte per column in our fixit hints.
+        // This should NOT use HintByteOffset, because the source might have
+        // Unicode characters in earlier columns.
+        unsigned LastColumnModified = HintCol + I->CodeToInsert.size();
         if (LastColumnModified > FixItInsertionLine.size())
           FixItInsertionLine.resize(LastColumnModified, ' ');
-        assert(HintColNo+I->CodeToInsert.size() <= FixItInsertionLine.size());
-        std::copy(I->CodeToInsert.begin(), I->CodeToInsert.end(),
-                  FixItInsertionLine.begin() + HintColNo);
 
-        PrevHintEnd = LastColumnModified;
+        std::copy(I->CodeToInsert.begin(), I->CodeToInsert.end(),
+                  FixItInsertionLine.begin() + HintCol);
+
+        PrevHintEndCol = LastColumnModified;
       } else {
         FixItInsertionLine.clear();
         break;

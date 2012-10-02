@@ -467,6 +467,30 @@ private:
         CachedBoolEvals[S] = Result; // update or insert
         return Result;
       }
+      else {
+        switch (Bop->getOpcode()) {
+          default: break;
+          // For 'x & 0' and 'x * 0', we can determine that
+          // the value is always false.
+          case BO_Mul:
+          case BO_And: {
+            // If either operand is zero, we know the value
+            // must be false.
+            llvm::APSInt IntVal;
+            if (Bop->getLHS()->EvaluateAsInt(IntVal, *Context)) {
+              if (IntVal.getBoolValue() == false) {
+                return TryResult(false);
+              }
+            }
+            if (Bop->getRHS()->EvaluateAsInt(IntVal, *Context)) {
+              if (IntVal.getBoolValue() == false) {
+                return TryResult(false);
+              }
+            }
+          }
+          break;
+        }
+      }
     }
 
     return evaluateAsBooleanConditionNoCache(S);
@@ -682,7 +706,7 @@ CFGBlock *CFGBuilder::addInitializer(CXXCtorInitializer *I) {
       IsReference = FD->getType()->isReferenceType();
     HasTemporaries = isa<ExprWithCleanups>(Init);
 
-    if (BuildOpts.AddImplicitDtors && HasTemporaries) {
+    if (BuildOpts.AddTemporaryDtors && HasTemporaries) {
       // Generate destructors for temporaries in initialization expression.
       VisitForTemporaryDtors(cast<ExprWithCleanups>(Init)->getSubExpr(),
           IsReference);
@@ -1022,6 +1046,14 @@ CFGBlock *CFGBuilder::Visit(Stmt * S, AddStmtChoice asc) {
     case Stmt::ExprWithCleanupsClass:
       return VisitExprWithCleanups(cast<ExprWithCleanups>(S), asc);
 
+    case Stmt::CXXDefaultArgExprClass:
+      // FIXME: The expression inside a CXXDefaultArgExpr is owned by the
+      // called function's declaration, not by the caller. If we simply add
+      // this expression to the CFG, we could end up with the same Expr
+      // appearing multiple times.
+      // PR13385 / <rdar://problem/12156507>
+      return VisitStmt(S, asc);
+
     case Stmt::CXXBindTemporaryExprClass:
       return VisitCXXBindTemporaryExpr(cast<CXXBindTemporaryExpr>(S), asc);
 
@@ -1340,7 +1372,7 @@ static bool CanThrow(Expr *E, ASTContext &Ctx) {
   const FunctionType *FT = Ty->getAs<FunctionType>();
   if (FT) {
     if (const FunctionProtoType *Proto = dyn_cast<FunctionProtoType>(FT))
-      if (Proto->getExceptionSpecType() != EST_Uninstantiated &&
+      if (!isUnresolvedExceptionSpec(Proto->getExceptionSpecType()) &&
           Proto->isNothrow(Ctx))
         return false;
   }
@@ -1491,6 +1523,12 @@ CFGBlock *CFGBuilder::VisitConditionalOperator(AbstractConditionalOperator *C,
   if (badCFG)
     return 0;
 
+  // If the condition is a logical '&&' or '||', build a more accurate CFG.
+  if (BinaryOperator *Cond =
+        dyn_cast<BinaryOperator>(C->getCond()->IgnoreParens()))
+    if (Cond->isLogicalOp())
+      return VisitLogicalOperator(Cond, C, LHSBlock, RHSBlock).first;
+
   // Create the block that will contain the condition.
   Block = createBlock(false);
 
@@ -1527,11 +1565,10 @@ CFGBlock *CFGBuilder::VisitDeclStmt(DeclStmt *DS) {
 
   CFGBlock *B = 0;
 
-  // FIXME: Add a reverse iterator for DeclStmt to avoid this extra copy.
-  typedef SmallVector<Decl*,10> BufTy;
-  BufTy Buf(DS->decl_begin(), DS->decl_end());
-
-  for (BufTy::reverse_iterator I = Buf.rbegin(), E = Buf.rend(); I != E; ++I) {
+  // Build an individual DeclStmt for each decl.
+  for (DeclStmt::reverse_decl_iterator I = DS->decl_rbegin(),
+                                       E = DS->decl_rend();
+       I != E; ++I) {
     // Get the alignment of the new DeclStmt, padding out to >=8 bytes.
     unsigned A = llvm::AlignOf<DeclStmt>::Alignment < 8
                ? 8 : llvm::AlignOf<DeclStmt>::Alignment;
@@ -1580,7 +1617,7 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
     IsReference = VD->getType()->isReferenceType();
     HasTemporaries = isa<ExprWithCleanups>(Init);
 
-    if (BuildOpts.AddImplicitDtors && HasTemporaries) {
+    if (BuildOpts.AddTemporaryDtors && HasTemporaries) {
       // Generate destructors for temporaries in initialization expression.
       VisitForTemporaryDtors(cast<ExprWithCleanups>(Init)->getSubExpr(),
           IsReference);
@@ -1709,7 +1746,8 @@ CFGBlock *CFGBuilder::VisitIfStmt(IfStmt *I) {
   // control-flow transfer of '&&' or '||' go directly into the then/else
   // blocks directly.
   if (!I->getConditionVariable())
-    if (BinaryOperator *Cond = dyn_cast<BinaryOperator>(I->getCond()))
+    if (BinaryOperator *Cond =
+            dyn_cast<BinaryOperator>(I->getCond()->IgnoreParens()))
       if (Cond->isLogicalOp())
         return VisitLogicalOperator(Cond, I, ThenBlock, ElseBlock).first;
 
@@ -1929,7 +1967,8 @@ CFGBlock *CFGBuilder::VisitForStmt(ForStmt *F) {
 
     // Specially handle logical operators, which have a slightly
     // more optimal CFG representation.
-    if (BinaryOperator *Cond = dyn_cast_or_null<BinaryOperator>(C))
+    if (BinaryOperator *Cond =
+            dyn_cast_or_null<BinaryOperator>(C ? C->IgnoreParens() : 0))
       if (Cond->isLogicalOp()) {
         llvm::tie(EntryConditionBlock, ExitConditionBlock) =
           VisitLogicalOperator(Cond, F, BodyBlock, LoopSuccessor);
@@ -2238,7 +2277,7 @@ CFGBlock *CFGBuilder::VisitWhileStmt(WhileStmt *W) {
 
     // Specially handle logical operators, which have a slightly
     // more optimal CFG representation.
-    if (BinaryOperator *Cond = dyn_cast<BinaryOperator>(C))
+    if (BinaryOperator *Cond = dyn_cast<BinaryOperator>(C->IgnoreParens()))
       if (Cond->isLogicalOp()) {
         llvm::tie(EntryConditionBlock, ExitConditionBlock) =
           VisitLogicalOperator(Cond, W, BodyBlock,
@@ -2933,7 +2972,7 @@ CFGBlock *CFGBuilder::VisitCXXForRangeStmt(CXXForRangeStmt *S) {
 
 CFGBlock *CFGBuilder::VisitExprWithCleanups(ExprWithCleanups *E,
     AddStmtChoice asc) {
-  if (BuildOpts.AddImplicitDtors) {
+  if (BuildOpts.AddTemporaryDtors) {
     // If adding implicit destructors visit the full expression for adding
     // destructors of temporaries.
     VisitForTemporaryDtors(E->getSubExpr());
@@ -3013,6 +3052,8 @@ CFGBlock *CFGBuilder::VisitIndirectGotoStmt(IndirectGotoStmt *I) {
 }
 
 CFGBlock *CFGBuilder::VisitForTemporaryDtors(Stmt *E, bool BindToTemporary) {
+  assert(BuildOpts.AddImplicitDtors && BuildOpts.AddTemporaryDtors);
+
 tryAgain:
   if (!E) {
     badCFG = true;
@@ -3442,12 +3483,12 @@ class StmtPrinterHelper : public PrinterHelper  {
   StmtMapTy StmtMap;
   DeclMapTy DeclMap;
   signed currentBlock;
-  unsigned currentStmt;
+  unsigned currStmt;
   const LangOptions &LangOpts;
 public:
 
   StmtPrinterHelper(const CFG* cfg, const LangOptions &LO)
-    : currentBlock(0), currentStmt(0), LangOpts(LO)
+    : currentBlock(0), currStmt(0), LangOpts(LO)
   {
     for (CFG::const_iterator I = cfg->begin(), E = cfg->end(); I != E; ++I ) {
       unsigned j = 1;
@@ -3508,7 +3549,7 @@ public:
 
   const LangOptions &getLangOpts() const { return LangOpts; }
   void setBlockID(signed i) { currentBlock = i; }
-  void setStmtID(unsigned i) { currentStmt = i; }
+  void setStmtID(unsigned i) { currStmt = i; }
 
   virtual bool handledStmt(Stmt *S, raw_ostream &OS) {
     StmtMapTy::iterator I = StmtMap.find(S);
@@ -3517,7 +3558,7 @@ public:
       return false;
 
     if (currentBlock >= 0 && I->second.first == (unsigned) currentBlock
-                          && I->second.second == currentStmt) {
+                          && I->second.second == currStmt) {
       return false;
     }
 
@@ -3532,7 +3573,7 @@ public:
       return false;
 
     if (currentBlock >= 0 && I->second.first == (unsigned) currentBlock
-                          && I->second.second == currentStmt) {
+                          && I->second.second == currStmt) {
       return false;
     }
 
@@ -3713,8 +3754,7 @@ static void print_elem(raw_ostream &OS, StmtPrinterHelper* Helper,
     const Type* T = VD->getType().getTypePtr();
     if (const ReferenceType* RT = T->getAs<ReferenceType>())
       T = RT->getPointeeType().getTypePtr();
-    else if (const Type *ET = T->getArrayElementTypeNoTypeQual())
-      T = ET;
+    T = T->getBaseElementTypeUnsafe();
 
     OS << ".~" << T->getAsCXXRecordDecl()->getName().str() << "()";
     OS << " (Implicit destructor)\n";
@@ -3726,11 +3766,7 @@ static void print_elem(raw_ostream &OS, StmtPrinterHelper* Helper,
 
   } else if (const CFGMemberDtor *ME = E.getAs<CFGMemberDtor>()) {
     const FieldDecl *FD = ME->getFieldDecl();
-
-    const Type *T = FD->getType().getTypePtr();
-    if (const Type *ET = T->getArrayElementTypeNoTypeQual())
-      T = ET;
-
+    const Type *T = FD->getType()->getBaseElementTypeUnsafe();
     OS << "this->" << FD->getName();
     OS << ".~" << T->getAsCXXRecordDecl()->getName() << "()";
     OS << " (Member object destructor)\n";

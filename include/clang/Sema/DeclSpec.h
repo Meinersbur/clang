@@ -266,6 +266,7 @@ public:
   static const TST TST_enum = clang::TST_enum;
   static const TST TST_union = clang::TST_union;
   static const TST TST_struct = clang::TST_struct;
+  static const TST TST_interface = clang::TST_interface;
   static const TST TST_class = clang::TST_class;
   static const TST TST_typename = clang::TST_typename;
   static const TST TST_typeofType = clang::TST_typeofType;
@@ -378,11 +379,12 @@ private:
   }
   static bool isDeclRep(TST T) {
     return (T == TST_enum || T == TST_struct ||
-            T == TST_union || T == TST_class);
+            T == TST_interface || T == TST_union ||
+            T == TST_class);
   }
 
-  DeclSpec(const DeclSpec&);       // DO NOT IMPLEMENT
-  void operator=(const DeclSpec&); // DO NOT IMPLEMENT
+  DeclSpec(const DeclSpec &) LLVM_DELETED_FUNCTION;
+  void operator=(const DeclSpec &) LLVM_DELETED_FUNCTION;
 public:
 
   DeclSpec(AttributeFactory &attrFactory)
@@ -598,7 +600,8 @@ public:
   }
 
   bool SetTypeQual(TQ T, SourceLocation Loc, const char *&PrevSpec,
-                   unsigned &DiagID, const LangOptions &Lang);
+                   unsigned &DiagID, const LangOptions &Lang,
+                   bool IsTypeSpec);
 
   bool SetFunctionSpecInline(SourceLocation Loc, const char *&PrevSpec,
                              unsigned &DiagID);
@@ -780,8 +783,9 @@ private:
 /// \brief Represents a C++ unqualified-id that has been parsed. 
 class UnqualifiedId {
 private:
-  const UnqualifiedId &operator=(const UnqualifiedId &); // DO NOT IMPLEMENT
-  
+  UnqualifiedId(const UnqualifiedId &Other) LLVM_DELETED_FUNCTION;
+  const UnqualifiedId &operator=(const UnqualifiedId &) LLVM_DELETED_FUNCTION;
+
 public:
   /// \brief Describes the kind of unqualified-id parsed.
   enum IdKind {
@@ -855,17 +859,6 @@ public:
   SourceLocation EndLocation;
   
   UnqualifiedId() : Kind(IK_Identifier), Identifier(0) { }
-
-  /// \brief Do not use this copy constructor. It is temporary, and only
-  /// exists because we are holding FieldDeclarators in a SmallVector when we
-  /// don't actually need them.
-  ///
-  /// FIXME: Kill this copy constructor.
-  UnqualifiedId(const UnqualifiedId &Other) 
-    : Kind(IK_Identifier), Identifier(Other.Identifier), 
-      StartLocation(Other.StartLocation), EndLocation(Other.EndLocation) {
-    assert(Other.Kind == IK_Identifier && "Cannot copy non-identifiers");
-  }
 
   /// \brief Clear out this unqualified-id, setting it to default (invalid) 
   /// state.
@@ -1103,6 +1096,9 @@ struct DeclaratorChunk {
     /// contains the location of the ellipsis.
     unsigned isVariadic : 1;
 
+    /// Can this declaration be a constructor-style initializer?
+    unsigned isAmbiguous : 1;
+
     /// \brief Whether the ref-qualifier (if any) is an lvalue reference.
     /// Otherwise, it's an rvalue reference.
     unsigned RefQualifierIsLValueRef : 1;
@@ -1151,8 +1147,7 @@ struct DeclaratorChunk {
     /// any.
     unsigned MutableLoc;
 
-    /// \brief When ExceptionSpecType isn't EST_None or EST_Delayed, the
-    /// location of the keyword introducing the spec.
+    /// \brief The location of the keyword introducing the spec, if any.
     unsigned ExceptionSpecLoc;
 
     /// ArgInfo - This is a pointer to a new[]'d array of ParamInfo objects that
@@ -1356,6 +1351,7 @@ struct DeclaratorChunk {
   /// DeclaratorChunk::getFunction - Return a DeclaratorChunk for a function.
   /// "TheDeclarator" is the declarator that this will be added to.
   static DeclaratorChunk getFunction(bool hasProto, bool isVariadic,
+                                     bool isAmbiguous,
                                      SourceLocation EllipsisLoc,
                                      ParamInfo *ArgInfo, unsigned NumArgs,
                                      unsigned TypeQuals, 
@@ -1928,9 +1924,8 @@ public:
 struct FieldDeclarator {
   Declarator D;
   Expr *BitfieldSize;
-  explicit FieldDeclarator(DeclSpec &DS) : D(DS, Declarator::MemberContext) {
-    BitfieldSize = 0;
-  }
+  explicit FieldDeclarator(const DeclSpec &DS)
+    : D(DS, Declarator::MemberContext), BitfieldSize(0) { }
 };
 
 /// \brief Represents a C++11 virt-specifier-seq.
