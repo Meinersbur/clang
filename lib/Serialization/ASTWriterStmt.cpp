@@ -536,6 +536,7 @@ void ASTStmtWriter::VisitBinaryOperator(BinaryOperator *E) {
   Writer.AddStmt(E->getRHS());
   Record.push_back(E->getOpcode()); // FIXME: stable encoding
   Writer.AddSourceLocation(E->getOperatorLoc(), Record);
+  Record.push_back(E->isFPContractable());
   Code = serialization::EXPR_BINARY_OPERATOR;
 }
 
@@ -1055,6 +1056,7 @@ void ASTStmtWriter::VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
   VisitCallExpr(E);
   Record.push_back(E->getOperator());
   Writer.AddSourceRange(E->Range, Record);
+  Record.push_back(E->isFPContractable());
   Code = serialization::EXPR_CXX_OPERATOR_CALL;
 }
 
@@ -1383,8 +1385,6 @@ void ASTStmtWriter::VisitUnresolvedMemberExpr(UnresolvedMemberExpr *E) {
 void ASTStmtWriter::VisitUnresolvedLookupExpr(UnresolvedLookupExpr *E) {
   VisitOverloadExpr(E);
   Record.push_back(E->requiresADL());
-  if (E->requiresADL())
-    Record.push_back(E->isStdAssociatedNamespace());
   Record.push_back(E->isOverloaded());
   Writer.AddDeclRef(E->getNamingClass(), Record);
   Code = serialization::EXPR_CXX_UNRESOLVED_LOOKUP;
@@ -1481,6 +1481,17 @@ void ASTStmtWriter::VisitSubstNonTypeTemplateParmPackExpr(
   Code = serialization::EXPR_SUBST_NON_TYPE_TEMPLATE_PARM_PACK;
 }
 
+void ASTStmtWriter::VisitFunctionParmPackExpr(FunctionParmPackExpr *E) {
+  VisitExpr(E);
+  Record.push_back(E->getNumExpansions());
+  Writer.AddDeclRef(E->getParameterPack(), Record);
+  Writer.AddSourceLocation(E->getParameterPackLocation(), Record);
+  for (FunctionParmPackExpr::iterator I = E->begin(), End = E->end();
+       I != End; ++I)
+    Writer.AddDeclRef(*I, Record);
+  Code = serialization::EXPR_FUNCTION_PARM_PACK;
+}
+
 void ASTStmtWriter::VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *E) {
   VisitExpr(E);
   Writer.AddStmt(E->Temporary);
@@ -1552,12 +1563,6 @@ void ASTStmtWriter::VisitSEHTryStmt(SEHTryStmt *S) {
   Writer.AddStmt(S->getTryBlock());
   Writer.AddStmt(S->getHandler());
   Code = serialization::STMT_SEH_TRY;
-}
-
-void ASTStmtWriter::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
-  VisitStmt(S);
-  Writer.AddSourceLocation(S->getLeaveLoc(), Record);
-  Code = serialization::STMT_SEH_LEAVE;
 }
 
 //===----------------------------------------------------------------------===//

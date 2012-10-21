@@ -35,11 +35,12 @@ using namespace clang;
 //===----------------------------------------------------------------------===//
 
 CompilerInvocationBase::CompilerInvocationBase()
-  : LangOpts(new LangOptions()) {}
+  : LangOpts(new LangOptions()), TargetOpts(new TargetOptions()) {}
 
 CompilerInvocationBase::CompilerInvocationBase(const CompilerInvocationBase &X)
   : RefCountedBase<CompilerInvocation>(),
-    LangOpts(new LangOptions(*X.getLangOpts())) {}
+    LangOpts(new LangOptions(*X.getLangOpts())), 
+    TargetOpts(new TargetOptions(X.getTargetOpts())) {}
 
 //===----------------------------------------------------------------------===//
 // Utility functions.
@@ -196,6 +197,8 @@ static void CodeGenOptsToArgs(const CodeGenOptions &Opts, ToArgsList &Res) {
       Res.push_back("-fno-limit-debug-info");
       break;
   }
+  if (Opts.DebugColumnInfo)
+    Res.push_back("-gcolumn-info");
   if (Opts.DisableLLVMOpts)
     Res.push_back("-disable-llvm-optzns");
   if (Opts.DisableRedZone)
@@ -797,6 +800,8 @@ static void LangOptsToArgs(const LangOptions &Opts, ToArgsList &Res) {
     Res.push_back("-fno-access-control");
   if (!Opts.CharIsSigned)
     Res.push_back("-fno-signed-char");
+  if (Opts.CPlusPlus && !Opts.WChar)
+    Res.push_back("-fno-wchar");
   if (Opts.ShortWChar)
     Res.push_back("-fshort-wchar");
   if (!Opts.ElideConstructors)
@@ -925,8 +930,8 @@ static void TargetOptsToArgs(const TargetOptions &Opts,
     Res.push_back("-target-linker-version", Opts.LinkerVersion);
   if (!Opts.CXXABI.empty())
     Res.push_back("-cxx-abi", Opts.CXXABI);
-  for (unsigned i = 0, e = Opts.Features.size(); i != e; ++i)
-    Res.push_back("-target-feature", Opts.Features[i]);
+  for (unsigned i = 0, e = Opts.FeaturesAsWritten.size(); i != e; ++i)
+    Res.push_back("-target-feature", Opts.FeaturesAsWritten[i]);
 }
 
 void CompilerInvocation::toArgs(std::vector<std::string> &Res) const {
@@ -1128,7 +1133,6 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   Opts.eagerlyAssumeBinOpBifurcation = Args.hasArg(OPT_analyzer_eagerly_assume);
   Opts.AnalyzeSpecificFunction = Args.getLastArgValue(OPT_analyze_function);
   Opts.UnoptimizedCFG = Args.hasArg(OPT_analysis_UnoptimizedCFG);
-  Opts.CFGAddImplicitDtors = Args.hasArg(OPT_analysis_CFGAddImplicitDtors);
   Opts.TrimGraph = Args.hasArg(OPT_trim_egraph);
   Opts.MaxNodes = Args.getLastArgIntValue(OPT_analyzer_max_nodes, 150000,Diags);
   Opts.maxBlockVisitOnPath = Args.getLastArgIntValue(OPT_analyzer_max_loop, 4, Diags);
@@ -1226,6 +1230,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     else
       Opts.DebugInfo = CodeGenOptions::FullDebugInfo;
   }
+  Opts.DebugColumnInfo = Args.hasArg(OPT_dwarf_column_info);
 
   Opts.DisableLLVMOpts = Args.hasArg(OPT_disable_llvm_optzns);
   Opts.DisableRedZone = Args.hasArg(OPT_disable_red_zone);
@@ -1837,6 +1842,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.C11 = Std.isC11();
   Opts.CPlusPlus = Std.isCPlusPlus();
   Opts.CPlusPlus0x = Std.isCPlusPlus0x();
+  Opts.CPlusPlus1y = Std.isCPlusPlus1y();
   Opts.Digraphs = Std.hasDigraphs();
   Opts.GNUMode = Std.isGNUMode();
   Opts.GNUInline = !Std.isC99();
@@ -1870,6 +1876,9 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
 
   // OpenCL and C++ both have bool, true, false keywords.
   Opts.Bool = Opts.OpenCL || Opts.CPlusPlus;
+
+  // C++ has wchar_t keyword.
+  Opts.WChar = Opts.CPlusPlus;
 
   Opts.GNUKeywords = Opts.GNUMode;
   Opts.CXXOperatorNames = Opts.CPlusPlus;
@@ -2078,6 +2087,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.Modules = Args.hasArg(OPT_fmodules);
   Opts.CharIsSigned = !Args.hasArg(OPT_fno_signed_char);
+  Opts.WChar = Opts.CPlusPlus && !Args.hasArg(OPT_fno_wchar);
   Opts.ShortWChar = Args.hasArg(OPT_fshort_wchar);
   Opts.ShortEnums = Args.hasArg(OPT_fshort_enums);
   Opts.Freestanding = Args.hasArg(OPT_ffreestanding);
@@ -2145,6 +2155,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.FiniteMathOnly = Args.hasArg(OPT_ffinite_math_only);
 
   Opts.EmitMicrosoftInlineAsm = Args.hasArg(OPT_fenable_experimental_ms_inline_asm);
+
+  Opts.RetainCommentsFromSystemHeaders =
+      Args.hasArg(OPT_fretain_comments_from_system_headers);
 
   unsigned SSP = Args.getLastArgIntValue(OPT_stack_protector, 0, Diags);
   switch (SSP) {
@@ -2277,7 +2290,7 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args) {
   Opts.ABI = Args.getLastArgValue(OPT_target_abi);
   Opts.CXXABI = Args.getLastArgValue(OPT_cxx_abi);
   Opts.CPU = Args.getLastArgValue(OPT_target_cpu);
-  Opts.Features = Args.getAllArgValues(OPT_target_feature);
+  Opts.FeaturesAsWritten = Args.getAllArgValues(OPT_target_feature);
   Opts.LinkerVersion = Args.getLastArgValue(OPT_target_linker_version);
   Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
 
@@ -2317,7 +2330,7 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
   // Issue errors on arguments that are not valid for CC1.
   for (ArgList::iterator I = Args->begin(), E = Args->end();
        I != E; ++I) {
-    if (!(*I)->getOption().isCC1Option()) {
+    if (!(*I)->getOption().hasFlag(options::CC1Option)) {
       Diags.Report(diag::err_drv_unknown_argument) << (*I)->getAsString(*Args);
       Success = false;
     }
@@ -2423,7 +2436,8 @@ std::string CompilerInvocation::getModuleHash() const {
 #include "clang/Basic/LangOptions.def"
   
   // Extend the signature with the target triple
-  llvm::Triple T(TargetOpts.Triple);
+  // FIXME: Add target options.
+  llvm::Triple T(TargetOpts->Triple);
   Signature.add((unsigned)T.getArch(), 5);
   Signature.add((unsigned)T.getVendor(), 4);
   Signature.add((unsigned)T.getOS(), 5);

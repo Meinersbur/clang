@@ -131,6 +131,7 @@ def PackExpansionExpr : DStmt<Expr>;
 def SizeOfPackExpr : DStmt<Expr>;
 def SubstNonTypeTemplateParmExpr : DStmt<Expr>;
 def SubstNonTypeTemplateParmPackExpr : DStmt<Expr>;
+def FunctionParmPackExpr : DStmt<Expr>;
 def MaterializeTemporaryExpr : DStmt<Expr>;
 def LambdaExpr : DStmt<Expr>;
 
@@ -164,7 +165,6 @@ def OpaqueValueExpr : DStmt<Expr>;
 // Microsoft Extensions.
 def CXXUuidofExpr : DStmt<Expr>; 
 def SEHTryStmt : Stmt;
-def SEHLeaveStmt : Stmt;
 def SEHExceptStmt : Stmt;
 def SEHFinallyStmt : Stmt;
 def MSDependentExistsStmt : Stmt;

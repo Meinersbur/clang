@@ -63,13 +63,12 @@ ExprEngine::ExprEngine(AnalysisManager &mgr, bool gcEnabled,
     G(Engine.getGraph()),
     StateMgr(getContext(), mgr.getStoreManagerCreator(),
              mgr.getConstraintManagerCreator(), G.getAllocator(),
-             *this),
+             this),
     SymMgr(StateMgr.getSymbolManager()),
     svalBuilder(StateMgr.getSValBuilder()),
     EntryNode(NULL),
     currStmt(NULL), currStmtIdx(0), currBldrCtx(0),
-    NSExceptionII(NULL), NSExceptionInstanceRaiseSelectors(NULL),
-    RaiseSel(GetNullarySelector("raise", getContext())),
+    ObjCNoRet(mgr.getASTContext()),
     ObjCGCEnabled(gcEnabled), BR(mgr, *this),
     VisitedCallees(VisitedCalleesIn)
 {
@@ -81,7 +80,6 @@ ExprEngine::ExprEngine(AnalysisManager &mgr, bool gcEnabled,
 
 ExprEngine::~ExprEngine() {
   BR.FlushReports();
-  delete [] NSExceptionInstanceRaiseSelectors;
 }
 
 //===----------------------------------------------------------------------===//
@@ -163,6 +161,23 @@ ProgramStateRef ExprEngine::getInitialState(const LocationContext *InitLoc) {
   }
     
   return state;
+}
+
+/// If the value of the given expression is a NonLoc, copy it into a new
+/// temporary region, and replace the value of the expression with that.
+static ProgramStateRef createTemporaryRegionIfNeeded(ProgramStateRef State,
+                                                     const LocationContext *LC,
+                                                     const Expr *E) {
+  SVal V = State->getSVal(E, LC);
+
+  if (isa<NonLoc>(V)) {
+    MemRegionManager &MRMgr = State->getStateManager().getRegionManager();
+    const MemRegion *R  = MRMgr.getCXXTempObjectRegion(E, LC);
+    State = State->bindLoc(loc::MemRegionVal(R), V);
+    State = State->BindExpr(E, LC, loc::MemRegionVal(R));
+  }
+
+  return State;
 }
 
 //===----------------------------------------------------------------------===//
@@ -446,7 +461,7 @@ void ExprEngine::ProcessAutomaticObjDtor(const CFGAutomaticObjDtor Dtor,
   Loc dest = state->getLValue(varDecl, Pred->getLocationContext());
 
   VisitCXXDestructor(varType, cast<loc::MemRegionVal>(dest).getRegion(),
-                     Dtor.getTriggerStmt(), Pred, Dst);
+                     Dtor.getTriggerStmt(), /*IsBase=*/false, Pred, Dst);
 }
 
 void ExprEngine::ProcessBaseDtor(const CFGBaseDtor D,
@@ -464,7 +479,7 @@ void ExprEngine::ProcessBaseDtor(const CFGBaseDtor D,
   SVal BaseVal = getStoreManager().evalDerivedToBase(ThisVal, BaseTy);
 
   VisitCXXDestructor(BaseTy, cast<loc::MemRegionVal>(BaseVal).getRegion(),
-                     CurDtor->getBody(), Pred, Dst);
+                     CurDtor->getBody(), /*IsBase=*/true, Pred, Dst);
 }
 
 void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
@@ -480,7 +495,7 @@ void ExprEngine::ProcessMemberDtor(const CFGMemberDtor D,
 
   VisitCXXDestructor(Member->getType(),
                      cast<loc::MemRegionVal>(FieldVal).getRegion(),
-                     CurDtor->getBody(), Pred, Dst);
+                     CurDtor->getBody(), /*IsBase=*/false, Pred, Dst);
 }
 
 void ExprEngine::ProcessTemporaryDtor(const CFGTemporaryDtor D,
@@ -526,8 +541,8 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXNoexceptExprClass:
     case Stmt::PackExpansionExprClass:
     case Stmt::SubstNonTypeTemplateParmPackExprClass:
+    case Stmt::FunctionParmPackExprClass:
     case Stmt::SEHTryStmtClass:
-    case Stmt::SEHLeaveStmtClass:
     case Stmt::SEHExceptStmtClass:
     case Stmt::LambdaExprClass:
     case Stmt::SEHFinallyStmtClass: {
@@ -719,8 +734,26 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
       break;
     }
 
+    case Stmt::CXXOperatorCallExprClass: {
+      const CXXOperatorCallExpr *OCE = cast<CXXOperatorCallExpr>(S);
+
+      // For instance method operators, make sure the 'this' argument has a
+      // valid region.
+      const Decl *Callee = OCE->getCalleeDecl();
+      if (const CXXMethodDecl *MD = dyn_cast_or_null<CXXMethodDecl>(Callee)) {
+        if (MD->isInstance()) {
+          ProgramStateRef State = Pred->getState();
+          const LocationContext *LCtx = Pred->getLocationContext();
+          ProgramStateRef NewState =
+            createTemporaryRegionIfNeeded(State, LCtx, OCE->getArg(0));
+          if (NewState != State)
+            Pred = Bldr.generateNode(OCE, Pred, NewState, /*Tag=*/0,
+                                     ProgramPoint::PreStmtKind);
+        }
+      }
+      // FALLTHROUGH
+    }
     case Stmt::CallExprClass:
-    case Stmt::CXXOperatorCallExprClass:
     case Stmt::CXXMemberCallExprClass:
     case Stmt::UserDefinedLiteralClass: {
       Bldr.takeNodes(Pred);
@@ -1480,6 +1513,7 @@ void ExprEngine::VisitMemberExpr(const MemberExpr *M, ExplodedNode *Pred,
   ExplodedNodeSet Dst;
   Decl *member = M->getMemberDecl();
 
+  // Handle static member variables accessed via member syntax.
   if (VarDecl *VD = dyn_cast<VarDecl>(member)) {
     assert(M->isGLValue());
     Bldr.takeNodes(Pred);
@@ -1488,40 +1522,27 @@ void ExprEngine::VisitMemberExpr(const MemberExpr *M, ExplodedNode *Pred,
     return;
   }
 
+  ProgramStateRef state = Pred->getState();
+  const LocationContext *LCtx = Pred->getLocationContext();
+  Expr *BaseExpr = M->getBase();
+
   // Handle C++ method calls.
   if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(member)) {
-    Bldr.takeNodes(Pred);
+    if (MD->isInstance())
+      state = createTemporaryRegionIfNeeded(state, LCtx, BaseExpr);
+
     SVal MDVal = svalBuilder.getFunctionPointer(MD);
-    ProgramStateRef state =
-      Pred->getState()->BindExpr(M, Pred->getLocationContext(), MDVal);
+    state = state->BindExpr(M, LCtx, MDVal);
+
     Bldr.generateNode(M, Pred, state);
     return;
   }
 
+  // Handle regular struct fields / member variables.
+  state = createTemporaryRegionIfNeeded(state, LCtx, BaseExpr);
+  SVal baseExprVal = state->getSVal(BaseExpr, LCtx);
 
-  FieldDecl *field = dyn_cast<FieldDecl>(member);
-  if (!field) // FIXME: skipping member expressions for non-fields
-    return;
-
-  Expr *baseExpr = M->getBase()->IgnoreParens();
-  ProgramStateRef state = Pred->getState();
-  const LocationContext *LCtx = Pred->getLocationContext();
-  SVal baseExprVal = state->getSVal(baseExpr, Pred->getLocationContext());
-  if (isa<nonloc::LazyCompoundVal>(baseExprVal) ||
-      isa<nonloc::CompoundVal>(baseExprVal) ||
-      // FIXME: This can originate by conjuring a symbol for an unknown
-      // temporary struct object, see test/Analysis/fields.c:
-      // (p = getit()).x
-      isa<nonloc::SymbolVal>(baseExprVal)) {
-    Bldr.generateNode(M, Pred, state->BindExpr(M, LCtx, UnknownVal()));
-    return;
-  }
-
-  // FIXME: Should we insert some assumption logic in here to determine
-  // if "Base" is a valid piece of memory?  Before we put this assumption
-  // later when using FieldOffset lvals (which we no longer have).
-
-  // For all other cases, compute an lvalue.    
+  FieldDecl *field = cast<FieldDecl>(member);
   SVal L = state->getLValue(field, baseExprVal);
   if (M->isGLValue()) {
     if (field->getType()->isReferenceType()) {
@@ -1936,7 +1957,7 @@ struct DOTGraphTraits<ExplodedNode*> :
         if (StmtPoint *L = dyn_cast<StmtPoint>(&Loc)) {
           const Stmt *S = L->getStmt();
 
-          Out << S->getStmtClassName() << ' ' << (void*) S << ' ';
+          Out << S->getStmtClassName() << ' ' << (const void*) S << ' ';
           LangOptions LO; // FIXME.
           S->printPretty(Out, 0, PrintingPolicy(LO));
           printLocation(Out, S->getLocStart());
@@ -2042,8 +2063,8 @@ struct DOTGraphTraits<ExplodedNode*> :
     }
 
     ProgramStateRef state = N->getState();
-    Out << "\\|StateID: " << (void*) state.getPtr()
-        << " NodeID: " << (void*) N << "\\|";
+    Out << "\\|StateID: " << (const void*) state.getPtr()
+        << " NodeID: " << (const void*) N << "\\|";
     state->printDOT(Out);
 
     Out << "\\l";    

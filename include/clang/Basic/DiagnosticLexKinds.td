@@ -55,7 +55,7 @@ def warn_cxx98_compat_no_newline_eof : Warning<
 
 def ext_dollar_in_identifier : Extension<"'$' in identifier">,
   InGroup<DiagGroup<"dollar-in-identifier-extension">>;
-def ext_charize_microsoft : Extension<"@# is a microsoft extension">,
+def ext_charize_microsoft : Extension<"charizing operator #@ is a Microsoft extension">,
   InGroup<Microsoft>;
 
 def ext_token_used : Extension<"extension used">,
@@ -228,6 +228,12 @@ def pp_macro_not_used : Warning<"macro is not used">, DefaultIgnore,
 def warn_pp_undef_identifier : Warning<
   "%0 is not defined, evaluates to 0">,
   InGroup<DiagGroup<"undef">>, DefaultIgnore;
+def warn_pp_ambiguous_macro : Warning<
+  "ambiguous expansion of macro %0">, InGroup<AmbiguousMacro>;
+def note_pp_ambiguous_macro_chosen : Note<
+  "expanding this definition of %0">;
+def note_pp_ambiguous_macro_other : Note<
+  "other definition of %0">;
 
 def pp_invalid_string_literal : Warning<
   "invalid string literal, ignoring final '\\'">;
@@ -509,5 +515,7 @@ def warn_auto_module_import : Warning<
   "import of module '%1'">, InGroup<AutoImport>, DefaultIgnore;
 def warn_uncovered_module_header : Warning<
   "umbrella header does not include header '%0'">, InGroup<IncompleteUmbrella>;
-
+def err_expected_id_building_module : Error<
+  "expected a module name in '__building_module' expression">;
+  
 }

@@ -215,10 +215,6 @@ void StmtProfiler::VisitSEHExceptStmt(const SEHExceptStmt *S) {
   VisitStmt(S);
 }
 
-void StmtProfiler::VisitSEHLeaveStmt(const SEHLeaveStmt *S) {
-  VisitStmt(S);
-}
-
 void StmtProfiler::VisitObjCForCollectionStmt(const ObjCForCollectionStmt *S) {
   VisitStmt(S);
 }
@@ -977,6 +973,14 @@ void StmtProfiler::VisitSubstNonTypeTemplateParmExpr(
   Visit(E->getReplacement());
 }
 
+void StmtProfiler::VisitFunctionParmPackExpr(const FunctionParmPackExpr *S) {
+  VisitExpr(S);
+  VisitDecl(S->getParameterPack());
+  ID.AddInteger(S->getNumExpansions());
+  for (FunctionParmPackExpr::iterator I = S->begin(), E = S->end(); I != E; ++I)
+    VisitDecl(*I);
+}
+
 void StmtProfiler::VisitMaterializeTemporaryExpr(
                                            const MaterializeTemporaryExpr *S) {
   VisitExpr(S);
@@ -1167,6 +1171,10 @@ void StmtProfiler::VisitTemplateArgument(const TemplateArgument &Arg) {
       
   case TemplateArgument::Declaration:
     VisitDecl(Arg.getAsDecl());
+    break;
+
+  case TemplateArgument::NullPtr:
+    VisitType(Arg.getNullPtrType());
     break;
 
   case TemplateArgument::Integral:

@@ -3576,7 +3576,8 @@ Stmt *RewriteModernObjC::SynthMessageExpr(ObjCMessageExpr *Exp,
                                                    SourceLocation());
     BinaryOperator *lessThanExpr = 
       new (Context) BinaryOperator(sizeofExpr, limit, BO_LE, Context->IntTy,
-                                   VK_RValue, OK_Ordinary, SourceLocation());
+                                   VK_RValue, OK_Ordinary, SourceLocation(),
+                                   false);
     // (sizeof(returnType) <= 8 ? objc_msgSend(...) : objc_msgSend_stret(...))
     ConditionalOperator *CondExpr =
       new (Context) ConditionalOperator(lessThanExpr,
@@ -4866,7 +4867,7 @@ void RewriteModernObjC::RewriteBlockPointerDecl(NamedDecl *ND) {
       else if (*argListBegin ==  '<') {
         buf += "/*"; 
         buf += *argListBegin++;
-        OrigLength++;;
+        OrigLength++;
         while (*argListBegin != '>') {
           buf += *argListBegin++;
           OrigLength++;
@@ -5891,8 +5892,8 @@ void RewriteModernObjC::Initialize(ASTContext &context) {
   Preamble += "(const char *);\n";
   Preamble += "__OBJC_RW_DLLIMPORT void objc_exception_throw( struct objc_object *);\n";
   // @synchronized hooks.
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_enter( struct objc_object *);\n";
-  Preamble += "__OBJC_RW_DLLIMPORT void objc_sync_exit( struct objc_object *);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT int objc_sync_enter( struct objc_object *);\n";
+  Preamble += "__OBJC_RW_DLLIMPORT int objc_sync_exit( struct objc_object *);\n";
   Preamble += "__OBJC_RW_DLLIMPORT Protocol *objc_getProtocol(const char *);\n";
   Preamble += "#ifndef __FASTENUMERATIONSTATE\n";
   Preamble += "struct __objcFastEnumerationState {\n\t";
@@ -7473,7 +7474,7 @@ Stmt *RewriteModernObjC::RewriteObjCIvarRefExpr(ObjCIvarRefExpr *IV) {
       BinaryOperator *addExpr = 
         new (Context) BinaryOperator(castExpr, DRE, BO_Add, 
                                      Context->getPointerType(Context->CharTy),
-                                     VK_RValue, OK_Ordinary, SourceLocation());
+                                     VK_RValue, OK_Ordinary, SourceLocation(), false);
       // Don't forget the parens to enforce the proper binding.
       ParenExpr *PE = new (Context) ParenExpr(SourceLocation(),
                                               SourceLocation(),

@@ -183,19 +183,6 @@ Retry:
 
     return ParseExprStatement();
   }
-  
-  case tok::kw___leave: {
-    Token LeaveTok = Tok;
-    ConsumeToken();
-    if (getCurScope()->isSEHTryScope()) {
-      Res = Actions.ActOnSEHLeaveStmt(LeaveTok.getLocation());
-    } else {
-      Diag(LeaveTok, diag::err_seh___try_block)
-         << LeaveTok.getIdentifierInfo()->getName();
-      Res = StmtError();
-    }
-    break;
-  }
 
   case tok::kw_case:                // C99 6.8.1: labeled-statement
     return ParseCaseStatement();
@@ -266,6 +253,42 @@ Retry:
     ProhibitAttributes(Attrs);
     HandlePragmaPack();
     return StmtEmpty();
+
+  case tok::annot_pragma_msstruct:
+    ProhibitAttributes(Attrs);
+    HandlePragmaMSStruct();
+    return StmtEmpty();
+
+  case tok::annot_pragma_align:
+    ProhibitAttributes(Attrs);
+    HandlePragmaAlign();
+    return StmtEmpty();
+
+  case tok::annot_pragma_weak:
+    ProhibitAttributes(Attrs);
+    HandlePragmaWeak();
+    return StmtEmpty();
+
+  case tok::annot_pragma_weakalias:
+    ProhibitAttributes(Attrs);
+    HandlePragmaWeakAlias();
+    return StmtEmpty();
+
+  case tok::annot_pragma_redefine_extname:
+    ProhibitAttributes(Attrs);
+    HandlePragmaRedefineExtname();
+    return StmtEmpty();
+
+  case tok::annot_pragma_fp_contract:
+    Diag(Tok, diag::err_pragma_fp_contract_scope);
+    ConsumeToken();
+    return StmtError();
+
+
+  case tok::annot_pragma_opencl_extension:
+    ProhibitAttributes(Attrs);
+    HandlePragmaOpenCLExtension();
+    return StmtEmpty();
   }
 
   // If we reached this code, the statement must end in a semicolon.
@@ -335,9 +358,7 @@ StmtResult Parser::ParseSEHTryBlockCommon(SourceLocation TryLoc) {
   if(Tok.isNot(tok::l_brace))
     return StmtError(Diag(Tok,diag::err_expected_lbrace));
 
-  // Use the SEHTryScope to handle __leave as a statement.
-  unsigned ScopeFlags = Scope::DeclScope | Scope::SEHTryScope;
-  StmtResult TryBlock(ParseCompoundStatement(false /*isStmtExpr*/, ScopeFlags));
+  StmtResult TryBlock(ParseCompoundStatement());
   if(TryBlock.isInvalid())
     return TryBlock;
 
@@ -694,6 +715,11 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   PrettyStackTraceLoc CrashInfo(PP.getSourceManager(),
                                 Tok.getLocation(),
                                 "in compound statement ('{}')");
+
+  // Record the state of the FP_CONTRACT pragma, restore on leaving the
+  // compound statement.
+  Sema::FPContractStateRAII SaveFPContractState(Actions);
+
   InMessageExpressionRAIIObject InMessage(*this, false);
   BalancedDelimiterTracker T(*this, tok::l_brace);
   if (T.consumeOpen())
@@ -702,6 +728,10 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   Sema::CompoundScopeRAII CompoundScope(Actions);
 
   StmtVector Stmts;
+
+  // Parse FP_CONTRACT if present.
+  if (Tok.is(tok::annot_pragma_fp_contract))
+    HandlePragmaFPContract();
 
   // "__label__ X, Y, Z;" is the GNU "Local Label" extension.  These are
   // only allowed at the start of a compound stmt regardless of the language.
@@ -1456,7 +1486,8 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
     ForRangeStmt = Actions.ActOnCXXForRangeStmt(ForLoc, FirstPart.take(),
                                                 ForRangeInit.ColonLoc,
                                                 ForRangeInit.RangeExpr.get(),
-                                                T.getCloseLocation(), true);
+                                                T.getCloseLocation(),
+                                                Sema::BFRK_Build);
 
 
   // Similarly, we need to do the semantic analysis for a for-range

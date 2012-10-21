@@ -29,6 +29,7 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/CanonicalType.h"
 #include "clang/AST/RawCommentList.h"
+#include "clang/AST/CommentCommandTraits.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -392,9 +393,11 @@ public:
   OwningPtr<ExternalASTSource> ExternalSource;
   ASTMutationListener *Listener;
 
-  clang::PrintingPolicy getPrintingPolicy() const { return PrintingPolicy; }
+  const clang::PrintingPolicy &getPrintingPolicy() const {
+    return PrintingPolicy;
+  }
 
-  void setPrintingPolicy(clang::PrintingPolicy Policy) {
+  void setPrintingPolicy(const clang::PrintingPolicy &Policy) {
     PrintingPolicy = Policy;
   }
   
@@ -513,6 +516,8 @@ public:
   }
 
   void addComment(const RawComment &RC) {
+    assert(LangOpts.RetainCommentsFromSystemHeaders ||
+           !SourceMgr.isInSystemHeader(RC.getSourceRange().getBegin()));
     Comments.addComment(RC, BumpAlloc);
   }
 
@@ -527,7 +532,22 @@ public:
 
   /// Return parsed documentation comment attached to a given declaration.
   /// Returns NULL if no comment is attached.
-  comments::FullComment *getCommentForDecl(const Decl *D) const;
+  ///
+  /// \param PP the Preprocessor used with this TU.  Could be NULL if
+  /// preprocessor is not available.
+  comments::FullComment *getCommentForDecl(const Decl *D,
+                                           const Preprocessor *PP) const;
+  
+  comments::FullComment *cloneFullComment(comments::FullComment *FC,
+                                         const Decl *D) const;
+
+private:
+  mutable comments::CommandTraits CommentCommandTraits;
+
+public:
+  comments::CommandTraits &getCommentCommandTraits() const {
+    return CommentCommandTraits;
+  }
 
   /// \brief Retrieve the attributes for the given declaration.
   AttrVec& getDeclAttrs(const Decl *D);
@@ -608,6 +628,16 @@ public:
   /// Overridden method.
   void addOverriddenMethod(const CXXMethodDecl *Method, 
                            const CXXMethodDecl *Overridden);
+
+  /// \brief Return C++ or ObjC overridden methods for the given \p Method.
+  ///
+  /// An ObjC method is considered to override any method in the class's
+  /// base classes, its protocols, or its categories' protocols, that has
+  /// the same selector and is of the same kind (class or instance).
+  /// A method in an implementation is not considered as overriding the same
+  /// method in the interface or its categories.
+  void getOverriddenMethods(const NamedDecl *Method,
+                            SmallVectorImpl<const NamedDecl *> &Overridden);
   
   /// \brief Notify the AST context that a new import declaration has been
   /// parsed or implicitly created within this translation unit.
@@ -1314,8 +1344,8 @@ public:
   /// for some targets.
   QualType getVaListTagType() const;
 
-  /// \brief Return a type with additional \c const, \c volatile, or \crestrict
-  /// qualifiers.
+  /// \brief Return a type with additional \c const, \c volatile, or
+  /// \c restrict qualifiers.
   QualType getCVRQualifiedType(QualType T, unsigned CVR) const {
     return getQualifiedType(T, Qualifiers::fromCVRMask(CVR));
   }
@@ -1745,8 +1775,8 @@ public:
   /// \brief Return a real floating point or a complex type (based on
   /// \p typeDomain/\p typeSize).
   ///
-  /// \arg typeDomain a real floating point or complex type.
-  /// \arg typeSize a real floating point or complex type.
+  /// \param typeDomain a real floating point or complex type.
+  /// \param typeSize a real floating point or complex type.
   QualType getFloatingTypeOfSizeWithinDomain(QualType typeSize,
                                              QualType typeDomain) const;
 
@@ -1844,7 +1874,7 @@ public:
   // Per C99 6.2.5p6, for every signed integer type, there is a corresponding
   // unsigned integer type.  This method takes a signed type, and returns the
   // corresponding unsigned integer type.
-  QualType getCorrespondingUnsignedType(QualType T);
+  QualType getCorrespondingUnsignedType(QualType T) const;
 
   //===--------------------------------------------------------------------===//
   //                    Type Iterators.
@@ -2016,8 +2046,8 @@ public:
   static unsigned NumImplicitDestructorsDeclared;
   
 private:
-  ASTContext(const ASTContext&); // DO NOT IMPLEMENT
-  void operator=(const ASTContext&); // DO NOT IMPLEMENT
+  ASTContext(const ASTContext &) LLVM_DELETED_FUNCTION;
+  void operator=(const ASTContext &) LLVM_DELETED_FUNCTION;
 
 public:
   /// \brief Initialize built-in types.

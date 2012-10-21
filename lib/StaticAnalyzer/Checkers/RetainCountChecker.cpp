@@ -1074,6 +1074,8 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
       // The headers on OS X 10.8 use cf_consumed/ns_returns_retained,
       // but we can fully model NSMakeCollectable ourselves.
       AllowAnnotations = false;
+    } else if (FName == "CFPlugInInstanceCreate") {
+      S = getPersistentSummary(RetEffect::MakeNoRet());
     } else if (FName == "IOBSDNameMatching" ||
                FName == "IOServiceMatching" ||
                FName == "IOServiceNameMatching" ||
@@ -2201,6 +2203,7 @@ GetAllocationSite(ProgramStateManager& StateMgr, const ExplodedNode *N,
 
   // If allocation happened in a function different from the leak node context,
   // do not report the binding.
+  assert(N && "Could not find allocation node");
   if (N->getLocationContext() != LeakContext) {
     FirstBinding = 0;
   }
@@ -2256,27 +2259,36 @@ CFRefLeakReportVisitor::getEndPath(BugReporterContext &BRC,
 
   // Get the retain count.
   const RefVal* RV = getRefBinding(EndN->getState(), Sym);
+  assert(RV);
 
   if (RV->getKind() == RefVal::ErrorLeakReturned) {
     // FIXME: Per comments in rdar://6320065, "create" only applies to CF
     // objects.  Only "copy", "alloc", "retain" and "new" transfer ownership
     // to the caller for NS objects.
     const Decl *D = &EndN->getCodeDecl();
-    if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
-      os << " is returned from a method whose name ('"
-         << MD->getSelector().getAsString()
-         << "') does not start with 'copy', 'mutableCopy', 'alloc' or 'new'."
-            "  This violates the naming convention rules"
-            " given in the Memory Management Guide for Cocoa";
-    }
+    
+    os << (isa<ObjCMethodDecl>(D) ? " is returned from a method "
+                                  : " is returned from a function ");
+    
+    if (D->getAttr<CFReturnsNotRetainedAttr>())
+      os << "that is annotated as CF_RETURNS_NOT_RETAINED";
+    else if (D->getAttr<NSReturnsNotRetainedAttr>())
+      os << "that is annotated as NS_RETURNS_NOT_RETAINED";
     else {
-      const FunctionDecl *FD = cast<FunctionDecl>(D);
-      os << " is returned from a function whose name ('"
-         << *FD
-         << "') does not contain 'Copy' or 'Create'.  This violates the naming"
-            " convention rules given in the Memory Management Guide for Core"
-            " Foundation";
-    }    
+      if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
+        os << "whose name ('" << MD->getSelector().getAsString()
+           << "') does not start with 'copy', 'mutableCopy', 'alloc' or 'new'."
+              "  This violates the naming convention rules"
+              " given in the Memory Management Guide for Cocoa";
+      }
+      else {
+        const FunctionDecl *FD = cast<FunctionDecl>(D);
+        os << "whose name ('" << *FD
+           << "') does not contain 'Copy' or 'Create'.  This violates the naming"
+              " convention rules given in the Memory Management Guide for Core"
+              " Foundation";
+      }
+    }
   }
   else if (RV->getKind() == RefVal::ErrorGCLeakReturned) {
     ObjCMethodDecl &MD = cast<ObjCMethodDecl>(EndN->getCodeDecl());
@@ -2887,7 +2899,7 @@ void RetainCountChecker::checkSummary(const RetainSummary &Summ,
       SymbolRef Sym = state->getSVal(Ex, C.getLocationContext()).getAsSymbol();
       if (!Sym)
         break;
-
+      assert(Ex);
       // Use GetReturnType in order to give [NSFoo alloc] the type NSFoo *.
       QualType ResultTy = GetReturnType(Ex, C.getASTContext());
       state = setRefBinding(state, Sym, RefVal::makeNotOwned(RE.getObjKind(),
@@ -3435,9 +3447,8 @@ ProgramStateRef RetainCountChecker::evalAssume(ProgramStateRef state,
   RefBindings::Factory &RefBFactory = state->get_context<RefBindings>();
 
   for (RefBindings::iterator I = B.begin(), E = B.end(); I != E; ++I) {
-    // Check if the symbol is null (or equal to any constant).
-    // If this is the case, stop tracking the symbol.
-    if (state->getSymVal(I.getKey())) {
+    // Check if the symbol is null stop tracking the symbol.
+    if (state->getConstraintManager().isNull(state, I.getKey()).isTrue()) {
       changed = true;
       B = RefBFactory.remove(B, I.getKey());
     }

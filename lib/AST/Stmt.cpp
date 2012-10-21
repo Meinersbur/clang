@@ -673,30 +673,24 @@ GCCAsmStmt::GCCAsmStmt(ASTContext &C, SourceLocation asmloc, bool issimple,
 
 MSAsmStmt::MSAsmStmt(ASTContext &C, SourceLocation asmloc,
                      SourceLocation lbraceloc, bool issimple, bool isvolatile,
-                     ArrayRef<Token> asmtoks, ArrayRef<IdentifierInfo*> inputs,
-                     ArrayRef<IdentifierInfo*> outputs,
-                     ArrayRef<Expr*> inputexprs, ArrayRef<Expr*> outputexprs,
-                     StringRef asmstr, ArrayRef<StringRef> constraints,
-                     ArrayRef<StringRef> clobbers, SourceLocation endloc)
-  : AsmStmt(MSAsmStmtClass, asmloc, issimple, isvolatile, outputs.size(), inputs.size(),
-            clobbers.size()), LBraceLoc(lbraceloc), EndLoc(endloc),
-    AsmStr(asmstr.str()), NumAsmToks(asmtoks.size()) {
-  assert (inputs.size() == inputexprs.size() && "Input expr size mismatch!");
-  assert (outputs.size() == outputexprs.size() && "Input expr size mismatch!");
+                     ArrayRef<Token> asmtoks, unsigned numoutputs,
+                     unsigned numinputs, ArrayRef<IdentifierInfo*> names,
+                     ArrayRef<StringRef> constraints, ArrayRef<Expr*> exprs,
+                     StringRef asmstr, ArrayRef<StringRef> clobbers,
+                     SourceLocation endloc)
+  : AsmStmt(MSAsmStmtClass, asmloc, issimple, isvolatile, numoutputs,
+            numinputs, clobbers.size()), LBraceLoc(lbraceloc),
+            EndLoc(endloc), AsmStr(asmstr.str()), NumAsmToks(asmtoks.size()) {
 
   unsigned NumExprs = NumOutputs + NumInputs;
 
   Names = new (C) IdentifierInfo*[NumExprs];
-  for (unsigned i = 0, e = NumOutputs; i != e; ++i)
-    Names[i] = outputs[i];
-  for (unsigned i = NumOutputs, e = NumExprs; i != e; ++i)
-    Names[i] = inputs[i];
+  for (unsigned i = 0, e = NumExprs; i != e; ++i)
+    Names[i] = names[i];
 
   Exprs = new (C) Stmt*[NumExprs];
-  for (unsigned i = 0, e = NumOutputs; i != e; ++i)
-    Exprs[i] = outputexprs[i];
-  for (unsigned i = NumOutputs, e = NumExprs; i != e; ++i)
-    Exprs[i] = inputexprs[i];
+  for (unsigned i = 0, e = NumExprs; i != e; ++i)
+    Exprs[i] = exprs[i];
 
   AsmToks = new (C) Token[NumAsmToks];
   for (unsigned i = 0, e = NumAsmToks; i != e; ++i)
@@ -1004,17 +998,6 @@ SEHExceptStmt* SEHTryStmt::getExceptHandler() const {
 
 SEHFinallyStmt* SEHTryStmt::getFinallyHandler() const {
   return dyn_cast<SEHFinallyStmt>(getHandler());
-}
-
-SEHLeaveStmt::SEHLeaveStmt(SourceLocation LeaveLoc)
-  : Stmt(SEHLeaveStmtClass),
-    LeaveLoc(LeaveLoc)
-{
-}
-
-SEHLeaveStmt* SEHLeaveStmt::Create(ASTContext &C,
-                                   SourceLocation LeaveLoc) {
-  return new(C) SEHLeaveStmt(LeaveLoc);
 }
 
 SEHExceptStmt::SEHExceptStmt(SourceLocation Loc,

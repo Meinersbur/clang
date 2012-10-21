@@ -37,8 +37,6 @@ def triple_EQ : Joined<"-triple=">, Alias<triple>;
 
 def analysis_UnoptimizedCFG : Flag<"-unoptimized-cfg">,
   HelpText<"Generate unoptimized CFGs for all analyses">;
-def analysis_CFGAddImplicitDtors : Flag<"-cfg-add-implicit-dtors">,
-  HelpText<"Add C++ implicit destructors to CFGs for all analyses">;
 
 def analyzer_store : Separate<"-analyzer-store">,
   HelpText<"Source Code Analysis - Abstract Memory Store Models">;
@@ -145,6 +143,8 @@ def fdebug_compilation_dir : Separate<"-fdebug-compilation-dir">,
   HelpText<"The compilation directory to embed in the debug info.">;
 def dwarf_debug_flags : Separate<"-dwarf-debug-flags">,
   HelpText<"The string to embed in the Dwarf debug flags record.">;
+def dwarf_column_info : Flag<"-dwarf-column-info">,
+  HelpText<"Turn on column location information.">;
 def fforbid_guard_variables : Flag<"-fforbid-guard-variables">,
   HelpText<"Emit an error if a C++ static local initializer would need a guard variable">;
 def no_implicit_float : Flag<"-no-implicit-float">,
@@ -391,6 +391,8 @@ def main_file_name : Separate<"-main-file-name">,
   HelpText<"Main file name to use for debug info">;
 def fno_signed_char : Flag<"-fno-signed-char">,
   HelpText<"Char is unsigned">;
+def fno_wchar : Flag<"-fno-wchar">,
+  HelpText<"Disable C++ builtin type wchar_t">;
 def fconstant_string_class : Separate<"-fconstant-string-class">,
   MetaVarName<"<class name>">,
   HelpText<"Specify the class to use for constant Objective-C string objects.">;

@@ -706,7 +706,7 @@ CFGBlock *CFGBuilder::addInitializer(CXXCtorInitializer *I) {
       IsReference = FD->getType()->isReferenceType();
     HasTemporaries = isa<ExprWithCleanups>(Init);
 
-    if (BuildOpts.AddImplicitDtors && HasTemporaries) {
+    if (BuildOpts.AddTemporaryDtors && HasTemporaries) {
       // Generate destructors for temporaries in initialization expression.
       VisitForTemporaryDtors(cast<ExprWithCleanups>(Init)->getSubExpr(),
           IsReference);
@@ -1617,7 +1617,7 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
     IsReference = VD->getType()->isReferenceType();
     HasTemporaries = isa<ExprWithCleanups>(Init);
 
-    if (BuildOpts.AddImplicitDtors && HasTemporaries) {
+    if (BuildOpts.AddTemporaryDtors && HasTemporaries) {
       // Generate destructors for temporaries in initialization expression.
       VisitForTemporaryDtors(cast<ExprWithCleanups>(Init)->getSubExpr(),
           IsReference);
@@ -2286,7 +2286,7 @@ CFGBlock *CFGBuilder::VisitWhileStmt(WhileStmt *W) {
       }
 
     // The default case when not handling logical operators.
-    EntryConditionBlock = ExitConditionBlock = createBlock(false);
+    ExitConditionBlock = createBlock(false);
     ExitConditionBlock->setTerminator(W);
 
     // Now add the actual condition to the condition block.
@@ -2972,7 +2972,7 @@ CFGBlock *CFGBuilder::VisitCXXForRangeStmt(CXXForRangeStmt *S) {
 
 CFGBlock *CFGBuilder::VisitExprWithCleanups(ExprWithCleanups *E,
     AddStmtChoice asc) {
-  if (BuildOpts.AddImplicitDtors) {
+  if (BuildOpts.AddTemporaryDtors) {
     // If adding implicit destructors visit the full expression for adding
     // destructors of temporaries.
     VisitForTemporaryDtors(E->getSubExpr());
@@ -3052,6 +3052,8 @@ CFGBlock *CFGBuilder::VisitIndirectGotoStmt(IndirectGotoStmt *I) {
 }
 
 CFGBlock *CFGBuilder::VisitForTemporaryDtors(Stmt *E, bool BindToTemporary) {
+  assert(BuildOpts.AddImplicitDtors && BuildOpts.AddTemporaryDtors);
+
 tryAgain:
   if (!E) {
     badCFG = true;
@@ -3863,8 +3865,8 @@ static void print_block(raw_ostream &OS, const CFG* cfg,
 
     if (Helper) Helper->setBlockID(-1);
 
-    CFGBlockTerminatorPrint TPrinter(OS, Helper,
-                                     PrintingPolicy(Helper->getLangOpts()));
+    PrintingPolicy PP(Helper ? Helper->getLangOpts() : LangOptions());
+    CFGBlockTerminatorPrint TPrinter(OS, Helper, PP);
     TPrinter.Visit(const_cast<Stmt*>(B.getTerminator().getStmt()));
     OS << '\n';
     

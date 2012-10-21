@@ -15,9 +15,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/AST/CharUnits.h"
-#include "clang/AST/DeclCXX.h"
-#include "clang/AST/ExprCXX.h"
-#include "clang/AST/CXXInheritance.h"
 #include "clang/Analysis/Analyses/LiveVariables.h"
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Basic/TargetInfo.h"
@@ -192,19 +189,6 @@ public:
   ///  the array).  This is called by ExprEngine when evaluating
   ///  casts from arrays to pointers.
   SVal ArrayToPointer(Loc Array);
-
-  /// For DerivedToBase casts, create a CXXBaseObjectRegion and return it.
-  virtual SVal evalDerivedToBase(SVal derived, QualType basePtrType);
-
-  /// \brief Evaluates C++ dynamic_cast cast.
-  /// The callback may result in the following 3 scenarios:
-  ///  - Successful cast (ex: derived is subclass of base).
-  ///  - Failed cast (ex: derived is definitely not a subclass of base).
-  ///  - We don't know (base is a symbolic region and we don't have 
-  ///    enough info to determine if the cast will succeed at run time).
-  /// The function returns an SVal representing the derived class; it's
-  /// valid only if Failed flag is set to false.
-  virtual SVal evalDynamicCast(SVal base, QualType derivedPtrType,bool &Failed);
 
   StoreRef getInitialStore(const LocationContext *InitLoc) {
     return StoreRef(RBFactory.getEmptyMap().getRootWithoutRetain(), *this);
@@ -783,7 +767,7 @@ RegionBindings RegionStoreManager::invalidateGlobalRegion(MemRegion::Kind K,
   // Bind the globals memory space to a new symbol that we will use to derive
   // the bindings for all globals.
   const GlobalsSpaceRegion *GS = MRMgr.getGlobalsRegion(K);
-  SVal V = svalBuilder.conjureSymbolVal(/* SymbolTag = */ (void*) GS, Ex, LCtx,
+  SVal V = svalBuilder.conjureSymbolVal(/* SymbolTag = */ (const void*) GS, Ex, LCtx,
                                         /* type does not matter */ Ctx.IntTy,
                                         Count);
 
@@ -900,103 +884,6 @@ SVal RegionStoreManager::ArrayToPointer(Loc Array) {
   return loc::MemRegionVal(MRMgr.getElementRegion(T, ZeroIdx, ArrayR, Ctx));
 }
 
-// This mirrors Type::getCXXRecordDeclForPointerType(), but there doesn't
-// appear to be another need for this in the rest of the codebase.
-static const CXXRecordDecl *GetCXXRecordDeclForReferenceType(QualType Ty) {
-  if (const ReferenceType *RT = Ty->getAs<ReferenceType>())
-    if (const RecordType *RCT = RT->getPointeeType()->getAs<RecordType>())
-      return dyn_cast<CXXRecordDecl>(RCT->getDecl());
-  return 0;
-}
-
-SVal RegionStoreManager::evalDerivedToBase(SVal derived, QualType baseType) {
-  const CXXRecordDecl *baseDecl;
-  
-  if (baseType->isPointerType())
-    baseDecl = baseType->getCXXRecordDeclForPointerType();
-  else if (baseType->isReferenceType())
-    baseDecl = GetCXXRecordDeclForReferenceType(baseType);
-  else
-    baseDecl = baseType->getAsCXXRecordDecl();
-
-  assert(baseDecl && "not a CXXRecordDecl?");
-
-  loc::MemRegionVal *derivedRegVal = dyn_cast<loc::MemRegionVal>(&derived);
-  if (!derivedRegVal)
-    return derived;
-
-  const MemRegion *baseReg = 
-    MRMgr.getCXXBaseObjectRegion(baseDecl, derivedRegVal->getRegion()); 
-
-  return loc::MemRegionVal(baseReg);
-}
-
-SVal RegionStoreManager::evalDynamicCast(SVal base, QualType derivedType,
-                                         bool &Failed) {
-  Failed = false;
-
-  loc::MemRegionVal *baseRegVal = dyn_cast<loc::MemRegionVal>(&base);
-  if (!baseRegVal)
-    return UnknownVal();
-  const MemRegion *BaseRegion = baseRegVal->stripCasts(/*StripBases=*/false);
-
-  // Assume the derived class is a pointer or a reference to a CXX record.
-  derivedType = derivedType->getPointeeType();
-  assert(!derivedType.isNull());
-  const CXXRecordDecl *DerivedDecl = derivedType->getAsCXXRecordDecl();
-  if (!DerivedDecl && !derivedType->isVoidType())
-    return UnknownVal();
-
-  // Drill down the CXXBaseObject chains, which represent upcasts (casts from
-  // derived to base).
-  const MemRegion *SR = BaseRegion;
-  while (const TypedRegion *TSR = dyn_cast_or_null<TypedRegion>(SR)) {
-    QualType BaseType = TSR->getLocationType()->getPointeeType();
-    assert(!BaseType.isNull());
-    const CXXRecordDecl *SRDecl = BaseType->getAsCXXRecordDecl();
-    if (!SRDecl)
-      return UnknownVal();
-
-    // If found the derived class, the cast succeeds.
-    if (SRDecl == DerivedDecl)
-      return loc::MemRegionVal(TSR);
-
-    if (!derivedType->isVoidType()) {
-      // Static upcasts are marked as DerivedToBase casts by Sema, so this will
-      // only happen when multiple or virtual inheritance is involved.
-      CXXBasePaths Paths(/*FindAmbiguities=*/false, /*RecordPaths=*/true,
-                         /*DetectVirtual=*/false);
-      if (SRDecl->isDerivedFrom(DerivedDecl, Paths)) {
-        SVal Result = loc::MemRegionVal(TSR);
-        const CXXBasePath &Path = *Paths.begin();
-        for (CXXBasePath::const_iterator I = Path.begin(), E = Path.end();
-             I != E; ++I) {
-          Result = evalDerivedToBase(Result, I->Base->getType());
-        }
-        return Result;
-      }
-    }
-
-    if (const CXXBaseObjectRegion *R = dyn_cast<CXXBaseObjectRegion>(TSR))
-      // Drill down the chain to get the derived classes.
-      SR = R->getSuperRegion();
-    else {
-      // We reached the bottom of the hierarchy.
-
-      // If this is a cast to void*, return the region.
-      if (derivedType->isVoidType())
-        return loc::MemRegionVal(TSR);
-
-      // We did not find the derived class. We we must be casting the base to
-      // derived, so the cast should fail.
-      Failed = true;
-      return UnknownVal();
-    }
-  }
-
-  return UnknownVal();
-}
-
 //===----------------------------------------------------------------------===//
 // Loading values from regions.
 //===----------------------------------------------------------------------===//
@@ -1050,7 +937,7 @@ SVal RegionStoreManager::getBinding(Store store, Loc L, QualType T) {
         T = TR->getLocationType();
       else {
         const SymbolicRegion *SR = cast<SymbolicRegion>(MR);
-        T = SR->getSymbol()->getType(Ctx);
+        T = SR->getSymbol()->getType();
       }
     }
     MR = GetElementZeroRegion(MR, T);
@@ -1574,13 +1461,9 @@ StoreRef RegionStoreManager::Bind(Store store, Loc L, SVal V) {
   if (const SymbolicRegion *SR = dyn_cast<SymbolicRegion>(R)) {
     // Binding directly to a symbolic region should be treated as binding
     // to element 0.
-    QualType T = SR->getSymbol()->getType(Ctx);
-
-    // FIXME: Is this the right way to handle symbols that are references?
-    if (const PointerType *PT = T->getAs<PointerType>())
-      T = PT->getPointeeType();
-    else
-      T = T->getAs<ReferenceType>()->getPointeeType();
+    QualType T = SR->getSymbol()->getType();
+    if (T->isAnyPointerType() || T->isReferenceType())
+      T = T->getPointeeType();
 
     R = GetElementZeroRegion(SR, T);
   }
@@ -1744,26 +1627,6 @@ StoreRef RegionStoreManager::BindStruct(Store store, const TypedValueRegion* R,
   if (!RD->isCompleteDefinition())
     return StoreRef(store, *this);
 
-  // Handle Loc values by automatically dereferencing the location.
-  // This is necessary because we treat all struct values as regions even if
-  // they are rvalues; we may then be asked to bind one of these
-  // "rvalue regions" to an actual struct region.
-  // (This is necessary for many of the test cases in array-struct-region.cpp.)
-  //
-  // This also handles the case of a struct argument passed by value to an
-  // inlined function. In this case, the C++ standard says that the value
-  // is copy-constructed into the parameter variable. However, the copy-
-  // constructor is processed before we actually know if we're going to inline
-  // the function, and thus we don't actually have the parameter's region
-  // available. Instead, we use a temporary-object region, then copy the
-  // bindings over by value.
-  //
-  // FIXME: This will be a problem when we handle the destructors of
-  // temporaries; the inlined function will modify the parameter region,
-  // but the destructor will act on the temporary region.
-  if (const loc::MemRegionVal *MRV = dyn_cast<loc::MemRegionVal>(&V))
-    V = getBinding(store, *MRV);
-
   // Handle lazy compound values and symbolic values.
   if (isa<nonloc::LazyCompoundVal>(V) || isa<nonloc::SymbolVal>(V))
     return BindAggregate(store, R, V);
@@ -1908,7 +1771,6 @@ public:
   void VisitAddedToCluster(const MemRegion *baseR, const ClusterBindings &C);
   void VisitCluster(const MemRegion *baseR, const ClusterBindings &C);
 
-  void VisitBindingKey(BindingKey K);
   bool UpdatePostponed();
   void VisitBinding(SVal V);
 };
@@ -1950,10 +1812,13 @@ void removeDeadBindingsWorker::VisitAddedToCluster(const MemRegion *baseR,
 
 void removeDeadBindingsWorker::VisitCluster(const MemRegion *baseR,
                                             const ClusterBindings &C) {
-  for (ClusterBindings::iterator I = C.begin(), E = C.end(); I != E; ++I) {
-    VisitBindingKey(I.getKey());
+  // Mark the symbol for any SymbolicRegion with live bindings as live itself.
+  // This means we should continue to track that symbol.
+  if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(baseR))
+    SymReaper.markLive(SymR->getSymbol());
+
+  for (ClusterBindings::iterator I = C.begin(), E = C.end(); I != E; ++I)
     VisitBinding(I.getData());
-  }
 }
 
 void removeDeadBindingsWorker::VisitBinding(SVal V) {
@@ -1990,8 +1855,8 @@ void removeDeadBindingsWorker::VisitBinding(SVal V) {
     if (const BlockDataRegion *BR = dyn_cast<BlockDataRegion>(R)) {
       BlockDataRegion::referenced_vars_iterator I = BR->referenced_vars_begin(),
                                                 E = BR->referenced_vars_end();
-        for ( ; I != E; ++I)
-          AddToWorkList(I.getCapturedRegion());
+      for ( ; I != E; ++I)
+        AddToWorkList(I.getCapturedRegion());
     }
   }
     
@@ -2002,20 +1867,6 @@ void removeDeadBindingsWorker::VisitBinding(SVal V) {
     SymReaper.markLive(*SI);
 }
 
-void removeDeadBindingsWorker::VisitBindingKey(BindingKey K) {
-  const MemRegion *R = K.getRegion();
-
-  // Mark this region "live" by adding it to the worklist.  This will cause
-  // use to visit all regions in the cluster (if we haven't visited them
-  // already).
-  if (AddToWorkList(R)) {
-    // Mark the symbol for any live SymbolicRegion as "live".  This means we
-    // should continue to track that symbol.
-    if (const SymbolicRegion *SymR = dyn_cast<SymbolicRegion>(R))
-      SymReaper.markLive(SymR->getSymbol());
-  }
-}
-
 bool removeDeadBindingsWorker::UpdatePostponed() {
   // See if any postponed SymbolicRegions are actually live now, after
   // having done a scan.
@@ -2023,7 +1874,7 @@ bool removeDeadBindingsWorker::UpdatePostponed() {
 
   for (SmallVectorImpl<const SymbolicRegion*>::iterator
         I = Postponed.begin(), E = Postponed.end() ; I != E ; ++I) {
-    if (const SymbolicRegion *SR = cast_or_null<SymbolicRegion>(*I)) {
+    if (const SymbolicRegion *SR = *I) {
       if (SymReaper.isLive(SR->getSymbol())) {
         changed |= AddToWorkList(SR);
         *I = NULL;

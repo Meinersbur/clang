@@ -105,7 +105,8 @@ static void diagnoseBadTypeAttribute(Sema &S, const AttributeList &attr,
     case AttributeList::AT_ThisCall: \
     case AttributeList::AT_Pascal: \
     case AttributeList::AT_Regparm: \
-    case AttributeList::AT_Pcs \
+    case AttributeList::AT_Pcs: \
+    case AttributeList::AT_PnaclCall \
 
 namespace {
   /// An object which stores processing state for the entire
@@ -552,19 +553,28 @@ static void maybeSynthesizeBlockSignature(TypeProcessingState &state,
   SourceLocation loc = declarator.getLocStart();
 
   // ...and *prepend* it to the declarator.
+  SourceLocation NoLoc;
   declarator.AddInnermostTypeInfo(DeclaratorChunk::getFunction(
-                             /*proto*/ true,
-                             /*variadic*/ false,
-                             /*ambiguous*/ false, SourceLocation(),
-                             /*args*/ 0, 0,
-                             /*type quals*/ 0,
-                             /*ref-qualifier*/true, SourceLocation(),
-                             /*const qualifier*/SourceLocation(),
-                             /*volatile qualifier*/SourceLocation(),
-                             /*mutable qualifier*/SourceLocation(),
-                             /*EH*/ EST_None, SourceLocation(), 0, 0, 0, 0,
-                             /*parens*/ loc, loc,
-                             declarator));
+                             /*HasProto=*/true,
+                             /*IsAmbiguous=*/false,
+                             /*LParenLoc=*/NoLoc,
+                             /*ArgInfo=*/0,
+                             /*NumArgs=*/0,
+                             /*EllipsisLoc=*/NoLoc,
+                             /*RParenLoc=*/NoLoc,
+                             /*TypeQuals=*/0,
+                             /*RefQualifierIsLvalueRef=*/true,
+                             /*RefQualifierLoc=*/NoLoc,
+                             /*ConstQualifierLoc=*/NoLoc,
+                             /*VolatileQualifierLoc=*/NoLoc,
+                             /*MutableLoc=*/NoLoc,
+                             EST_None,
+                             /*ESpecLoc=*/NoLoc,
+                             /*Exceptions=*/0,
+                             /*ExceptionRanges=*/0,
+                             /*NumExceptions=*/0,
+                             /*NoexceptExpr=*/0,
+                             loc, loc, declarator));
 
   // For consistency, make sure the state still has us as processing
   // the decl spec.
@@ -636,7 +646,7 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
     // "<proto1,proto2>" is an objc qualified ID with a missing id.
     if (DeclSpec::ProtocolQualifierListTy PQ = DS.getProtocolQualifiers()) {
       Result = Context.getObjCObjectType(Context.ObjCBuiltinIdTy,
-                                         (ObjCProtocolDecl**)PQ,
+                                         (ObjCProtocolDecl*const*)PQ,
                                          DS.getNumProtocolQualifiers());
       Result = Context.getObjCObjectPointerType(Result);
       break;
@@ -698,11 +708,15 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
       case DeclSpec::TSW_longlong:
         Result = Context.LongLongTy;
 
-        // long long is a C99 feature.
-        if (!S.getLangOpts().C99)
-          S.Diag(DS.getTypeSpecWidthLoc(),
-                 S.getLangOpts().CPlusPlus0x ?
-                   diag::warn_cxx98_compat_longlong : diag::ext_longlong);
+        // 'long long' is a C99 or C++11 feature.
+        if (!S.getLangOpts().C99) {
+          if (S.getLangOpts().CPlusPlus)
+            S.Diag(DS.getTypeSpecWidthLoc(),
+                   S.getLangOpts().CPlusPlus0x ?
+                   diag::warn_cxx98_compat_longlong : diag::ext_cxx11_longlong);
+          else
+            S.Diag(DS.getTypeSpecWidthLoc(), diag::ext_c99_longlong);
+        }
         break;
       }
     } else {
@@ -713,11 +727,15 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
       case DeclSpec::TSW_longlong:
         Result = Context.UnsignedLongLongTy;
 
-        // long long is a C99 feature.
-        if (!S.getLangOpts().C99)
-          S.Diag(DS.getTypeSpecWidthLoc(),
-                 S.getLangOpts().CPlusPlus0x ?
-                   diag::warn_cxx98_compat_longlong : diag::ext_longlong);
+        // 'long long' is a C99 or C++11 feature.
+        if (!S.getLangOpts().C99) {
+          if (S.getLangOpts().CPlusPlus)
+            S.Diag(DS.getTypeSpecWidthLoc(),
+                   S.getLangOpts().CPlusPlus0x ?
+                   diag::warn_cxx98_compat_longlong : diag::ext_cxx11_longlong);
+          else
+            S.Diag(DS.getTypeSpecWidthLoc(), diag::ext_c99_longlong);
+        }
         break;
       }
     }
@@ -795,18 +813,18 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state) {
 
         if (DS.getNumProtocolQualifiers())
           Result = Context.getObjCObjectType(Result,
-                                             (ObjCProtocolDecl**) PQ,
+                                             (ObjCProtocolDecl*const*) PQ,
                                              DS.getNumProtocolQualifiers());
       } else if (Result->isObjCIdType()) {
         // id<protocol-list>
         Result = Context.getObjCObjectType(Context.ObjCBuiltinIdTy,
-                                           (ObjCProtocolDecl**) PQ,
+                                           (ObjCProtocolDecl*const*) PQ,
                                            DS.getNumProtocolQualifiers());
         Result = Context.getObjCObjectPointerType(Result);
       } else if (Result->isObjCClassType()) {
         // Class<protocol-list>
         Result = Context.getObjCObjectType(Context.ObjCBuiltinClassTy,
-                                           (ObjCProtocolDecl**) PQ,
+                                           (ObjCProtocolDecl*const*) PQ,
                                            DS.getNumProtocolQualifiers());
         Result = Context.getObjCObjectPointerType(Result);
       } else {
@@ -1583,6 +1601,14 @@ QualType Sema::BuildMemberPointerType(QualType T, QualType Class,
     return QualType();
   }
 
+  // In the Microsoft ABI, the class is allowed to be an incomplete
+  // type. In such cases, the compiler makes a worst-case assumption.
+  // We make no such assumption right now, so emit an error if the
+  // class isn't a complete type.
+  if (Context.getTargetInfo().getCXXABI() == CXXABI_Microsoft &&
+      RequireCompleteType(Loc, Class, diag::err_incomplete_type))
+    return QualType();
+
   return Context.getMemberPointerType(T, Class.getTypePtr());
 }
 
@@ -2143,16 +2169,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   ASTContext &Context = S.Context;
   const LangOptions &LangOpts = S.getLangOpts();
 
-  bool ImplicitlyNoexcept = false;
-  if (D.getName().getKind() == UnqualifiedId::IK_OperatorFunctionId &&
-      LangOpts.CPlusPlus0x) {
-    OverloadedOperatorKind OO = D.getName().OperatorFunctionId.Operator;
-    /// In C++0x, deallocation functions (normal and array operator delete)
-    /// are implicitly noexcept.
-    if (OO == OO_Delete || OO == OO_Array_Delete)
-      ImplicitlyNoexcept = true;
-  }
-
   // The name we're declaring, if any.
   DeclarationName Name;
   if (D.getIdentifier())
@@ -2551,12 +2567,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                                       NoexceptExpr,
                                       Exceptions,
                                       EPI);
-
-        if (FTI.getExceptionSpecType() == EST_None &&
-            ImplicitlyNoexcept && chunkIndex == 0) {
-          // Only the outermost chunk is marked noexcept, of course.
-          EPI.ExceptionSpecType = EST_BasicNoexcept;
-        }
 
         T = Context.getFunctionType(T, ArgTys.data(), ArgTys.size(), EPI);
       }
@@ -2979,6 +2989,8 @@ static AttributeList::Kind getAttrListKind(AttributedType::Kind kind) {
     return AttributeList::AT_Pascal;
   case AttributedType::attr_pcs:
     return AttributeList::AT_Pcs;
+  case AttributedType::attr_pnaclcall:
+    return AttributeList::AT_PnaclCall;
   }
   llvm_unreachable("unexpected attribute kind!");
 }
@@ -3265,6 +3277,8 @@ namespace {
       TL.setLocalRangeEnd(Chunk.EndLoc);
 
       const DeclaratorChunk::FunctionTypeInfo &FTI = Chunk.Fun;
+      TL.setLParenLoc(FTI.getLParenLoc());
+      TL.setRParenLoc(FTI.getRParenLoc());
       for (unsigned i = 0, e = TL.getNumArgs(), tpi = 0; i != e; ++i) {
         ParmVarDecl *Param = cast<ParmVarDecl>(FTI.ArgInfo[i].Param);
         TL.setArg(tpi++, Param);
@@ -3870,13 +3884,13 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
     return true;
   }
 
+  // Delay if the type didn't work out to a function.
+  if (!unwrapped.isFunctionType()) return false;
+
   // Otherwise, a calling convention.
   CallingConv CC;
   if (S.CheckCallingConvAttr(attr, CC))
     return true;
-
-  // Delay if the type didn't work out to a function.
-  if (!unwrapped.isFunctionType()) return false;
 
   const FunctionType *fn = unwrapped.get();
   CallingConv CCOld = fn->getCallConv();
@@ -4587,15 +4601,21 @@ static QualType getDecltypeForExpr(Sema &S, Expr *E) {
   //       member access (5.2.5), decltype(e) is the type of the entity named
   //       by e. If there is no such entity, or if e names a set of overloaded
   //       functions, the program is ill-formed;
+  //
+  // We apply the same rules for Objective-C ivar and property references.
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const ValueDecl *VD = dyn_cast<ValueDecl>(DRE->getDecl()))
       return VD->getType();
-  }
-  if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+  } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
     if (const FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
       return FD->getType();
+  } else if (const ObjCIvarRefExpr *IR = dyn_cast<ObjCIvarRefExpr>(E)) {
+    return IR->getDecl()->getType();
+  } else if (const ObjCPropertyRefExpr *PR = dyn_cast<ObjCPropertyRefExpr>(E)) {
+    if (PR->isExplicitProperty())
+      return PR->getExplicitProperty()->getType();
   }
-
+  
   // C++11 [expr.lambda.prim]p18:
   //   Every occurrence of decltype((x)) where x is a possibly
   //   parenthesized id-expression that names an entity of automatic

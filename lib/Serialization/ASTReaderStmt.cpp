@@ -565,6 +565,7 @@ void ASTStmtReader::VisitBinaryOperator(BinaryOperator *E) {
   E->setRHS(Reader.ReadSubExpr());
   E->setOpcode((BinaryOperator::Opcode)Record[Idx++]);
   E->setOperatorLoc(ReadSourceLocation(Record, Idx));
+  E->setFPContractable((bool)Record[Idx++]);
 }
 
 void ASTStmtReader::VisitCompoundAssignOperator(CompoundAssignOperator *E) {
@@ -1086,6 +1087,7 @@ void ASTStmtReader::VisitCXXOperatorCallExpr(CXXOperatorCallExpr *E) {
   VisitCallExpr(E);
   E->Operator = (OverloadedOperatorKind)Record[Idx++];
   E->Range = Reader.ReadSourceRange(F, Record, Idx);
+  E->setFPContractable((bool)Record[Idx++]);
 }
 
 void ASTStmtReader::VisitCXXConstructExpr(CXXConstructExpr *E) {
@@ -1366,8 +1368,6 @@ void ASTStmtReader::VisitUnresolvedMemberExpr(UnresolvedMemberExpr *E) {
 void ASTStmtReader::VisitUnresolvedLookupExpr(UnresolvedLookupExpr *E) {
   VisitOverloadExpr(E);
   E->RequiresADL = Record[Idx++];
-  if (E->RequiresADL)
-    E->StdIsAssociatedNamespace = Record[Idx++];
   E->Overloaded = Record[Idx++];
   E->NamingClass = ReadDeclAs<CXXRecordDecl>(Record, Idx);
 }
@@ -1468,6 +1468,16 @@ void ASTStmtReader::VisitSubstNonTypeTemplateParmPackExpr(
   E->NameLoc = ReadSourceLocation(Record, Idx);
 }
 
+void ASTStmtReader::VisitFunctionParmPackExpr(FunctionParmPackExpr *E) {
+  VisitExpr(E);
+  E->NumParameters = Record[Idx++];
+  E->ParamPack = ReadDeclAs<ParmVarDecl>(Record, Idx);
+  E->NameLoc = ReadSourceLocation(Record, Idx);
+  ParmVarDecl **Parms = reinterpret_cast<ParmVarDecl**>(E+1);
+  for (unsigned i = 0, n = E->NumParameters; i != n; ++i)
+    Parms[i] = ReadDeclAs<ParmVarDecl>(Record, Idx);
+}
+
 void ASTStmtReader::VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *E) {
   VisitExpr(E);
   E->Temporary = Reader.ReadSubExpr();
@@ -1514,11 +1524,6 @@ void ASTStmtReader::VisitSEHTryStmt(SEHTryStmt *S) {
   S->TryLoc = ReadSourceLocation(Record, Idx);
   S->Children[SEHTryStmt::TRY] = Reader.ReadSubStmt();
   S->Children[SEHTryStmt::HANDLER] = Reader.ReadSubStmt();
-}
-
-void ASTStmtReader::VisitSEHLeaveStmt(SEHLeaveStmt *S) {
-  VisitStmt(S);
-  S->LeaveLoc = ReadSourceLocation(Record, Idx);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1991,9 +1996,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case STMT_SEH_TRY:
       S = new (Context) SEHTryStmt(Empty);
       break;
-    case STMT_SEH_LEAVE:
-      S = new (Context) SEHLeaveStmt(Empty);
-      break;
     case STMT_CXX_CATCH:
       S = new (Context) CXXCatchStmt(Empty);
       break;
@@ -2190,6 +2192,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
         
     case EXPR_SUBST_NON_TYPE_TEMPLATE_PARM_PACK:
       S = new (Context) SubstNonTypeTemplateParmPackExpr(Empty);
+      break;
+
+    case EXPR_FUNCTION_PARM_PACK:
+      S = FunctionParmPackExpr::CreateEmpty(Context,
+                                          Record[ASTStmtReader::NumExprFields]);
       break;
         
     case EXPR_MATERIALIZE_TEMPORARY:

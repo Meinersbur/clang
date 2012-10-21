@@ -154,9 +154,6 @@ public:
   SymExpr::symbol_iterator symbol_end() const { 
     return SymExpr::symbol_end();
   }
-
-  // Implement isa<T> support.
-  static inline bool classof(const SVal*) { return true; }
 };
 
 
@@ -246,16 +243,8 @@ public:
   }
 
   static inline bool isLocType(QualType T) {
-    // Why are record types included here? Because we want to make sure a
-    // record, even a record rvalue, is always represented with a region.
-    // This is especially necessary in C++, where you can call methods on
-    // struct prvalues, which then need to have a valid 'this' pointer.
-    //
-    // This necessitates a bit of extra hackery in the Store to deal with
-    // the case of binding a "struct value" into a struct region; in
-    // practice it just means "dereferencing" the value before binding.
     return T->isAnyPointerType() || T->isBlockPointerType() || 
-           T->isReferenceType() || T->isRecordType();
+           T->isReferenceType();
   }
 };
 
@@ -265,7 +254,7 @@ public:
 
 namespace nonloc {
 
-enum Kind { ConcreteIntKind, SymbolValKind, SymExprValKind,
+enum Kind { ConcreteIntKind, SymbolValKind,
             LocAsIntegerKind, CompoundValKind, LazyCompoundValKind };
 
 /// \brief Represents symbolic expression.
