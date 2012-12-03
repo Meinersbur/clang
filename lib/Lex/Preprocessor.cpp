@@ -26,6 +26,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "MacroArgs.h"
 #include "clang/Lex/ExternalPreprocessorSource.h"
 #include "clang/Lex/HeaderSearch.h"
@@ -36,6 +37,7 @@
 #include "clang/Lex/LexDiagnostic.h"
 #include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/ModuleLoader.h"
+#include "clang/Lex/LiteralSupport.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/TargetInfo.h"
@@ -51,14 +53,16 @@ ExternalPreprocessorSource::~ExternalPreprocessorSource() { }
 
 PPMutationListener::~PPMutationListener() { }
 
-Preprocessor::Preprocessor(DiagnosticsEngine &diags, LangOptions &opts,
+Preprocessor::Preprocessor(llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
+                           DiagnosticsEngine &diags, LangOptions &opts,
                            const TargetInfo *target, SourceManager &SM,
                            HeaderSearch &Headers, ModuleLoader &TheModuleLoader,
                            IdentifierInfoLookup* IILookup,
                            bool OwnsHeaders,
                            bool DelayInitialization,
                            bool IncrProcessing)
-  : Diags(&diags), LangOpts(opts), Target(target),FileMgr(Headers.getFileMgr()),
+  : PPOpts(PPOpts), Diags(&diags), LangOpts(opts), Target(target),
+    FileMgr(Headers.getFileMgr()),
     SourceMgr(SM), HeaderInfo(Headers), TheModuleLoader(TheModuleLoader),
     ExternalSource(0), Identifiers(opts, IILookup), 
     IncrementalProcessing(IncrProcessing), CodeComplete(0), 
@@ -684,6 +688,47 @@ void Preprocessor::LexAfterModuleImport(Token &Result) {
     if (Callbacks)
       Callbacks->moduleImport(ModuleImportLoc, ModuleImportPath, Imported);
   }
+}
+
+bool Preprocessor::FinishLexStringLiteral(Token &Result, std::string &String,
+                                          const char *DiagnosticTag,
+                                          bool AllowMacroExpansion) {
+  // We need at least one string literal.
+  if (Result.isNot(tok::string_literal)) {
+    Diag(Result, diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  // Lex string literal tokens, optionally with macro expansion.
+  SmallVector<Token, 4> StrToks;
+  do {
+    StrToks.push_back(Result);
+
+    if (Result.hasUDSuffix())
+      Diag(Result, diag::err_invalid_string_udl);
+
+    if (AllowMacroExpansion)
+      Lex(Result);
+    else
+      LexUnexpandedToken(Result);
+  } while (Result.is(tok::string_literal));
+
+  // Concatenate and parse the strings.
+  StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
+  assert(Literal.isAscii() && "Didn't allow wide strings in");
+
+  if (Literal.hadError)
+    return false;
+
+  if (Literal.Pascal) {
+    Diag(StrToks[0].getLocation(), diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  String = Literal.GetString();
+  return true;
 }
 
 void Preprocessor::addCommentHandler(CommentHandler *Handler) {

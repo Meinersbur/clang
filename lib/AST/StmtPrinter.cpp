@@ -13,13 +13,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/StmtVisitor.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
-#include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/AST/StmtVisitor.h"
 #include "llvm/ADT/SmallString.h"
 using namespace clang;
 
@@ -910,10 +911,18 @@ void StmtPrinter::VisitCallExpr(CallExpr *Call) {
 void StmtPrinter::VisitMemberExpr(MemberExpr *Node) {
   // FIXME: Suppress printing implicit bases (like "this")
   PrintExpr(Node->getBase());
+
+  MemberExpr *ParentMember = dyn_cast<MemberExpr>(Node->getBase());
+  FieldDecl  *ParentDecl   = ParentMember
+    ? dyn_cast<FieldDecl>(ParentMember->getMemberDecl()) : NULL;
+
+  if (!ParentDecl || !ParentDecl->isAnonymousStructOrUnion())
+    OS << (Node->isArrow() ? "->" : ".");
+
   if (FieldDecl *FD = dyn_cast<FieldDecl>(Node->getMemberDecl()))
     if (FD->isAnonymousStructOrUnion())
       return;
-  OS << (Node->isArrow() ? "->" : ".");
+
   if (NestedNameSpecifier *Qualifier = Node->getQualifier())
     Qualifier->print(OS, Policy);
   if (Node->hasTemplateKeyword())
@@ -1467,6 +1476,7 @@ void StmtPrinter::VisitCXXPseudoDestructorExpr(CXXPseudoDestructorExpr *E) {
     OS << '.';
   if (E->getQualifier())
     E->getQualifier()->print(OS, Policy);
+  OS << "~";
 
   std::string TypeS;
   if (IdentifierInfo *II = E->getDestroyedTypeIdentifier())

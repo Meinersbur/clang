@@ -155,7 +155,14 @@ public:
   ProgramStateRef getState() const { return State; }
 
   template <typename T>
-  const T* getLocationAs() const { return llvm::dyn_cast<T>(&Location); }
+  const T* getLocationAs() const LLVM_LVALUE_FUNCTION {
+    return dyn_cast<T>(&Location);
+  }
+
+#if LLVM_HAS_RVALUE_REFERENCE_THIS
+  template <typename T>
+  void getLocationAs() && LLVM_DELETED_FUNCTION;
+#endif
 
   static void Profile(llvm::FoldingSetNodeID &ID,
                       const ProgramPoint &Loc,
@@ -282,11 +289,13 @@ protected:
   /// A list of nodes that can be reused.
   NodeVector FreeNodes;
   
-  /// A flag that indicates whether nodes should be recycled.
-  bool reclaimNodes;
+  /// Determines how often nodes are reclaimed.
+  ///
+  /// If this is 0, nodes will never be reclaimed.
+  unsigned ReclaimNodeInterval;
   
   /// Counter to determine when to reclaim nodes.
-  unsigned reclaimCounter;
+  unsigned ReclaimCounter;
 
 public:
 
@@ -374,7 +383,9 @@ public:
 
   /// Enable tracking of recently allocated nodes for potential reclamation
   /// when calling reclaimRecentlyAllocatedNodes().
-  void enableNodeReclamation() { reclaimNodes = true; }
+  void enableNodeReclamation(unsigned Interval) {
+    ReclaimCounter = ReclaimNodeInterval = Interval;
+  }
 
   /// Reclaim "uninteresting" nodes created since the last time this method
   /// was called.

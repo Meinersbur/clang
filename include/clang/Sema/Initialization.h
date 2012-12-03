@@ -16,6 +16,7 @@
 #include "clang/Sema/Ownership.h"
 #include "clang/Sema/Overload.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/UnresolvedSet.h"
 #include "clang/Basic/SourceLocation.h"
@@ -172,17 +173,25 @@ public:
   static InitializedEntity InitializeVariable(VarDecl *Var) {
     return InitializedEntity(Var);
   }
-  
+
   /// \brief Create the initialization entity for a parameter.
   static InitializedEntity InitializeParameter(ASTContext &Context,
                                                ParmVarDecl *Parm) {
+    return InitializeParameter(Context, Parm,
+                               Parm->getType().getUnqualifiedType());
+  }
+
+  /// \brief Create the initialization entity for a parameter, but use
+  /// another type.
+  static InitializedEntity InitializeParameter(ASTContext &Context,
+                                               ParmVarDecl *Parm,
+                                               QualType Type) {
     bool Consumed = (Context.getLangOpts().ObjCAutoRefCount &&
                      Parm->hasAttr<NSConsumedAttr>());
 
     InitializedEntity Entity;
     Entity.Kind = EK_Parameter;
-    Entity.Type = Context.getVariableArrayDecayedType(
-                                       Parm->getType().getUnqualifiedType());
+    Entity.Type = Context.getVariableArrayDecayedType(Type);
     Entity.Parent = 0;
     Entity.Parameter
       = (static_cast<uintptr_t>(Consumed) | reinterpret_cast<uintptr_t>(Parm));

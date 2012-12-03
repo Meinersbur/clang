@@ -20,7 +20,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/AST/CharUnits.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace ento;
@@ -208,7 +208,7 @@ void ArrayBoundCheckerV2::reportOOB(CheckerContext &checkerContext,
     break;
   }
 
-  checkerContext.EmitReport(new BugReport(*BT, os.str(), errorNode));
+  checkerContext.emitReport(new BugReport(*BT, os.str(), errorNode));
 }
 
 void RegionRawOffsetV2::dump() const {

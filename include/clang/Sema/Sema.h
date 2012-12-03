@@ -24,18 +24,21 @@
 #include "clang/Sema/LocInfoType.h"
 #include "clang/Sema/TypoCorrection.h"
 #include "clang/Sema/Weak.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/DeclarationName.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprObjC.h"
-#include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExternalASTSource.h"
 #include "clang/AST/LambdaMangleContext.h"
-#include "clang/AST/TypeLoc.h"
 #include "clang/AST/NSAPI.h"
-#include "clang/Lex/ModuleLoader.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/AST/TypeLoc.h"
+#include "clang/Basic/ExpressionTraits.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TemplateKinds.h"
 #include "clang/Basic/TypeTraits.h"
-#include "clang/Basic/ExpressionTraits.h"
+#include "clang/Lex/ModuleLoader.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/OwningPtr.h"
@@ -635,7 +638,7 @@ public:
     ///
     /// This mangling information is allocated lazily, since most contexts
     /// do not have lambda expressions.
-    LambdaMangleContext *LambdaMangle;
+    IntrusiveRefCntPtr<LambdaMangleContext> LambdaMangle;
 
     /// \brief If we are processing a decltype type, a set of call expressions
     /// for which we have deferred checking the completeness of the return type.
@@ -653,10 +656,6 @@ public:
       : Context(Context), ParentNeedsCleanups(ParentNeedsCleanups),
         IsDecltype(IsDecltype), NumCleanupObjects(NumCleanupObjects),
         LambdaContextDecl(LambdaContextDecl), LambdaMangle() { }
-
-    ~ExpressionEvaluationContextRecord() {
-      delete LambdaMangle;
-    }
 
     /// \brief Retrieve the mangling context for lambdas.
     LambdaMangleContext &getLambdaMangleContext() {
@@ -748,6 +747,24 @@ public:
   /// Method selectors used in a \@selector expression. Used for implementation
   /// of -Wselector.
   llvm::DenseMap<Selector, SourceLocation> ReferencedSelectors;
+
+  /// Kinds of C++ special members.
+  enum CXXSpecialMember {
+    CXXDefaultConstructor,
+    CXXCopyConstructor,
+    CXXMoveConstructor,
+    CXXCopyAssignment,
+    CXXMoveAssignment,
+    CXXDestructor,
+    CXXInvalid
+  };
+
+  typedef std::pair<CXXRecordDecl*, CXXSpecialMember> SpecialMemberDecl;
+
+  /// The C++ special members which we are currently in the process of
+  /// declaring. If this process recursively triggers the declaration of the
+  /// same special member, we should act as if it is not yet declared.
+  llvm::SmallSet<SpecialMemberDecl, 4> SpecialMembersBeingDeclared;
 
   void ReadMethodPool(Selector Sel);
 
@@ -943,7 +960,7 @@ public:
   CanThrowResult canThrow(const Expr *E);
   const FunctionProtoType *ResolveExceptionSpec(SourceLocation Loc,
                                                 const FunctionProtoType *FPT);
-  bool CheckSpecifiedExceptionType(QualType T, const SourceRange &Range);
+  bool CheckSpecifiedExceptionType(QualType &T, const SourceRange &Range);
   bool CheckDistantExceptionSpec(QualType T);
   bool CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New);
   bool CheckEquivalentExceptionSpec(
@@ -1383,6 +1400,15 @@ public:
     return D && isa<ObjCMethodDecl>(D);
   }
 
+  /// \brief Determine whether we can skip parsing the body of a function
+  /// definition, assuming we don't care about analyzing its body or emitting
+  /// code for that function.
+  ///
+  /// This will be \c false only if we may need the body of the function in
+  /// order to parse the rest of the program (for instance, if it is
+  /// \c constexpr in C++11 or has an 'auto' return type in C++14).
+  bool canSkipFunctionBody(Decl *D);
+
   void computeNRVO(Stmt *Body, sema::FunctionScopeInfo *Scope);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body);
   Decl *ActOnFinishFunctionBody(Decl *Decl, Stmt *Body, bool IsInstantiation);
@@ -1502,15 +1528,6 @@ public:
                             AccessSpecifier AS, NamedDecl *PrevDecl,
                             Declarator *D = 0);
 
-  enum CXXSpecialMember {
-    CXXDefaultConstructor,
-    CXXCopyConstructor,
-    CXXMoveConstructor,
-    CXXCopyAssignment,
-    CXXMoveAssignment,
-    CXXDestructor,
-    CXXInvalid
-  };
   bool CheckNontrivialField(FieldDecl *FD);
   void DiagnoseNontrivial(const RecordType* Record, CXXSpecialMember mem);
   CXXSpecialMember getSpecialMember(const CXXMethodDecl *MD);
@@ -2633,6 +2650,8 @@ public:
 
   NamedDecl *LookupInlineAsmIdentifier(StringRef Name, SourceLocation Loc,
                                        unsigned &Size);
+  bool LookupInlineAsmField(StringRef Base, StringRef Member,
+                            unsigned &Offset, SourceLocation AsmLoc);
   StmtResult ActOnMSAsmStmt(SourceLocation AsmLoc, SourceLocation LBraceLoc,
                             ArrayRef<Token> AsmToks, SourceLocation EndLoc);
 
@@ -2764,7 +2783,7 @@ public:
 
   void DiscardCleanupsInEvaluationContext();
 
-  ExprResult TranformToPotentiallyEvaluated(Expr *E);
+  ExprResult TransformToPotentiallyEvaluated(Expr *E);
   ExprResult HandleExprEvaluationContextForTypeof(Expr *E);
 
   ExprResult ActOnConstantExpression(ExprResult Res);
@@ -3376,18 +3395,11 @@ public:
     // Pointer to allow copying
     Sema *Self;
     // We order exception specifications thus:
-    // noexcept is the most restrictive, but is only used in C++0x.
+    // noexcept is the most restrictive, but is only used in C++11.
     // throw() comes next.
     // Then a throw(collected exceptions)
-    // Finally no specification.
+    // Finally no specification, which is expressed as noexcept(false).
     // throw(...) is used instead if any called function uses it.
-    //
-    // If this exception specification cannot be known yet (for instance,
-    // because this is the exception specification for a defaulted default
-    // constructor and we haven't finished parsing the deferred parts of the
-    // class yet), the C++0x standard does not specify how to behave. We
-    // record this as an 'unknown' exception specification, which overrules
-    // any other specification (even 'none', to keep this rule simple).
     ExceptionSpecificationType ComputedEST;
     llvm::SmallPtrSet<CanQualType, 4> ExceptionsSeen;
     SmallVector<QualType, 4> Exceptions;
@@ -3427,8 +3439,17 @@ public:
     /// computed exception specification.
     void getEPI(FunctionProtoType::ExtProtoInfo &EPI) const {
       EPI.ExceptionSpecType = getExceptionSpecType();
-      EPI.NumExceptions = size();
-      EPI.Exceptions = data();
+      if (EPI.ExceptionSpecType == EST_Dynamic) {
+        EPI.NumExceptions = size();
+        EPI.Exceptions = data();
+      } else if (EPI.ExceptionSpecType == EST_None) {
+        /// C++11 [except.spec]p14:
+        ///   The exception-specification is noexcept(false) if the set of
+        ///   potential exceptions of the special member function contains "any"
+        EPI.ExceptionSpecType = EST_ComputedNoexcept;
+        EPI.NoexceptExpr = Self->ActOnCXXBoolLiteral(SourceLocation(),
+                                                     tok::kw_false).take();
+      }
     }
     FunctionProtoType::ExtProtoInfo getEPI() const {
       FunctionProtoType::ExtProtoInfo EPI;
@@ -3758,7 +3779,7 @@ public:
                          SourceLocation PlacementRParen,
                          SourceRange TypeIdParens, Declarator &D,
                          Expr *Initializer);
-  ExprResult BuildCXXNew(SourceLocation StartLoc, bool UseGlobal,
+  ExprResult BuildCXXNew(SourceRange Range, bool UseGlobal,
                          SourceLocation PlacementLParen,
                          MultiExprArg PlacementArgs,
                          SourceLocation PlacementRParen,
@@ -5550,7 +5571,7 @@ public:
     NamedDecl *Template;
 
     /// \brief The entity that is being instantiated.
-    uintptr_t Entity;
+    Decl *Entity;
 
     /// \brief The list of template arguments we are substituting, if they
     /// are not part of the entity.
@@ -6807,6 +6828,13 @@ public:
   /// \brief Force an expression with unknown-type to an expression of the
   /// given type.
   ExprResult forceUnknownAnyToType(Expr *E, QualType ToType);
+
+  /// \brief Handle an expression that's being passed to an
+  /// __unknown_anytype parameter.
+  ///
+  /// \return the effective parameter type to use, or null if the
+  ///   argument is invalid.
+  QualType checkUnknownAnyArg(Expr *&result);
 
   // CheckVectorCast - check type constraints for vectors.
   // Since vectors are an extension, there are no C standard reference for this.

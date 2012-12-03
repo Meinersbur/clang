@@ -541,11 +541,12 @@ public:
 
   ObjCPropertyDecl *FindPropertyDeclaration(IdentifierInfo *PropertyId) const;
 
-  typedef llvm::DenseMap<IdentifierInfo *, ObjCPropertyDecl*> PropertyMap;
+  typedef llvm::DenseMap<IdentifierInfo*, ObjCPropertyDecl*> PropertyMap;
 
   /// This routine collects list of properties to be implemented in the class.
   /// This includes, class's and its conforming protocols' properties.
-  virtual void collectPropertiesToImplement(PropertyMap& PM) const {}
+  /// Note, the superclass's properties are not included in the list.
+  virtual void collectPropertiesToImplement(PropertyMap &PM) const {}
 
   SourceLocation getAtStartLoc() const { return AtStart; }
   void setAtStartLoc(SourceLocation Loc) { AtStart = Loc; }
@@ -906,7 +907,7 @@ public:
   ObjCPropertyDecl
     *FindPropertyVisibleInPrimaryClass(IdentifierInfo *PropertyId) const;
 
-  virtual void collectPropertiesToImplement(PropertyMap& PM) const;
+  virtual void collectPropertiesToImplement(PropertyMap &PM) const;
 
   /// isSuperClassOf - Return true if this class is the specified class or is a
   /// super class of the specified interface class.
@@ -923,28 +924,12 @@ public:
 
   /// isArcWeakrefUnavailable - Checks for a class or one of its super classes
   /// to be incompatible with __weak references. Returns true if it is.
-  bool isArcWeakrefUnavailable() const {
-    const ObjCInterfaceDecl *Class = this;
-    while (Class) {
-      if (Class->hasAttr<ArcWeakrefUnavailableAttr>())
-        return true;
-      Class = Class->getSuperClass();
-   }
-   return false;
-  }
+  bool isArcWeakrefUnavailable() const;
 
   /// isObjCRequiresPropertyDefs - Checks that a class or one of its super 
   /// classes must not be auto-synthesized. Returns class decl. if it must not
   /// be; 0, otherwise.
-  const ObjCInterfaceDecl *isObjCRequiresPropertyDefs() const {
-    const ObjCInterfaceDecl *Class = this;
-    while (Class) {
-      if (Class->hasAttr<ObjCRequiresPropertyDefsAttr>())
-        return Class;
-      Class = Class->getSuperClass();
-   }
-   return 0;
-  }
+  const ObjCInterfaceDecl *isObjCRequiresPropertyDefs() const;
 
   ObjCIvarDecl *lookupInstanceVariable(IdentifierInfo *IVarName,
                                        ObjCInterfaceDecl *&ClassDeclared);
@@ -1302,7 +1287,7 @@ public:
     return getFirstDeclaration();
   }
 
-  virtual void collectPropertiesToImplement(PropertyMap& PM) const;
+  virtual void collectPropertiesToImplement(PropertyMap &PM) const;
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == ObjCProtocol; }
@@ -1846,7 +1831,7 @@ public:
     PropertyAttributesAsWritten = PRVal;
   }
 
- void makeitReadWriteAttribute(void) {
+ void makeitReadWriteAttribute() {
     PropertyAttributes &= ~OBJC_PR_readonly;
     PropertyAttributes |= OBJC_PR_readwrite;
  }

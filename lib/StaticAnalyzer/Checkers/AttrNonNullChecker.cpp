@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "clang/AST/Attr.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
 #include "clang/StaticAnalyzer/Core/CheckerManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
@@ -107,7 +108,7 @@ void AttrNonNullChecker::checkPreCall(const CallEvent &Call,
         if (const Expr *ArgE = Call.getArgExpr(idx))
           bugreporter::trackNullOrUndefValue(errorNode, ArgE, *R);
         // Emit the bug report.
-        C.EmitReport(R);
+        C.emitReport(R);
       }
 
       // Always return.  Either we cached out or we just emitted an error.

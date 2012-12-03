@@ -55,6 +55,7 @@ class CodeCompletionHandler;
 class DirectoryLookup;
 class PreprocessingRecord;
 class ModuleLoader;
+class PreprocessorOptions;
 
 /// \brief Stores token information for comparing actual tokens with
 /// predefined values.  Only handles simple tokens and identifiers.
@@ -83,6 +84,7 @@ public:
 /// like the \#include stack, token expansion, etc.
 ///
 class Preprocessor : public RefCountedBase<Preprocessor> {
+  llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts;
   DiagnosticsEngine        *Diags;
   LangOptions       &LangOpts;
   const TargetInfo  *Target;
@@ -394,7 +396,8 @@ private:  // Cached tokens state.
   MacroInfoChain *MICache;
 
 public:
-  Preprocessor(DiagnosticsEngine &diags, LangOptions &opts,
+  Preprocessor(llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
+               DiagnosticsEngine &diags, LangOptions &opts,
                const TargetInfo *target,
                SourceManager &SM, HeaderSearch &Headers,
                ModuleLoader &TheModuleLoader,
@@ -411,6 +414,10 @@ public:
   /// \param Target Information about the target.
   void Initialize(const TargetInfo &Target);
 
+  /// \brief Retrieve the preprocessor options used to initialize this
+  /// preprocessor.
+  PreprocessorOptions &getPreprocessorOpts() const { return *PPOpts; }
+  
   DiagnosticsEngine &getDiagnostics() const { return *Diags; }
   void setDiagnostics(DiagnosticsEngine &D) { Diags = &D; }
 
@@ -548,11 +555,8 @@ public:
   void setPredefines(const char *P) { Predefines = P; }
   void setPredefines(const std::string &P) { Predefines = P; }
 
-  /// getIdentifierInfo - Return information about the specified preprocessor
-  /// identifier token.  The version of this method that takes two character
-  /// pointers is preferred unless the identifier is already available as a
-  /// string (this avoids allocation and copying of memory to construct an
-  /// std::string).
+  /// Return information about the specified preprocessor
+  /// identifier token.
   IdentifierInfo *getIdentifierInfo(StringRef Name) const {
     return &Identifiers.get(Name);
   }
@@ -691,6 +695,25 @@ public:
   }
 
   void LexAfterModuleImport(Token &Result);
+
+  /// \brief Lex a string literal, which may be the concatenation of multiple
+  /// string literals and may even come from macro expansion.
+  /// \returns true on success, false if a error diagnostic has been generated.
+  bool LexStringLiteral(Token &Result, std::string &String,
+                        const char *DiagnosticTag, bool AllowMacroExpansion) {
+    if (AllowMacroExpansion)
+      Lex(Result);
+    else
+      LexUnexpandedToken(Result);
+    return FinishLexStringLiteral(Result, String, DiagnosticTag,
+                                  AllowMacroExpansion);
+  }
+
+  /// \brief Complete the lexing of a string literal where the first token has
+  /// already been lexed (see LexStringLiteral).
+  bool FinishLexStringLiteral(Token &Result, std::string &String,
+                              const char *DiagnosticTag,
+                              bool AllowMacroExpansion);
 
   /// LexNonComment - Lex a token.  If it's a comment, keep lexing until we get
   /// something not a comment.  This is useful in -E -C mode where comments

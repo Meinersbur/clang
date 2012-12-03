@@ -146,19 +146,6 @@ private:
   /// jobs.
   unsigned CheckInputsExist : 1;
 
-  /// Use the clang compiler where possible.
-  unsigned CCCUseClang : 1;
-
-  /// Use clang for handling C++ and Objective-C++ inputs.
-  unsigned CCCUseClangCXX : 1;
-
-  /// Use clang as a preprocessor (clang's preprocessor will still be
-  /// used where an integrated CPP would).
-  unsigned CCCUseClangCPP : 1;
-
-  /// \brief Force use of clang frontend.
-  unsigned ForcedClangUse : 1;
-
 public:
   /// Use lazy precompiled headers for PCH support.
   unsigned CCCUsePCH : 1;
@@ -191,7 +178,6 @@ public:
   Driver(StringRef _ClangExecutable,
          StringRef _DefaultTargetTriple,
          StringRef _DefaultImageName,
-         bool IsProduction,
          DiagnosticsEngine &_Diags);
   ~Driver();
 
@@ -227,9 +213,6 @@ public:
   void setInstalledDir(StringRef Value) {
     InstalledDir = Value;
   }
-
-  bool shouldForceClangUse() const { return ForcedClangUse; }
-  void setForcedClangUse(bool V = true) { ForcedClangUse = V; }
 
   /// @}
   /// @name Primary Functionality
@@ -379,7 +362,7 @@ public:
   /// GCC goes to extra lengths here to be a bit more robust.
   std::string GetTemporaryPath(StringRef Prefix, const char *Suffix) const;
 
-  /// ShouldUseClangCompilar - Should the clang compiler be used to
+  /// ShouldUseClangCompiler - Should the clang compiler be used to
   /// handle this action.
   bool ShouldUseClangCompiler(const Compilation &C, const JobAction &JA,
                               const llvm::Triple &ArchName) const;

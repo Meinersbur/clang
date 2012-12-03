@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/DiagnosticRenderer.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Frontend/DiagnosticOptions.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Edit/EditedSource.h"
 #include "clang/Edit/Commit.h"
@@ -18,6 +18,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include <algorithm>
 using namespace clang;
@@ -60,8 +61,8 @@ static StringRef getImmediateMacroName(SourceLocation Loc,
 }
 
 DiagnosticRenderer::DiagnosticRenderer(const LangOptions &LangOpts,
-                                       const DiagnosticOptions &DiagOpts)
-: LangOpts(LangOpts), DiagOpts(DiagOpts), LastLevel() {}
+                                       DiagnosticOptions *DiagOpts)
+  : LangOpts(LangOpts), DiagOpts(DiagOpts), LastLevel() {}
 
 DiagnosticRenderer::~DiagnosticRenderer() {}
 
@@ -127,11 +128,11 @@ void DiagnosticRenderer::emitDiagnostic(SourceLocation Loc,
   
   PresumedLoc PLoc;
   if (Loc.isValid()) {
-    PLoc = SM->getPresumedLocForDisplay(Loc);
+    PLoc = SM->getPresumedLocForDisplay(Loc, DiagOpts->ShowPresumedLoc);
   
     // First, if this diagnostic is not in the main file, print out the
     // "included from" lines.
-    emitIncludeStack(PLoc.getIncludeLoc(), Level, *SM);
+    emitIncludeStack(Loc, PLoc, Level, *SM);
   }
   
   // Next, emit the actual diagnostic message.
@@ -183,39 +184,177 @@ void DiagnosticRenderer::emitStoredDiagnostic(StoredDiagnostic &Diag) {
 /// repeated warnings occur within the same file. It also handles the logic
 /// of customizing the formatting and display of the include stack.
 ///
+/// \param Loc   The diagnostic location.
+/// \param PLoc  The presumed location of the diagnostic location.
 /// \param Level The diagnostic level of the message this stack pertains to.
-/// \param Loc   The include location of the current file (not the diagnostic
-///              location).
 void DiagnosticRenderer::emitIncludeStack(SourceLocation Loc,
+                                          PresumedLoc PLoc,
                                           DiagnosticsEngine::Level Level,
                                           const SourceManager &SM) {
+  SourceLocation IncludeLoc = PLoc.getIncludeLoc();
+
   // Skip redundant include stacks altogether.
-  if (LastIncludeLoc == Loc)
-    return;
-  LastIncludeLoc = Loc;
-  
-  if (!DiagOpts.ShowNoteIncludeStack && Level == DiagnosticsEngine::Note)
+  if (LastIncludeLoc == IncludeLoc)
     return;
   
-  emitIncludeStackRecursively(Loc, SM);
+  LastIncludeLoc = IncludeLoc;
+  
+  if (!DiagOpts->ShowNoteIncludeStack && Level == DiagnosticsEngine::Note)
+    return;
+
+  if (IncludeLoc.isValid())
+    emitIncludeStackRecursively(IncludeLoc, SM);
+  else {
+    emitModuleBuildStack(SM);
+    emitImportStack(Loc, SM);
+  }
 }
 
 /// \brief Helper to recursivly walk up the include stack and print each layer
 /// on the way back down.
 void DiagnosticRenderer::emitIncludeStackRecursively(SourceLocation Loc,
                                                      const SourceManager &SM) {
-  if (Loc.isInvalid())
+  if (Loc.isInvalid()) {
+    emitModuleBuildStack(SM);
     return;
+  }
   
-  PresumedLoc PLoc = SM.getPresumedLoc(Loc);
+  PresumedLoc PLoc = SM.getPresumedLoc(Loc, DiagOpts->ShowPresumedLoc);
   if (PLoc.isInvalid())
     return;
-  
+
+  // If this source location was imported from a module, print the module
+  // import stack rather than the 
+  // FIXME: We want submodule granularity here.
+  std::pair<SourceLocation, StringRef> Imported = SM.getModuleImportLoc(Loc);
+  if (Imported.first.isValid()) {
+    // This location was imported by a module. Emit the module import stack.
+    emitImportStackRecursively(Imported.first, Imported.second, SM);
+    return;
+  }
+
   // Emit the other include frames first.
   emitIncludeStackRecursively(PLoc.getIncludeLoc(), SM);
   
   // Emit the inclusion text/note.
   emitIncludeLocation(Loc, PLoc, SM);
+}
+
+/// \brief Emit the module import stack associated with the current location.
+void DiagnosticRenderer::emitImportStack(SourceLocation Loc,
+                                         const SourceManager &SM) {
+  if (Loc.isInvalid()) {
+    emitModuleBuildStack(SM);
+    return;
+  }
+
+  std::pair<SourceLocation, StringRef> NextImportLoc
+    = SM.getModuleImportLoc(Loc);
+  emitImportStackRecursively(NextImportLoc.first, NextImportLoc.second, SM);
+}
+
+/// \brief Helper to recursivly walk up the import stack and print each layer
+/// on the way back down.
+void DiagnosticRenderer::emitImportStackRecursively(SourceLocation Loc,
+                                                    StringRef ModuleName,
+                                                    const SourceManager &SM) {
+  if (Loc.isInvalid()) {
+    return;
+  }
+
+  PresumedLoc PLoc = SM.getPresumedLoc(Loc, DiagOpts->ShowPresumedLoc);
+  if (PLoc.isInvalid())
+    return;
+
+  // Emit the other import frames first.
+  std::pair<SourceLocation, StringRef> NextImportLoc
+    = SM.getModuleImportLoc(Loc);
+  emitImportStackRecursively(NextImportLoc.first, NextImportLoc.second, SM);
+
+  // Emit the inclusion text/note.
+  emitImportLocation(Loc, PLoc, ModuleName, SM);
+}
+
+/// \brief Emit the module build stack, for cases where a module is (re-)built
+/// on demand.
+void DiagnosticRenderer::emitModuleBuildStack(const SourceManager &SM) {
+  ModuleBuildStack Stack = SM.getModuleBuildStack();
+  for (unsigned I = 0, N = Stack.size(); I != N; ++I) {
+    const SourceManager &CurSM = Stack[I].second.getManager();
+    SourceLocation CurLoc = Stack[I].second;
+    emitBuildingModuleLocation(CurLoc,
+                               CurSM.getPresumedLoc(CurLoc,
+                                                    DiagOpts->ShowPresumedLoc),
+                               Stack[I].first,
+                               CurSM);
+  }
+}
+
+// Helper function to fix up source ranges.  It takes in an array of ranges,
+// and outputs an array of ranges where we want to draw the range highlighting
+// around the location specified by CaretLoc.
+//
+// To find locations which correspond to the caret, we crawl the macro caller
+// chain for the beginning and end of each range.  If the caret location
+// is in a macro expansion, we search each chain for a location
+// in the same expansion as the caret; otherwise, we crawl to the top of
+// each chain. Two locations are part of the same macro expansion
+// iff the FileID is the same.
+static void mapDiagnosticRanges(
+    SourceLocation CaretLoc,
+    const SmallVectorImpl<CharSourceRange>& Ranges,
+    SmallVectorImpl<CharSourceRange>& SpellingRanges,
+    const SourceManager *SM) {
+  FileID CaretLocFileID = SM->getFileID(CaretLoc);
+
+  for (SmallVectorImpl<CharSourceRange>::const_iterator I = Ranges.begin(),
+       E = Ranges.end();
+       I != E; ++I) {
+    SourceLocation Begin = I->getBegin(), End = I->getEnd();
+    bool IsTokenRange = I->isTokenRange();
+
+    FileID BeginFileID = SM->getFileID(Begin);
+    FileID EndFileID = SM->getFileID(End);
+
+    // Find the common parent for the beginning and end of the range.
+
+    // First, crawl the expansion chain for the beginning of the range.
+    llvm::SmallDenseMap<FileID, SourceLocation> BeginLocsMap;
+    while (Begin.isMacroID() && BeginFileID != EndFileID) {
+      BeginLocsMap[BeginFileID] = Begin;
+      Begin = SM->getImmediateExpansionRange(Begin).first;
+      BeginFileID = SM->getFileID(Begin);
+    }
+
+    // Then, crawl the expansion chain for the end of the range.
+    if (BeginFileID != EndFileID) {
+      while (End.isMacroID() && !BeginLocsMap.count(EndFileID)) {
+        End = SM->getImmediateExpansionRange(End).second;
+        EndFileID = SM->getFileID(End);
+      }
+      if (End.isMacroID()) {
+        Begin = BeginLocsMap[EndFileID];
+        BeginFileID = EndFileID;
+      }
+    }
+
+    while (Begin.isMacroID() && BeginFileID != CaretLocFileID) {
+      if (SM->isMacroArgExpansion(Begin)) {
+        Begin = SM->getImmediateSpellingLoc(Begin);
+        End = SM->getImmediateSpellingLoc(End);
+      } else {
+        Begin = SM->getImmediateExpansionRange(Begin).first;
+        End = SM->getImmediateExpansionRange(End).second;
+      }
+      BeginFileID = SM->getFileID(Begin);
+    }
+
+    // Return the spelling location of the beginning and end of the range.
+    Begin = SM->getSpellingLoc(Begin);
+    End = SM->getSpellingLoc(End);
+    SpellingRanges.push_back(CharSourceRange(SourceRange(Begin, End),
+                                             IsTokenRange));
+  }
 }
 
 /// \brief Recursively emit notes for each macro expansion and caret
@@ -245,9 +384,13 @@ void DiagnosticRenderer::emitMacroExpansionsAndCarets(
   // If this is a file source location, directly emit the source snippet and
   // caret line. Also record the macro depth reached.
   if (Loc.isFileID()) {
+    // Map the ranges.
+    SmallVector<CharSourceRange, 4> SpellingRanges;
+    mapDiagnosticRanges(Loc, Ranges, SpellingRanges, &SM);
+
     assert(MacroDepth == 0 && "We shouldn't hit a leaf node twice!");
     MacroDepth = OnMacroInst;
-    emitCodeContext(Loc, Level, Ranges, Hints, SM);
+    emitCodeContext(Loc, Level, SpellingRanges, Hints, SM);
     return;
   }
   // Otherwise recurse through each macro expansion layer.
@@ -257,8 +400,7 @@ void DiagnosticRenderer::emitMacroExpansionsAndCarets(
   Loc = SM.skipToMacroArgExpansion(Loc);
   
   SourceLocation OneLevelUp = SM.getImmediateMacroCallerLoc(Loc);
-  
-  // FIXME: Map ranges?
+
   emitMacroExpansionsAndCarets(OneLevelUp, Level, Ranges, Hints, SM, MacroDepth,
                                OnMacroInst + 1);
   
@@ -269,27 +411,16 @@ void DiagnosticRenderer::emitMacroExpansionsAndCarets(
   Loc = SM.getImmediateMacroCalleeLoc(Loc);
   
   unsigned MacroSkipStart = 0, MacroSkipEnd = 0;
-  if (MacroDepth > DiagOpts.MacroBacktraceLimit &&
-      DiagOpts.MacroBacktraceLimit != 0) {
-    MacroSkipStart = DiagOpts.MacroBacktraceLimit / 2 +
-    DiagOpts.MacroBacktraceLimit % 2;
-    MacroSkipEnd = MacroDepth - DiagOpts.MacroBacktraceLimit / 2;
+  if (MacroDepth > DiagOpts->MacroBacktraceLimit &&
+      DiagOpts->MacroBacktraceLimit != 0) {
+    MacroSkipStart = DiagOpts->MacroBacktraceLimit / 2 +
+    DiagOpts->MacroBacktraceLimit % 2;
+    MacroSkipEnd = MacroDepth - DiagOpts->MacroBacktraceLimit / 2;
   }
   
   // Whether to suppress printing this macro expansion.
   bool Suppressed = (OnMacroInst >= MacroSkipStart &&
                      OnMacroInst < MacroSkipEnd);
-  
-  // Map the ranges.
-  for (SmallVectorImpl<CharSourceRange>::iterator I = Ranges.begin(),
-       E = Ranges.end();
-       I != E; ++I) {
-    SourceLocation Start = I->getBegin(), End = I->getEnd();
-    if (Start.isMacroID())
-      I->setBegin(SM.getImmediateMacroCalleeLoc(Start));
-    if (End.isMacroID())
-      I->setEnd(SM.getImmediateMacroCalleeLoc(End));
-  }
   
   if (Suppressed) {
     // Tell the user that we've skipped contexts.
@@ -303,14 +434,18 @@ void DiagnosticRenderer::emitMacroExpansionsAndCarets(
     }
     return;
   }
-  
+
+  // Map the ranges.
+  SmallVector<CharSourceRange, 4> SpellingRanges;
+  mapDiagnosticRanges(MacroLoc, Ranges, SpellingRanges, &SM);
+
   SmallString<100> MessageStorage;
   llvm::raw_svector_ostream Message(MessageStorage);
   Message << "expanded from macro '"
           << getImmediateMacroName(MacroLoc, SM, LangOpts) << "'";
   emitDiagnostic(SM.getSpellingLoc(Loc), DiagnosticsEngine::Note,
                  Message.str(),
-                 Ranges, ArrayRef<FixItHint>(), &SM);
+                 SpellingRanges, ArrayRef<FixItHint>(), &SM);
 }
 
 DiagnosticNoteRenderer::~DiagnosticNoteRenderer() {}
@@ -325,6 +460,32 @@ void DiagnosticNoteRenderer::emitIncludeLocation(SourceLocation Loc,
           << PLoc.getLine() << ":";
   emitNote(Loc, Message.str(), &SM);
 }
+
+void DiagnosticNoteRenderer::emitImportLocation(SourceLocation Loc,
+                                                PresumedLoc PLoc,
+                                                StringRef ModuleName,
+                                                const SourceManager &SM) {
+  // Generate a note indicating the include location.
+  SmallString<200> MessageStorage;
+  llvm::raw_svector_ostream Message(MessageStorage);
+  Message << "in module '" << ModuleName << "' imported from "
+          << PLoc.getFilename() << ':' << PLoc.getLine() << ":";
+  emitNote(Loc, Message.str(), &SM);
+}
+
+void
+DiagnosticNoteRenderer::emitBuildingModuleLocation(SourceLocation Loc,
+                                                   PresumedLoc PLoc,
+                                                   StringRef ModuleName,
+                                                   const SourceManager &SM) {
+  // Generate a note indicating the include location.
+  SmallString<200> MessageStorage;
+  llvm::raw_svector_ostream Message(MessageStorage);
+  Message << "while building module '" << ModuleName << "' imported from "
+          << PLoc.getFilename() << ':' << PLoc.getLine() << ":";
+  emitNote(Loc, Message.str(), &SM);
+}
+
 
 void DiagnosticNoteRenderer::emitBasicNote(StringRef Message) {
   emitNote(SourceLocation(), Message, 0);  

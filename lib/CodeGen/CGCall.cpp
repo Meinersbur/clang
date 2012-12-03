@@ -692,12 +692,13 @@ static llvm::Value *CreateCoercedLoad(llvm::Value *SrcPtr,
   // Otherwise do coercion through memory. This is stupid, but
   // simple.
   llvm::Value *Tmp = CGF.CreateTempAlloca(Ty);
-  llvm::Value *Casted =
-    CGF.Builder.CreateBitCast(Tmp, llvm::PointerType::getUnqual(SrcTy));
-  llvm::StoreInst *Store =
-    CGF.Builder.CreateStore(CGF.Builder.CreateLoad(SrcPtr), Casted);
-  // FIXME: Use better alignment / avoid requiring aligned store.
-  Store->setAlignment(1);
+  llvm::Type *I8PtrTy = CGF.Builder.getInt8PtrTy();
+  llvm::Value *Casted = CGF.Builder.CreateBitCast(Tmp, I8PtrTy);
+  llvm::Value *SrcCasted = CGF.Builder.CreateBitCast(SrcPtr, I8PtrTy);
+  // FIXME: Use better alignment.
+  CGF.Builder.CreateMemCpy(Casted, SrcCasted,
+      llvm::ConstantInt::get(CGF.IntPtrTy, SrcSize),
+      1, false);
   return CGF.Builder.CreateLoad(Tmp);
 }
 
@@ -779,12 +780,13 @@ static void CreateCoercedStore(llvm::Value *Src,
     // to that information.
     llvm::Value *Tmp = CGF.CreateTempAlloca(SrcTy);
     CGF.Builder.CreateStore(Src, Tmp);
-    llvm::Value *Casted =
-      CGF.Builder.CreateBitCast(Tmp, llvm::PointerType::getUnqual(DstTy));
-    llvm::LoadInst *Load = CGF.Builder.CreateLoad(Casted);
-    // FIXME: Use better alignment / avoid requiring aligned load.
-    Load->setAlignment(1);
-    CGF.Builder.CreateStore(Load, DstPtr, DstIsVolatile);
+    llvm::Type *I8PtrTy = CGF.Builder.getInt8PtrTy();
+    llvm::Value *Casted = CGF.Builder.CreateBitCast(Tmp, I8PtrTy);
+    llvm::Value *DstCasted = CGF.Builder.CreateBitCast(DstPtr, I8PtrTy);
+    // FIXME: Use better alignment.
+    CGF.Builder.CreateMemCpy(DstCasted, Casted,
+        llvm::ConstantInt::get(CGF.IntPtrTy, DstSize),
+        1, false);
   }
 }
 
@@ -867,6 +869,10 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
          ie = FI.arg_end(); it != ie; ++it) {
     const ABIArgInfo &argAI = it->info;
 
+    // Insert a padding type to ensure proper alignment.
+    if (llvm::Type *PaddingType = argAI.getPaddingType())
+      argTypes.push_back(PaddingType);
+
     switch (argAI.getKind()) {
     case ABIArgInfo::Ignore:
       break;
@@ -880,9 +886,6 @@ CodeGenTypes::GetFunctionType(const CGFunctionInfo &FI) {
 
     case ABIArgInfo::Extend:
     case ABIArgInfo::Direct: {
-      // Insert a padding type to ensure proper alignment.
-      if (llvm::Type *PaddingType = argAI.getPaddingType())
-        argTypes.push_back(PaddingType);
       // If the coerce-to type is a first class aggregate, flatten it.  Either
       // way is semantically identical, but fast-isel and the optimizer
       // generally likes scalar values better than FCAs.
@@ -967,6 +970,8 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
 
   if (CodeGenOpts.OptimizeSize)
     FuncAttrs.addAttribute(llvm::Attributes::OptimizeForSize);
+  if (CodeGenOpts.OptimizeSize == 2)
+    FuncAttrs.addAttribute(llvm::Attributes::MinSize);
   if (CodeGenOpts.DisableRedZone)
     FuncAttrs.addAttribute(llvm::Attributes::NoRedZone);
   if (CodeGenOpts.NoImplicitFloat)
@@ -1019,6 +1024,18 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
     const ABIArgInfo &AI = it->info;
     llvm::AttrBuilder Attrs;
 
+    if (AI.getPaddingType()) {
+      if (AI.getPaddingInReg()) {
+        llvm::AttrBuilder PadAttrs;
+        PadAttrs.addAttribute(llvm::Attributes::InReg);
+
+        llvm::Attributes A =llvm::Attributes::get(getLLVMContext(), PadAttrs);
+        PAL.push_back(llvm::AttributeWithIndex::get(Index, A));
+      }
+      // Increment Index if there is padding.
+      ++Index;
+    }
+
     // 'restrict' -> 'noalias' is done in EmitFunctionProlog when we
     // have the corresponding parameter variable.  It doesn't make
     // sense to do it here because parameters are so messed up.
@@ -1034,9 +1051,6 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
         Attrs.addAttribute(llvm::Attributes::InReg);
 
       // FIXME: handle sseregparm someday...
-
-      // Increment Index if there is padding.
-      Index += (AI.getPaddingType() != 0);
 
       if (llvm::StructType *STy =
           dyn_cast<llvm::StructType>(AI.getCoerceToType())) {
@@ -1155,6 +1169,10 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
     bool isPromoted =
       isa<ParmVarDecl>(Arg) && cast<ParmVarDecl>(Arg)->isKNRPromoted();
 
+    // Skip the dummy padding argument.
+    if (ArgI.getPaddingType())
+      ++AI;
+
     switch (ArgI.getKind()) {
     case ABIArgInfo::Indirect: {
       llvm::Value *V = AI;
@@ -1196,9 +1214,6 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
 
     case ABIArgInfo::Extend:
     case ABIArgInfo::Direct: {
-      // Skip the dummy padding argument.
-      if (ArgI.getPaddingType())
-        ++AI;
 
       // If we have the trivial case, handle it with no muss and fuss.
       if (!isa<llvm::StructType>(ArgI.getCoerceToType()) &&
@@ -1217,7 +1232,15 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
 
         if (isPromoted)
           V = emitArgumentDemotion(*this, Arg, V);
-        
+
+        // Because of merging of function types from multiple decls it is
+        // possible for the type of an argument to not match the corresponding
+        // type in the function type. Since we are codegening the callee
+        // in here, add a cast to the argument type.
+        llvm::Type *LTy = ConvertType(Arg->getType());
+        if (V->getType() != LTy)
+          V = Builder.CreateBitCast(V, LTy);
+
         EmitParmDecl(*Arg, V, ArgNo);
         break;
       }
@@ -1727,7 +1750,12 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
   // Create the temporary.
   llvm::Value *temp = CGF.CreateTempAlloca(destType->getElementType(),
                                            "icr.temp");
-
+  // Loading an l-value can introduce a cleanup if the l-value is __weak,
+  // and that cleanup will be conditional if we can't prove that the l-value
+  // isn't null, so we need to register a dominating point so that the cleanups
+  // system will make valid IR.
+  CodeGenFunction::ConditionalEvaluation condEval(CGF);
+  
   // Zero-initialize it if we're not doing a copy-initialization.
   bool shouldCopy = CRE->shouldCopy();
   if (!shouldCopy) {
@@ -1736,7 +1764,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
         cast<llvm::PointerType>(destType->getElementType()));
     CGF.Builder.CreateStore(null, temp);
   }
-
+  
   llvm::BasicBlock *contBB = 0;
 
   // If the address is *not* known to be non-null, we need to switch.
@@ -1759,6 +1787,7 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
       llvm::BasicBlock *copyBB = CGF.createBasicBlock("icr.copy");
       CGF.Builder.CreateCondBr(isNull, contBB, copyBB);
       CGF.EmitBlock(copyBB);
+      condEval.begin(CGF);
     }
   }
 
@@ -1775,10 +1804,12 @@ static void emitWritebackArg(CodeGenFunction &CGF, CallArgList &args,
     // Use an ordinary store, not a store-to-lvalue.
     CGF.Builder.CreateStore(src, temp);
   }
-
+  
   // Finish the control flow if we needed it.
-  if (shouldCopy && !provablyNonNull)
+  if (shouldCopy && !provablyNonNull) {
     CGF.EmitBlock(contBB);
+    condEval.end(CGF);
+  }
 
   args.addWriteback(srcAddr, srcAddrType, temp);
   args.add(RValue::get(finalArgument), CRE->getType());
@@ -1788,7 +1819,7 @@ void CodeGenFunction::EmitCallArg(CallArgList &args, const Expr *E,
                                   QualType type) {
   if (const ObjCIndirectCopyRestoreExpr *CRE
         = dyn_cast<ObjCIndirectCopyRestoreExpr>(E)) {
-    assert(getContext().getLangOpts().ObjCAutoRefCount);
+    assert(getLangOpts().ObjCAutoRefCount);
     assert(getContext().hasSameType(E->getType(), type));
     return emitWritebackArg(*this, args, CRE);
   }
@@ -1976,6 +2007,13 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
     unsigned TypeAlign =
       getContext().getTypeAlignInChars(I->Ty).getQuantity();
+
+    // Insert a padding argument to ensure proper alignment.
+    if (llvm::Type *PaddingType = ArgInfo.getPaddingType()) {
+      Args.push_back(llvm::UndefValue::get(PaddingType));
+      ++IRArgNo;
+    }
+
     switch (ArgInfo.getKind()) {
     case ABIArgInfo::Indirect: {
       if (RV.isScalar() || RV.isComplex()) {
@@ -2031,12 +2069,6 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
     case ABIArgInfo::Extend:
     case ABIArgInfo::Direct: {
-      // Insert a padding argument to ensure proper alignment.
-      if (llvm::Type *PaddingType = ArgInfo.getPaddingType()) {
-        Args.push_back(llvm::UndefValue::get(PaddingType));
-        ++IRArgNo;
-      }
-
       if (!isa<llvm::StructType>(ArgInfo.getCoerceToType()) &&
           ArgInfo.getCoerceToType() == ConvertType(info_it->type) &&
           ArgInfo.getDirectOffset() == 0) {
@@ -2163,7 +2195,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   unsigned CallingConv;
   CodeGen::AttributeListType AttributeList;
   CGM.ConstructAttributeList(CallInfo, TargetDecl, AttributeList, CallingConv);
-  llvm::AttrListPtr Attrs = llvm::AttrListPtr::get(AttributeList);
+  llvm::AttrListPtr Attrs = llvm::AttrListPtr::get(getLLVMContext(),
+                                                   AttributeList);
 
   llvm::BasicBlock *InvokeDest = 0;
   if (!Attrs.getFnAttributes().hasAttribute(llvm::Attributes::NoUnwind))

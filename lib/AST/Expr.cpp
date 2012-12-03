@@ -11,22 +11,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/AST/Expr.h"
-#include "clang/AST/ExprCXX.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/DeclObjC.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
-#include "clang/Lex/LiteralSupport.h"
-#include "clang/Lex/Lexer.h"
-#include "clang/Sema/SemaDiagnostic.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/LiteralSupport.h"
+#include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -46,6 +47,75 @@ const CXXRecordDecl *Expr::getBestDynamicClassType() const {
   const RecordType *Ty = DerivedType->castAs<RecordType>();
   Decl *D = Ty->getDecl();
   return cast<CXXRecordDecl>(D);
+}
+
+const Expr *
+Expr::skipRValueSubobjectAdjustments(
+                     SmallVectorImpl<SubobjectAdjustment> &Adjustments) const  {
+  const Expr *E = this;
+  while (true) {
+    E = E->IgnoreParens();
+
+    if (const CastExpr *CE = dyn_cast<CastExpr>(E)) {
+      if ((CE->getCastKind() == CK_DerivedToBase ||
+           CE->getCastKind() == CK_UncheckedDerivedToBase) &&
+          E->getType()->isRecordType()) {
+        E = CE->getSubExpr();
+        CXXRecordDecl *Derived
+          = cast<CXXRecordDecl>(E->getType()->getAs<RecordType>()->getDecl());
+        Adjustments.push_back(SubobjectAdjustment(CE, Derived));
+        continue;
+      }
+
+      if (CE->getCastKind() == CK_NoOp) {
+        E = CE->getSubExpr();
+        continue;
+      }
+    } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+      if (!ME->isArrow() && ME->getBase()->isRValue()) {
+        assert(ME->getBase()->getType()->isRecordType());
+        if (FieldDecl *Field = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+          E = ME->getBase();
+          Adjustments.push_back(SubobjectAdjustment(Field));
+          continue;
+        }
+      }
+    } else if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->isPtrMemOp()) {
+        assert(BO->getRHS()->isRValue());
+        E = BO->getLHS();
+        const MemberPointerType *MPT =
+          BO->getRHS()->getType()->getAs<MemberPointerType>();
+        Adjustments.push_back(SubobjectAdjustment(MPT, BO->getRHS()));
+      }
+    }
+
+    // Nothing changed.
+    break;
+  }
+  return E;
+}
+
+const Expr *
+Expr::findMaterializedTemporary(const MaterializeTemporaryExpr *&MTE) const {
+  const Expr *E = this;
+  // Look through single-element init lists that claim to be lvalues. They're
+  // just syntactic wrappers in this case.
+  if (const InitListExpr *ILE = dyn_cast<InitListExpr>(E)) {
+    if (ILE->getNumInits() == 1 && ILE->isGLValue())
+      E = ILE->getInit(0);
+  }
+
+  // Look through expressions for materialized temporaries (for now).
+  if (const MaterializeTemporaryExpr *M
+      = dyn_cast<MaterializeTemporaryExpr>(E)) {
+    MTE = M;
+    E = M->GetTemporaryExpr();
+  }
+
+  if (const CXXDefaultArgExpr *DAE = dyn_cast<CXXDefaultArgExpr>(E))
+    E = DAE->getExpr();
+  return E;
 }
 
 /// isKnownToHaveBooleanValue - Return true if this is an integer expression
@@ -1258,9 +1328,12 @@ SourceLocation MemberExpr::getLocStart() const {
   return MemberLoc;
 }
 SourceLocation MemberExpr::getLocEnd() const {
+  SourceLocation EndLoc = getMemberNameInfo().getEndLoc();
   if (hasExplicitTemplateArgs())
-    return getRAngleLoc();
-  return getMemberNameInfo().getEndLoc();
+    EndLoc = getRAngleLoc();
+  else if (EndLoc.isInvalid())
+    EndLoc = getBase()->getLocEnd();
+  return EndLoc;
 }
 
 void CastExpr::CheckCastConsistency() const {
@@ -1676,7 +1749,7 @@ InitListExpr::InitListExpr(ASTContext &C, SourceLocation lbraceloc,
   : Expr(InitListExprClass, QualType(), VK_RValue, OK_Ordinary, false, false,
          false, false),
     InitExprs(C, initExprs.size()),
-    LBraceLoc(lbraceloc), RBraceLoc(rbraceloc), SyntacticForm(0)
+    LBraceLoc(lbraceloc), RBraceLoc(rbraceloc), AltForm(0, true)
 {
   sawArrayRangeDesignator(false);
   setInitializesStdInitializerList(false);
@@ -1736,7 +1809,7 @@ bool InitListExpr::isStringLiteralInit() const {
 }
 
 SourceRange InitListExpr::getSourceRange() const {
-  if (SyntacticForm)
+  if (InitListExpr *SyntacticForm = getSyntacticForm())
     return SyntacticForm->getSourceRange();
   SourceLocation Beg = LBraceLoc, End = RBraceLoc;
   if (Beg.isInvalid()) {
@@ -1950,6 +2023,11 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
     return false;
   }
 
+  // If we don't know precisely what we're looking at, let's not warn.
+  case UnresolvedLookupExprClass:
+  case CXXUnresolvedConstructExprClass:
+    return false;
+
   case CXXTemporaryObjectExprClass:
   case CXXConstructExprClass:
     return false;
@@ -2037,6 +2115,10 @@ bool Expr::isUnusedResultAWarning(const Expr *&WarnE, SourceLocation &Loc,
       }
       return false;
     }
+
+    // Ignore casts within macro expansions.
+    if (getExprLoc().isMacroID())
+      return CE->getSubExpr()->isUnusedResultAWarning(WarnE, Loc, R1, R2, Ctx);
 
     // If this is a cast to a constructor conversion, check the operand.
     // Otherwise, the result of the cast is unused.
@@ -3364,32 +3446,28 @@ Selector ObjCMessageExpr::getSelector() const {
   return Selector(SelectorOrMethod); 
 }
 
-ObjCInterfaceDecl *ObjCMessageExpr::getReceiverInterface() const {
+QualType ObjCMessageExpr::getReceiverType() const {
   switch (getReceiverKind()) {
   case Instance:
-    if (const ObjCObjectPointerType *Ptr
-          = getInstanceReceiver()->getType()->getAs<ObjCObjectPointerType>())
-      return Ptr->getInterfaceDecl();
-    break;
-
+    return getInstanceReceiver()->getType();
   case Class:
-    if (const ObjCObjectType *Ty
-          = getClassReceiver()->getAs<ObjCObjectType>())
-      return Ty->getInterface();
-    break;
-
+    return getClassReceiver();
   case SuperInstance:
-    if (const ObjCObjectPointerType *Ptr
-          = getSuperType()->getAs<ObjCObjectPointerType>())
-      return Ptr->getInterfaceDecl();
-    break;
-
   case SuperClass:
-    if (const ObjCObjectType *Iface
-          = getSuperType()->getAs<ObjCObjectType>())
-      return Iface->getInterface();
-    break;
+    return getSuperType();
   }
+
+  llvm_unreachable("unexpected receiver kind");
+}
+
+ObjCInterfaceDecl *ObjCMessageExpr::getReceiverInterface() const {
+  QualType T = getReceiverType();
+
+  if (const ObjCObjectPointerType *Ptr = T->getAs<ObjCObjectPointerType>())
+    return Ptr->getInterfaceDecl();
+
+  if (const ObjCObjectType *Ty = T->getAs<ObjCObjectType>())
+    return Ty->getInterface();
 
   return 0;
 }

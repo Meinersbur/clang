@@ -13,8 +13,9 @@
 
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/Stmt.h"
 #include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/Stmt.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 using namespace clang;
@@ -190,7 +191,7 @@ ObjCInterfaceDecl::FindPropertyVisibleInPrimaryClass(
   return 0;
 }
 
-void ObjCInterfaceDecl::collectPropertiesToImplement(PropertyMap& PM) const {
+void ObjCInterfaceDecl::collectPropertiesToImplement(PropertyMap &PM) const {
   for (ObjCContainerDecl::prop_iterator P = prop_begin(),
       E = prop_end(); P != E; ++P) {
     ObjCPropertyDecl *Prop = *P;
@@ -200,6 +201,29 @@ void ObjCInterfaceDecl::collectPropertiesToImplement(PropertyMap& PM) const {
       PI = all_referenced_protocol_begin(),
       E = all_referenced_protocol_end(); PI != E; ++PI)
     (*PI)->collectPropertiesToImplement(PM);
+  // Note, the properties declared only in class extensions are still copied
+  // into the main @interface's property list, and therefore we don't
+  // explicitly, have to search class extension properties.
+}
+
+bool ObjCInterfaceDecl::isArcWeakrefUnavailable() const {
+  const ObjCInterfaceDecl *Class = this;
+  while (Class) {
+    if (Class->hasAttr<ArcWeakrefUnavailableAttr>())
+      return true;
+    Class = Class->getSuperClass();
+  }
+  return false;
+}
+
+const ObjCInterfaceDecl *ObjCInterfaceDecl::isObjCRequiresPropertyDefs() const {
+  const ObjCInterfaceDecl *Class = this;
+  while (Class) {
+    if (Class->hasAttr<ObjCRequiresPropertyDefsAttr>())
+      return Class;
+    Class = Class->getSuperClass();
+  }
+  return 0;
 }
 
 void ObjCInterfaceDecl::mergeClassExtensionProtocolList(
@@ -1325,7 +1349,7 @@ void ObjCProtocolDecl::startDefinition() {
     RD->Data = this->Data;
 }
 
-void ObjCProtocolDecl::collectPropertiesToImplement(PropertyMap& PM) const {
+void ObjCProtocolDecl::collectPropertiesToImplement(PropertyMap &PM) const {
   for (ObjCProtocolDecl::prop_iterator P = prop_begin(),
       E = prop_end(); P != E; ++P) {
     ObjCPropertyDecl *Prop = *P;

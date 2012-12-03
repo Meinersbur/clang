@@ -2486,7 +2486,6 @@ CXTranslationUnit clang_createTranslationUnit(CXIndex CIdx,
 
   CIndexer *CXXIdx = static_cast<CIndexer *>(CIdx);
   FileSystemOptions FileSystemOpts;
-  FileSystemOpts.WorkingDir = CXXIdx->getWorkingDirectory();
 
   IntrusiveRefCntPtr<DiagnosticsEngine> Diags;
   ASTUnit *TU = ASTUnit::LoadFromASTFile(ast_filename, Diags, FileSystemOpts,
@@ -2559,10 +2558,10 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
   bool ForSerialization = options & CXTranslationUnit_ForSerialization;
 
   // Configure the diagnostics.
-  DiagnosticOptions DiagOpts;
   IntrusiveRefCntPtr<DiagnosticsEngine>
-    Diags(CompilerInstance::createDiagnostics(DiagOpts, num_command_line_args, 
-                                                command_line_args));
+    Diags(CompilerInstance::createDiagnostics(new DiagnosticOptions,
+                                              num_command_line_args,
+                                              command_line_args));
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,
@@ -6137,6 +6136,9 @@ void SetSafetyThreadStackSize(unsigned Value) {
 }
 
 void clang::setThreadBackgroundPriority() {
+  if (getenv("LIBCLANG_BGPRIO_DISABLE"))
+    return;
+
   // FIXME: Move to llvm/Support and make it cross-platform.
 #ifdef __APPLE__
   setpriority(PRIO_DARWIN_THREAD, 0, PRIO_DARWIN_BG);

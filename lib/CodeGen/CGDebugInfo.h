@@ -169,7 +169,7 @@ public:
   CGDebugInfo(CodeGenModule &CGM);
   ~CGDebugInfo();
 
-  void finalize(void);
+  void finalize();
 
   /// setLocation - Update the current source location. If \arg loc is
   /// invalid it is ignored.
@@ -243,7 +243,7 @@ private:
 
   // EmitTypeForVarWithBlocksAttr - Build up structure info for the byref.  
   // See BuildByRefType.
-  llvm::DIType EmitTypeForVarWithBlocksAttr(const ValueDecl *VD, 
+  llvm::DIType EmitTypeForVarWithBlocksAttr(const VarDecl *VD,
                                             uint64_t *OffSet);
 
   /// getContextDescriptor - Get context info for the decl.

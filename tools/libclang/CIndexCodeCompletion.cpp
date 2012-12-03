@@ -236,7 +236,8 @@ clang_getCompletionBriefComment(CXCompletionString completion_string) {
   return createCXString(CCStr->getBriefComment(), /*DupString=*/false);
 }
 
-  
+namespace {
+
 /// \brief The CXCodeCompleteResults structure we allocate internally;
 /// the client only sees the initial CXCodeCompleteResults structure.
 struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
@@ -246,6 +247,8 @@ struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
   /// \brief Diagnostics produced while performing code completion.
   SmallVector<StoredDiagnostic, 8> Diagnostics;
 
+  IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts;
+  
   /// \brief Diag object
   IntrusiveRefCntPtr<DiagnosticsEngine> Diag;
   
@@ -296,6 +299,8 @@ struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
   std::string Selector;
 };
 
+} // end anonymous namespace
+
 /// \brief Tracks the number of code-completion result objects that are 
 /// currently active.
 ///
@@ -305,8 +310,10 @@ static llvm::sys::cas_flag CodeCompletionResultObjects;
 AllocatedCXCodeCompleteResults::AllocatedCXCodeCompleteResults(
                                       const FileSystemOptions& FileSystemOpts)
   : CXCodeCompleteResults(),
+    DiagOpts(new DiagnosticOptions),
     Diag(new DiagnosticsEngine(
-                   IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs))),
+                   IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs),
+                   &*DiagOpts)),
     FileSystemOpts(FileSystemOpts),
     FileMgr(new FileManager(FileSystemOpts)),
     SourceMgr(new SourceManager(*Diag, *FileMgr)),

@@ -11,6 +11,8 @@ let Component = "Driver" in {
 
 def err_drv_no_such_file : Error<"no such file or directory: '%0'">;
 def err_drv_unsupported_opt : Error<"unsupported option '%0'">;
+def err_drv_unsupported_opt_for_target : Error<
+  "unsupported option '%0' for target '%1'">;
 def err_drv_unsupported_option_argument : Error<
   "unsupported argument '%1' to option '%0'">;
 def err_drv_unknown_stdin_type : Error<
@@ -99,6 +101,8 @@ def err_drv_mg_requires_m_or_mm : Error<
   "option '-MG' requires '-M' or '-MM'">;
 def err_drv_asan_android_requires_pie : Error<
   "AddressSanitizer on Android requires '-pie'">;
+def err_drv_sanitizer_requires_pie : Error<
+  "%select{Thread|Memory}0Sanitizer requires '-pie'">;
 def err_drv_unknown_objc_runtime : Error<
   "unknown or ill-formed Objective-C runtime '%0'">;
 
@@ -119,12 +123,10 @@ def warn_drv_unused_argument : Warning<
 def warn_drv_empty_joined_argument : Warning<
   "joined argument expects additional value: '%0'">,
   InGroup<DiagGroup<"unused-command-line-argument">>;
-def warn_drv_not_using_clang_cpp : Warning<
-  "not using the clang preprocessor due to user override">;
-def warn_drv_not_using_clang_cxx : Warning<
-  "not using the clang compiler for C++ inputs">;
 def warn_drv_clang_unsupported : Warning<
   "the clang compiler does not support '%0'">;
+def warn_drv_deprecated_arg : Warning<
+  "argument '%0' is deprecated, use '%1' instead">, InGroup<Deprecated>;
 def warn_drv_assuming_mfloat_abi_is : Warning<
   "unknown platform, assuming -mfloat-abi=%0">;
 def warn_ignoring_ftabstop_value : Warning<

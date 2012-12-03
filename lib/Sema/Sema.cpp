@@ -128,7 +128,7 @@ void Sema::Initialize() {
     ExternalSema->InitializeSema(*this);
 
   // Initialize predefined 128-bit integer types, if needed.
-  if (PP.getTargetInfo().getPointerWidth(0) >= 64) {
+  if (PP.getTargetInfo().hasInt128Type()) {
     // If either of the 128-bit integer types are unavailable to name lookup,
     // define them now.
     DeclarationName Int128 = &Context.Idents.get("__int128_t");
@@ -665,6 +665,8 @@ void Sema::ActOnEndOfTranslationUnit() {
                                    diag::err_tentative_def_incomplete_type))
       VD->setInvalidDecl();
 
+    CheckCompleteVariableDeclaration(VD);
+
     // Notify the consumer that we've completed a tentative definition.
     if (!VD->isInvalidDecl())
       Consumer.CompleteTentativeDefinition(VD);
@@ -1185,8 +1187,7 @@ static void noteOverloads(Sema &S, const UnresolvedSetImpl &Overloads,
        DeclsEnd = Overloads.end(); It != DeclsEnd; ++It) {
     // FIXME: Magic number for max shown overloads stolen from
     // OverloadCandidateSet::NoteCandidates.
-    if (ShownOverloads >= 4 &&
-        S.Diags.getShowOverloads() == DiagnosticsEngine::Ovl_Best) {
+    if (ShownOverloads >= 4 && S.Diags.getShowOverloads() == Ovl_Best) {
       ++SuppressedOverloads;
       continue;
     }

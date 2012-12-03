@@ -1,4 +1,4 @@
-//===--- Tranforms.cpp - Tranformations to ARC mode -----------------------===//
+//===--- Transforms.cpp - Transformations to ARC mode ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -14,11 +14,12 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringSwitch.h"
 #include <map>
 
 using namespace clang;

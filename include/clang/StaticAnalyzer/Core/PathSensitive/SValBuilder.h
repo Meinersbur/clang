@@ -17,7 +17,6 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
-#include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SVals.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/BasicValueFactory.h"
@@ -124,7 +123,7 @@ public:
   ProgramStateManager &getStateManager() { return StateMgr; }
   
   QualType getConditionType() const {
-    return  getContext().IntTy;
+    return Context.getLangOpts().CPlusPlus ? Context.BoolTy : Context.IntTy;
   }
   
   QualType getArrayIndexType() const {

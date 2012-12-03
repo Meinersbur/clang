@@ -14,10 +14,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/Analysis/ProgramPoint.h"
 #include "clang/AST/ParentMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace ento;
@@ -97,6 +99,14 @@ bool CallEvent::hasNonZeroCallbackArg() const {
   }
   
   return false;
+}
+
+bool CallEvent::isGlobalCFunction(StringRef FunctionName) const {
+  const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(getDecl());
+  if (!FD)
+    return false;
+
+  return CheckerContext::isCLibraryFunction(FD, FunctionName);
 }
 
 /// \brief Returns true if a type is a pointer-to-const or reference-to-const
@@ -223,6 +233,13 @@ SourceRange CallEvent::getArgSourceRange(unsigned Index) const {
   return ArgE->getSourceRange();
 }
 
+SVal CallEvent::getReturnValue() const {
+  const Expr *E = getOriginExpr();
+  if (!E)
+    return UndefinedVal();
+  return getSVal(E);
+}
+
 void CallEvent::dump() const {
   dump(llvm::errs());
 }
@@ -321,7 +338,7 @@ bool AnyFunctionCall::argumentsMayEscape() const {
 
   const IdentifierInfo *II = D->getIdentifier();
   if (!II)
-    return true;
+    return false;
 
   // This set of "escaping" APIs is 
 

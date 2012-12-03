@@ -25,9 +25,11 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLocVisitor.h"
 #include "clang/Serialization/ASTReader.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/PreprocessingRecord.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemStatCache.h"
@@ -775,6 +777,12 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(TARGET_OPTIONS);
   RECORD(ORIGINAL_FILE);
   RECORD(ORIGINAL_PCH_DIR);
+  RECORD(ORIGINAL_FILE_ID);
+  RECORD(INPUT_FILE_OFFSETS);
+  RECORD(DIAGNOSTIC_OPTIONS);
+  RECORD(FILE_SYSTEM_OPTIONS);
+  RECORD(HEADER_SEARCH_OPTIONS);
+  RECORD(PREPROCESSOR_OPTIONS);
 
   BLOCK(INPUT_FILES_BLOCK);
   RECORD(INPUT_FILE);
@@ -796,7 +804,6 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(PP_COUNTER_VALUE);
   RECORD(SOURCE_LOCATION_OFFSETS);
   RECORD(SOURCE_LOCATION_PRELOADS);
-  RECORD(STAT_CACHE);
   RECORD(EXT_VECTOR_DECLS);
   RECORD(PPD_ENTITIES_OFFSETS);
   RECORD(REFERENCED_SELECTOR_POOL);
@@ -983,7 +990,8 @@ adjustFilenameForRelocatablePCH(const char *Filename, StringRef isysroot) {
 }
 
 /// \brief Write the control block.
-void ASTWriter::WriteControlBlock(ASTContext &Context, StringRef isysroot,
+void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
+                                  StringRef isysroot,
                                   const std::string &OutputFile) {
   using namespace llvm;
   Stream.EnterSubblock(CONTROL_BLOCK_ID, 5);
@@ -1023,7 +1031,7 @@ void ASTWriter::WriteControlBlock(ASTContext &Context, StringRef isysroot,
         continue;
 
       Record.push_back((unsigned)(*M)->Kind); // FIXME: Stable encoding
-      // FIXME: Write import location, once it matters.
+      AddSourceLocation((*M)->ImportLoc, Record);
       // FIXME: This writes the absolute path for AST files we depend on.
       const std::string &FileName = (*M)->FileName;
       Record.push_back(FileName.size());
@@ -1067,6 +1075,90 @@ void ASTWriter::WriteControlBlock(ASTContext &Context, StringRef isysroot,
   }
   Stream.EmitRecord(TARGET_OPTIONS, Record);
 
+  // Diagnostic options.
+  Record.clear();
+  const DiagnosticOptions &DiagOpts
+    = Context.getDiagnostics().getDiagnosticOptions();
+#define DIAGOPT(Name, Bits, Default) Record.push_back(DiagOpts.Name);
+#define ENUM_DIAGOPT(Name, Type, Bits, Default) \
+  Record.push_back(static_cast<unsigned>(DiagOpts.get##Name()));
+#include "clang/Basic/DiagnosticOptions.def"
+  Record.push_back(DiagOpts.Warnings.size());
+  for (unsigned I = 0, N = DiagOpts.Warnings.size(); I != N; ++I)
+    AddString(DiagOpts.Warnings[I], Record);
+  // Note: we don't serialize the log or serialization file names, because they
+  // are generally transient files and will almost always be overridden.
+  Stream.EmitRecord(DIAGNOSTIC_OPTIONS, Record);
+
+  // File system options.
+  Record.clear();
+  const FileSystemOptions &FSOpts
+    = Context.getSourceManager().getFileManager().getFileSystemOptions();
+  AddString(FSOpts.WorkingDir, Record);
+  Stream.EmitRecord(FILE_SYSTEM_OPTIONS, Record);
+
+  // Header search options.
+  Record.clear();
+  const HeaderSearchOptions &HSOpts
+    = PP.getHeaderSearchInfo().getHeaderSearchOpts();
+  AddString(HSOpts.Sysroot, Record);
+
+  // Include entries.
+  Record.push_back(HSOpts.UserEntries.size());
+  for (unsigned I = 0, N = HSOpts.UserEntries.size(); I != N; ++I) {
+    const HeaderSearchOptions::Entry &Entry = HSOpts.UserEntries[I];
+    AddString(Entry.Path, Record);
+    Record.push_back(static_cast<unsigned>(Entry.Group));
+    Record.push_back(Entry.IsUserSupplied);
+    Record.push_back(Entry.IsFramework);
+    Record.push_back(Entry.IgnoreSysRoot);
+    Record.push_back(Entry.IsInternal);
+    Record.push_back(Entry.ImplicitExternC);
+  }
+
+  // System header prefixes.
+  Record.push_back(HSOpts.SystemHeaderPrefixes.size());
+  for (unsigned I = 0, N = HSOpts.SystemHeaderPrefixes.size(); I != N; ++I) {
+    AddString(HSOpts.SystemHeaderPrefixes[I].Prefix, Record);
+    Record.push_back(HSOpts.SystemHeaderPrefixes[I].IsSystemHeader);
+  }
+
+  AddString(HSOpts.ResourceDir, Record);
+  AddString(HSOpts.ModuleCachePath, Record);
+  Record.push_back(HSOpts.DisableModuleHash);
+  Record.push_back(HSOpts.UseBuiltinIncludes);
+  Record.push_back(HSOpts.UseStandardSystemIncludes);
+  Record.push_back(HSOpts.UseStandardCXXIncludes);
+  Record.push_back(HSOpts.UseLibcxx);
+  Stream.EmitRecord(HEADER_SEARCH_OPTIONS, Record);
+
+  // Preprocessor options.
+  Record.clear();
+  const PreprocessorOptions &PPOpts = PP.getPreprocessorOpts();
+
+  // Macro definitions.
+  Record.push_back(PPOpts.Macros.size());
+  for (unsigned I = 0, N = PPOpts.Macros.size(); I != N; ++I) {
+    AddString(PPOpts.Macros[I].first, Record);
+    Record.push_back(PPOpts.Macros[I].second);
+  }
+
+  // Includes
+  Record.push_back(PPOpts.Includes.size());
+  for (unsigned I = 0, N = PPOpts.Includes.size(); I != N; ++I)
+    AddString(PPOpts.Includes[I], Record);
+
+  // Macro includes
+  Record.push_back(PPOpts.MacroIncludes.size());
+  for (unsigned I = 0, N = PPOpts.MacroIncludes.size(); I != N; ++I)
+    AddString(PPOpts.MacroIncludes[I], Record);
+
+  Record.push_back(PPOpts.UsePredefines);
+  AddString(PPOpts.ImplicitPCHInclude, Record);
+  AddString(PPOpts.ImplicitPTHInclude, Record);
+  Record.push_back(static_cast<unsigned>(PPOpts.ObjCXXARCStandardLibrary));
+  Stream.EmitRecord(PREPROCESSOR_OPTIONS, Record);
+
   // Original file name and file ID
   SourceManager &SM = Context.getSourceManager();
   if (const FileEntry *MainFile = SM.getFileEntryForID(SM.getMainFileID())) {
@@ -1083,12 +1175,15 @@ void ASTWriter::WriteControlBlock(ASTContext &Context, StringRef isysroot,
     const char *MainFileNameStr = MainFilePath.c_str();
     MainFileNameStr = adjustFilenameForRelocatablePCH(MainFileNameStr,
                                                       isysroot);
-    RecordData Record;
+    Record.clear();
     Record.push_back(ORIGINAL_FILE);
     Record.push_back(SM.getMainFileID().getOpaqueValue());
     Stream.EmitRecordWithBlob(FileAbbrevCode, Record, MainFileNameStr);
-    Record.clear();
   }
+
+  Record.clear();
+  Record.push_back(SM.getMainFileID().getOpaqueValue());
+  Stream.EmitRecord(ORIGINAL_FILE_ID, Record);
 
   // Original PCH directory
   if (!OutputFile.empty() && OutputFile != "-") {
@@ -1119,8 +1214,10 @@ void ASTWriter::WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot) {
   // Create input-file abbreviation.
   BitCodeAbbrev *IFAbbrev = new BitCodeAbbrev();
   IFAbbrev->Add(BitCodeAbbrevOp(INPUT_FILE));
+  IFAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // ID
   IFAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 12)); // Size
   IFAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 32)); // Modification time
+  IFAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Overridden
   IFAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob)); // File name
   unsigned IFAbbrevCode = Stream.EmitAbbrev(IFAbbrev);
 
@@ -1135,15 +1232,23 @@ void ASTWriter::WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot) {
     if (!SLoc->isFile())
       continue;
     const SrcMgr::ContentCache *Cache = SLoc->getFile().getContentCache();
-    if (!Cache->OrigEntry || Cache->BufferOverridden)
+    if (!Cache->OrigEntry)
       continue;
+
+    // Record this entry's offset.
+    InputFileOffsets.push_back(Stream.GetCurrentBitNo());
+    InputFileIDs[Cache->OrigEntry] = InputFileOffsets.size();
 
     Record.clear();
     Record.push_back(INPUT_FILE);
+    Record.push_back(InputFileOffsets.size());
 
     // Emit size/modification time for this file.
     Record.push_back(Cache->OrigEntry->getSize());
     Record.push_back(Cache->OrigEntry->getModificationTime());
+
+    // Whether this file was overridden.
+    Record.push_back(Cache->BufferOverridden);
 
     // Turn the file name into an absolute path, if it isn't already.
     const char *Filename = Cache->OrigEntry->getName();
@@ -1164,6 +1269,19 @@ void ASTWriter::WriteInputFiles(SourceManager &SourceMgr, StringRef isysroot) {
   }  
   
   Stream.ExitBlock();
+
+  // Create input file offsets abbreviation.
+  BitCodeAbbrev *OffsetsAbbrev = new BitCodeAbbrev();
+  OffsetsAbbrev->Add(BitCodeAbbrevOp(INPUT_FILE_OFFSETS));
+  OffsetsAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // # input files
+  OffsetsAbbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob));   // Array
+  unsigned OffsetsAbbrevCode = Stream.EmitAbbrev(OffsetsAbbrev);
+
+  // Write input file offsets.
+  Record.clear();
+  Record.push_back(INPUT_FILE_OFFSETS);
+  Record.push_back(InputFileOffsets.size());
+  Stream.EmitRecordWithBlob(OffsetsAbbrevCode, Record, data(InputFileOffsets));
 }
 
 //===----------------------------------------------------------------------===//
@@ -1214,46 +1332,6 @@ public:
 };
 } // end anonymous namespace
 
-/// \brief Write the stat() system call cache to the AST file.
-void ASTWriter::WriteStatCache(MemorizeStatCalls &StatCalls) {
-  // Build the on-disk hash table containing information about every
-  // stat() call.
-  OnDiskChainedHashTableGenerator<ASTStatCacheTrait> Generator;
-  unsigned NumStatEntries = 0;
-  for (MemorizeStatCalls::iterator Stat = StatCalls.begin(),
-                                StatEnd = StatCalls.end();
-       Stat != StatEnd; ++Stat, ++NumStatEntries) {
-    StringRef Filename = Stat->first();
-    Generator.insert(Filename.data(), Stat->second);
-  }
-
-  // Create the on-disk hash table in a buffer.
-  SmallString<4096> StatCacheData;
-  uint32_t BucketOffset;
-  {
-    llvm::raw_svector_ostream Out(StatCacheData);
-    // Make sure that no bucket is at offset 0
-    clang::io::Emit32(Out, 0);
-    BucketOffset = Generator.Emit(Out);
-  }
-
-  // Create a blob abbreviation
-  using namespace llvm;
-  BitCodeAbbrev *Abbrev = new BitCodeAbbrev();
-  Abbrev->Add(BitCodeAbbrevOp(STAT_CACHE));
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 32));
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 32));
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob));
-  unsigned StatCacheAbbrev = Stream.EmitAbbrev(Abbrev);
-
-  // Write the stat cache
-  RecordData Record;
-  Record.push_back(STAT_CACHE);
-  Record.push_back(BucketOffset);
-  Record.push_back(NumStatEntries);
-  Stream.EmitRecordWithBlob(StatCacheAbbrev, Record, StatCacheData.str());
-}
-
 //===----------------------------------------------------------------------===//
 // Source Manager Serialization
 //===----------------------------------------------------------------------===//
@@ -1269,13 +1347,10 @@ static unsigned CreateSLocFileAbbrev(llvm::BitstreamWriter &Stream) {
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 2)); // Characteristic
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Line directives
   // FileEntry fields.
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 12)); // Size
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 32)); // Modification time
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // BufferOverridden
+  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Input File ID
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 8)); // NumCreatedFIDs
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 24)); // FirstDeclIndex
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 8)); // NumDecls
-  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob)); // File name
   return Stream.EmitAbbrev(Abbrev);
 }
 
@@ -1538,13 +1613,10 @@ void ASTWriter::WriteSourceManagerBlock(SourceManager &SourceMgr,
         assert(Content->OrigEntry == Content->ContentsEntry &&
                "Writing to AST an overridden file is not supported");
 
-        // The source location entry is a file. The blob associated
-        // with this entry is the file name.
+        // The source location entry is a file. Emit input file ID.
+        assert(InputFileIDs[Content->OrigEntry] != 0 && "Missed file entry");
+        Record.push_back(InputFileIDs[Content->OrigEntry]);
 
-        // Emit size/modification time for this file.
-        Record.push_back(Content->OrigEntry->getSize());
-        Record.push_back(Content->OrigEntry->getModificationTime());
-        Record.push_back(Content->BufferOverridden);
         Record.push_back(File.NumCreatedFIDs);
         
         FileDeclIDsTy::iterator FDI = FileDeclIDs.find(FID);
@@ -1556,21 +1628,7 @@ void ASTWriter::WriteSourceManagerBlock(SourceManager &SourceMgr,
           Record.push_back(0);
         }
         
-        // Turn the file name into an absolute path, if it isn't already.
-        const char *Filename = Content->OrigEntry->getName();
-        SmallString<128> FilePath(Filename);
-
-        // Ask the file manager to fixup the relative path for us. This will 
-        // honor the working directory.
-        SourceMgr.getFileManager().FixupRelativePath(FilePath);
-
-        // FIXME: This call to make_absolute shouldn't be necessary, the
-        // call to FixupRelativePath should always return an absolute path.
-        llvm::sys::fs::make_absolute(FilePath);
-        Filename = FilePath.c_str();
-
-        Filename = adjustFilenameForRelocatablePCH(Filename, isysroot);
-        Stream.EmitRecordWithBlob(SLocFileAbbrv, Record, Filename);
+        Stream.EmitRecordWithAbbrev(SLocFileAbbrv, Record);
         
         if (Content->BufferOverridden) {
           Record.clear();
@@ -1802,6 +1860,7 @@ void ASTWriter::WritePreprocessor(const Preprocessor &PP, bool IsModule) {
 
         Record.push_back(MI->isC99Varargs());
         Record.push_back(MI->isGNUVarargs());
+        Record.push_back(MI->hasCommaPasting());
         Record.push_back(MI->getNumArgs());
         for (MacroInfo::arg_iterator I = MI->arg_begin(), E = MI->arg_end();
              I != E; ++I)
@@ -2178,24 +2237,35 @@ ASTWriter::inferSubmoduleIDFromLocation(SourceLocation Loc) {
 }
 
 void ASTWriter::WritePragmaDiagnosticMappings(const DiagnosticsEngine &Diag) {
+  // FIXME: Make it work properly with modules.
+  llvm::SmallDenseMap<const DiagnosticsEngine::DiagState *, unsigned, 64>
+      DiagStateIDMap;
+  unsigned CurrID = 0;
+  DiagStateIDMap[&Diag.DiagStates.front()] = ++CurrID; // the command-line one.
   RecordData Record;
   for (DiagnosticsEngine::DiagStatePointsTy::const_iterator
          I = Diag.DiagStatePoints.begin(), E = Diag.DiagStatePoints.end();
          I != E; ++I) {
-    const DiagnosticsEngine::DiagStatePoint &point = *I; 
+    const DiagnosticsEngine::DiagStatePoint &point = *I;
     if (point.Loc.isInvalid())
       continue;
 
     Record.push_back(point.Loc.getRawEncoding());
-    for (DiagnosticsEngine::DiagState::const_iterator
-           I = point.State->begin(), E = point.State->end(); I != E; ++I) {
-      if (I->second.isPragma()) {
-        Record.push_back(I->first);
-        Record.push_back(I->second.getMapping());
+    unsigned &DiagStateID = DiagStateIDMap[point.State];
+    Record.push_back(DiagStateID);
+    
+    if (DiagStateID == 0) {
+      DiagStateID = ++CurrID;
+      for (DiagnosticsEngine::DiagState::const_iterator
+             I = point.State->begin(), E = point.State->end(); I != E; ++I) {
+        if (I->second.isPragma()) {
+          Record.push_back(I->first);
+          Record.push_back(I->second.getMapping());
+        }
       }
+      Record.push_back(-1); // mark the end of the diag/map pairs for this
+                            // location.
     }
-    Record.push_back(-1); // mark the end of the diag/map pairs for this
-                          // location.
   }
 
   if (!Record.empty())
@@ -3299,7 +3369,7 @@ ASTWriter::~ASTWriter() {
     delete I->second;
 }
 
-void ASTWriter::WriteAST(Sema &SemaRef, MemorizeStatCalls *StatCalls,
+void ASTWriter::WriteAST(Sema &SemaRef,
                          const std::string &OutputFile,
                          Module *WritingModule, StringRef isysroot,
                          bool hasErrors) {
@@ -3318,7 +3388,7 @@ void ASTWriter::WriteAST(Sema &SemaRef, MemorizeStatCalls *StatCalls,
   Context = &SemaRef.Context;
   PP = &SemaRef.PP;
   this->WritingModule = WritingModule;
-  WriteASTCore(SemaRef, StatCalls, isysroot, OutputFile, WritingModule);
+  WriteASTCore(SemaRef, isysroot, OutputFile, WritingModule);
   Context = 0;
   PP = 0;
   this->WritingModule = 0;
@@ -3335,7 +3405,7 @@ static void AddLazyVectorDecls(ASTWriter &Writer, Vector &Vec,
   }
 }
 
-void ASTWriter::WriteASTCore(Sema &SemaRef, MemorizeStatCalls *StatCalls,
+void ASTWriter::WriteASTCore(Sema &SemaRef,
                              StringRef isysroot,
                              const std::string &OutputFile, 
                              Module *WritingModule) {
@@ -3487,13 +3557,11 @@ void ASTWriter::WriteASTCore(Sema &SemaRef, MemorizeStatCalls *StatCalls,
   }
 
   // Write the control block
-  WriteControlBlock(Context, isysroot, OutputFile);
+  WriteControlBlock(PP, Context, isysroot, OutputFile);
 
   // Write the remaining AST contents.
   RecordData Record;
   Stream.EnterSubblock(AST_BLOCK_ID, 5);
-  if (StatCalls && isysroot.empty())
-    WriteStatCache(*StatCalls);
 
   // Create a lexical update block containing all of the declarations in the
   // translation unit that do not come from other AST files.
@@ -4412,9 +4480,9 @@ ASTWriter::AddTemplateArgumentList(const TemplateArgumentList *TemplateArgs,
 
 
 void
-ASTWriter::AddUnresolvedSet(const UnresolvedSetImpl &Set, RecordDataImpl &Record) {
+ASTWriter::AddUnresolvedSet(const ASTUnresolvedSet &Set, RecordDataImpl &Record) {
   Record.push_back(Set.size());
-  for (UnresolvedSetImpl::const_iterator
+  for (ASTUnresolvedSet::const_iterator
          I = Set.begin(), E = Set.end(); I != E; ++I) {
     AddDeclRef(I.getDecl(), Record);
     Record.push_back(I.getAccess());
@@ -4506,11 +4574,7 @@ void ASTWriter::AddCXXDefinitionData(const CXXRecordDecl *D, RecordDataImpl &Rec
   struct CXXRecordDecl::DefinitionData &Data = *D->DefinitionData;
   Record.push_back(Data.IsLambda);
   Record.push_back(Data.UserDeclaredConstructor);
-  Record.push_back(Data.UserDeclaredCopyConstructor);
-  Record.push_back(Data.UserDeclaredMoveConstructor);
-  Record.push_back(Data.UserDeclaredCopyAssignment);
-  Record.push_back(Data.UserDeclaredMoveAssignment);
-  Record.push_back(Data.UserDeclaredDestructor);
+  Record.push_back(Data.UserDeclaredSpecialMembers);
   Record.push_back(Data.Aggregate);
   Record.push_back(Data.PlainOldData);
   Record.push_back(Data.Empty);
@@ -4524,25 +4588,19 @@ void ASTWriter::AddCXXDefinitionData(const CXXRecordDecl *D, RecordDataImpl &Rec
   Record.push_back(Data.HasMutableFields);
   Record.push_back(Data.HasOnlyCMembers);
   Record.push_back(Data.HasInClassInitializer);
-  Record.push_back(Data.HasTrivialDefaultConstructor);
+  Record.push_back(Data.HasTrivialSpecialMembers);
+  Record.push_back(Data.HasIrrelevantDestructor);
   Record.push_back(Data.HasConstexprNonCopyMoveConstructor);
   Record.push_back(Data.DefaultedDefaultConstructorIsConstexpr);
   Record.push_back(Data.HasConstexprDefaultConstructor);
-  Record.push_back(Data.HasTrivialCopyConstructor);
-  Record.push_back(Data.HasTrivialMoveConstructor);
-  Record.push_back(Data.HasTrivialCopyAssignment);
-  Record.push_back(Data.HasTrivialMoveAssignment);
-  Record.push_back(Data.HasTrivialDestructor);
-  Record.push_back(Data.HasIrrelevantDestructor);
   Record.push_back(Data.HasNonLiteralTypeFieldsOrBases);
   Record.push_back(Data.ComputedVisibleConversions);
   Record.push_back(Data.UserProvidedDefaultConstructor);
-  Record.push_back(Data.DeclaredDefaultConstructor);
-  Record.push_back(Data.DeclaredCopyConstructor);
-  Record.push_back(Data.DeclaredMoveConstructor);
-  Record.push_back(Data.DeclaredCopyAssignment);
-  Record.push_back(Data.DeclaredMoveAssignment);
-  Record.push_back(Data.DeclaredDestructor);
+  Record.push_back(Data.DeclaredSpecialMembers);
+  Record.push_back(Data.ImplicitCopyConstructorHasConstParam);
+  Record.push_back(Data.ImplicitCopyAssignmentHasConstParam);
+  Record.push_back(Data.HasDeclaredCopyConstructorWithConstParam);
+  Record.push_back(Data.HasDeclaredCopyAssignmentWithConstParam);
   Record.push_back(Data.FailedImplicitMoveConstructor);
   Record.push_back(Data.FailedImplicitMoveAssignment);
   // IsLambda bit is already saved.

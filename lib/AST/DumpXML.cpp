@@ -17,6 +17,7 @@
 // Only pay for this in code size in assertions-enabled builds.
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclFriend.h"
@@ -37,8 +38,6 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/TypeLocVisitor.h"
 #include "clang/AST/TypeVisitor.h"
-#include "clang/AST/Expr.h"
-#include "clang/AST/ExprCXX.h"
 #include "llvm/ADT/SmallString.h"
 
 using namespace clang;
@@ -977,6 +976,16 @@ struct XMLDumper : public XMLDeclVisitor<XMLDumper>,
     setFlag("const", T->isConst());
     setFlag("volatile", T->isVolatile());
     setFlag("restrict", T->isRestrict());
+    switch (T->getExceptionSpecType()) {
+    case EST_None: break;
+    case EST_DynamicNone: set("exception_spec", "throw()"); break;
+    case EST_Dynamic: set("exception_spec", "throw(T)"); break;
+    case EST_MSAny: set("exception_spec", "throw(...)"); break;
+    case EST_BasicNoexcept: set("exception_spec", "noexcept"); break;
+    case EST_ComputedNoexcept: set("exception_spec", "noexcept(expr)"); break;
+    case EST_Unevaluated: set("exception_spec", "unevaluated"); break;
+    case EST_Uninstantiated: set("exception_spec", "uninstantiated"); break;
+    }
   }
   void visitFunctionProtoTypeChildren(FunctionProtoType *T) {
     push("parameters");

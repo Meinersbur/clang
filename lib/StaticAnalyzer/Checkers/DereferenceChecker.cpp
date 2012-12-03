@@ -19,6 +19,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace ento;
@@ -162,7 +163,7 @@ void DereferenceChecker::reportBug(ProgramStateRef State, const Stmt *S,
        I = Ranges.begin(), E = Ranges.end(); I!=E; ++I)
     report->addRange(*I);
 
-  C.EmitReport(report);
+  C.emitReport(report);
 }
 
 void DereferenceChecker::checkLocation(SVal l, bool isLoad, const Stmt* S,
@@ -177,7 +178,7 @@ void DereferenceChecker::checkLocation(SVal l, bool isLoad, const Stmt* S,
         new BugReport(*BT_undef, BT_undef->getDescription(), N);
       bugreporter::trackNullOrUndefValue(N, bugreporter::GetDerefExpr(N),
                                          *report);
-      C.EmitReport(report);
+      C.emitReport(report);
     }
     return;
   }

@@ -10,12 +10,15 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Config/config.h"
 
@@ -32,11 +35,11 @@ protected:
   SourceManagerTest()
     : FileMgr(FileMgrOpts),
       DiagID(new DiagnosticIDs()),
-      Diags(DiagID, new IgnoringDiagConsumer()),
+      Diags(DiagID, new DiagnosticOptions, new IgnoringDiagConsumer()),
       SourceMgr(Diags, FileMgr),
       TargetOpts(new TargetOptions) {
     TargetOpts->Triple = "x86_64-apple-darwin11.1.0";
-    Target = TargetInfo::CreateTargetInfo(Diags, *TargetOpts);
+    Target = TargetInfo::CreateTargetInfo(Diags, &*TargetOpts);
   }
 
   FileSystemOptions FileMgrOpts;
@@ -50,10 +53,11 @@ protected:
 };
 
 class VoidModuleLoader : public ModuleLoader {
-  virtual Module *loadModule(SourceLocation ImportLoc, ModuleIdPath Path,
-                             Module::NameVisibilityKind Visibility,
-                             bool IsInclusionDirective) {
-    return 0;
+  virtual ModuleLoadResult loadModule(SourceLocation ImportLoc, 
+                                      ModuleIdPath Path,
+                                      Module::NameVisibilityKind Visibility,
+                                      bool IsInclusionDirective) {
+    return ModuleLoadResult();
   }
 };
 
@@ -65,9 +69,9 @@ TEST_F(SourceManagerTest, isBeforeInTranslationUnit) {
   FileID mainFileID = SourceMgr.createMainFileIDForMemBuffer(buf);
 
   VoidModuleLoader ModLoader;
-  HeaderSearch HeaderInfo(FileMgr, Diags, LangOpts, &*Target);
-  Preprocessor PP(Diags, LangOpts,
-                  Target.getPtr(),
+  HeaderSearch HeaderInfo(new HeaderSearchOptions, FileMgr, Diags, LangOpts, 
+                          &*Target);
+  Preprocessor PP(new PreprocessorOptions(), Diags, LangOpts, Target.getPtr(),
                   SourceMgr, HeaderInfo, ModLoader,
                   /*IILookup =*/ 0,
                   /*OwnsHeaderSearch =*/false,
@@ -180,9 +184,9 @@ TEST_F(SourceManagerTest, getMacroArgExpandedLocation) {
   SourceMgr.overrideFileContents(headerFile, headerBuf);
 
   VoidModuleLoader ModLoader;
-  HeaderSearch HeaderInfo(FileMgr, Diags, LangOpts, &*Target);
-  Preprocessor PP(Diags, LangOpts,
-                  Target.getPtr(),
+  HeaderSearch HeaderInfo(new HeaderSearchOptions, FileMgr, Diags, LangOpts, 
+                          &*Target);
+  Preprocessor PP(new PreprocessorOptions(), Diags, LangOpts, Target.getPtr(),
                   SourceMgr, HeaderInfo, ModLoader,
                   /*IILookup =*/ 0,
                   /*OwnsHeaderSearch =*/false,
@@ -277,9 +281,9 @@ TEST_F(SourceManagerTest, isBeforeInTranslationUnitWithMacroInInclude) {
   SourceMgr.overrideFileContents(headerFile, headerBuf);
 
   VoidModuleLoader ModLoader;
-  HeaderSearch HeaderInfo(FileMgr, Diags, LangOpts, &*Target);
-  Preprocessor PP(Diags, LangOpts,
-                  Target.getPtr(),
+  HeaderSearch HeaderInfo(new HeaderSearchOptions, FileMgr, Diags, LangOpts, 
+                          &*Target);
+  Preprocessor PP(new PreprocessorOptions(), Diags, LangOpts, Target.getPtr(),
                   SourceMgr, HeaderInfo, ModLoader,
                   /*IILookup =*/ 0,
                   /*OwnsHeaderSearch =*/false,

@@ -17,6 +17,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/SValBuilder.h"
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Analysis/Support/BumpVector.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
@@ -272,10 +273,11 @@ void ObjCStringRegion::ProfileRegion(llvm::FoldingSetNodeID& ID,
 
 void AllocaRegion::ProfileRegion(llvm::FoldingSetNodeID& ID,
                                  const Expr *Ex, unsigned cnt,
-                                 const MemRegion *) {
+                                 const MemRegion *superRegion) {
   ID.AddInteger((unsigned) AllocaRegionKind);
   ID.AddPointer(Ex);
   ID.AddInteger(cnt);
+  ID.AddPointer(superRegion);
 }
 
 void AllocaRegion::Profile(llvm::FoldingSetNodeID& ID) const {
