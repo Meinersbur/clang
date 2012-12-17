@@ -12,12 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/CrashRecoveryContext.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cctype>
 
 using namespace clang;
@@ -37,9 +38,10 @@ static void DummyArgToStringFn(DiagnosticsEngine::ArgumentKind AK, intptr_t QT,
 
 DiagnosticsEngine::DiagnosticsEngine(
                        const IntrusiveRefCntPtr<DiagnosticIDs> &diags,
+                       DiagnosticOptions *DiagOpts,       
                        DiagnosticConsumer *client, bool ShouldOwnClient)
-  : Diags(diags), Client(client), OwnsDiagClient(ShouldOwnClient),
-    SourceMgr(0) {
+  : Diags(diags), DiagOpts(DiagOpts), Client(client),
+    OwnsDiagClient(ShouldOwnClient), SourceMgr(0) {
   ArgToStringFn = DummyArgToStringFn;
   ArgToStringCookie = 0;
 
@@ -95,6 +97,7 @@ bool DiagnosticsEngine::popMappings(SourceLocation Loc) {
 
 void DiagnosticsEngine::Reset() {
   ErrorOccurred = false;
+  UncompilableErrorOccurred = false;
   FatalErrorOccurred = false;
   UnrecoverableErrorOccurred = false;
   

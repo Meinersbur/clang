@@ -1,4 +1,4 @@
-@__experimental_modules_import templates_top;
+@import templates_top;
 
 template<typename T> class Vector { 
 public:
@@ -19,7 +19,9 @@ namespace N {
 }
 
 template <typename T>
-void pendingInstantiation(T) {}
+void pendingInstantiationEmit(T) {}
 void triggerPendingInstantiationToo() {
-  pendingInstantiation(12);
+  pendingInstantiationEmit(12);
 }
+
+void redeclDefinitionEmit(){}

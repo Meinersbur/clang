@@ -23,11 +23,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
-#include "clang/StaticAnalyzer/Core/Checker.h"
-#include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugReporter.h"
+#include "clang/StaticAnalyzer/Core/Checker.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 
@@ -314,12 +315,12 @@ void IvarInvalidationChecker::checkASTDecl(const ObjCMethodDecl *D,
   // Collect all ivars that need cleanup.
   IvarSet Ivars;
   const ObjCInterfaceDecl *InterfaceD = D->getClassInterface();
-  for (ObjCInterfaceDecl::ivar_iterator
-      II = InterfaceD->ivar_begin(),
-      IE = InterfaceD->ivar_end(); II != IE; ++II) {
-    const ObjCIvarDecl *Iv = *II;
+
+  // Collect ivars declared in this class, its extensions and its implementation
+  ObjCInterfaceDecl *IDecl = const_cast<ObjCInterfaceDecl *>(InterfaceD);
+  for (const ObjCIvarDecl *Iv = IDecl->all_declared_ivar_begin(); Iv;
+       Iv= Iv->getNextIvar())
     trackIvar(Iv, Ivars);
-  }
 
   // Construct Property/Property Accessor to Ivar maps to assist checking if an
   // ivar which is backing a property has been reset.
@@ -327,10 +328,13 @@ void IvarInvalidationChecker::checkASTDecl(const ObjCMethodDecl *D,
   MethToIvarMapTy PropGetterToIvarMap;
   PropToIvarMapTy PropertyToIvarMap;
   IvarToPropMapTy IvarToPopertyMap;
-  for (ObjCInterfaceDecl::prop_iterator
-      I = InterfaceD->prop_begin(),
-      E = InterfaceD->prop_end(); I != E; ++I) {
-    const ObjCPropertyDecl *PD = *I;
+
+  ObjCInterfaceDecl::PropertyMap PropMap;
+  InterfaceD->collectPropertiesToImplement(PropMap);
+
+  for (ObjCInterfaceDecl::PropertyMap::iterator
+      I = PropMap.begin(), E = PropMap.end(); I != E; ++I) {
+    const ObjCPropertyDecl *PD = I->second;
 
     const ObjCIvarDecl *ID = findPropertyBackingIvar(PD, InterfaceD, Ivars);
     if (!ID) {
@@ -386,10 +390,11 @@ void IvarInvalidationChecker::checkASTDecl(const ObjCMethodDecl *D,
         const ObjCPropertyDecl *PD = IvarToPopertyMap[IvarDecl];
         assert(PD &&
                "Do we synthesize ivars for something other than properties?");
-        os << "Property "<< PD->getName() << " needs to be invalidated";
+        os << "Property "<< PD->getName() <<
+              " needs to be invalidated or set to nil";
       } else {
         os << "Instance variable "<< IvarDecl->getName()
-             << " needs to be invalidated";
+             << " needs to be invalidated or set to nil";
       }
 
       BR.EmitBasicReport(D,

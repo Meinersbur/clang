@@ -14,12 +14,12 @@
 #ifndef LLVM_CLANG_SA_CORE_CHECKERMANAGER_H
 #define LLVM_CLANG_SA_CORE_CHECKERMANAGER_H
 
+#include "clang/Analysis/ProgramPoint.h"
 #include "clang/Basic/LangOptions.h"
-#include "llvm/ADT/SmallVector.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
-#include "clang/Analysis/ProgramPoint.h"
+#include "llvm/ADT/SmallVector.h"
 #include <vector>
 
 namespace clang {
@@ -267,6 +267,7 @@ public:
   /// \brief Run checkers for end of path.
   void runCheckersForEndPath(NodeBuilderContext &BC,
                              ExplodedNodeSet &Dst,
+                             ExplodedNode *Pred,
                              ExprEngine &Eng);
 
   /// \brief Run checkers for branch condition.
@@ -407,11 +408,6 @@ public:
   typedef CheckerFn<bool (const CallExpr *, CheckerContext &)>
       EvalCallFunc;
 
-  typedef CheckerFn<bool (const CallExpr *, ExprEngine &Eng,
-                                            ExplodedNode *Pred,
-                                            ExplodedNodeSet &Dst)>
-      InlineCallFunc;
-
   typedef CheckerFn<void (const TranslationUnitDecl *,
                           AnalysisManager&, BugReporter &)>
       CheckEndOfTranslationUnit;
@@ -448,8 +444,6 @@ public:
   void _registerForEvalAssume(EvalAssumeFunc checkfn);
 
   void _registerForEvalCall(EvalCallFunc checkfn);
-
-  void _registerForInlineCall(InlineCallFunc checkfn);
 
   void _registerForEndOfTranslationUnit(CheckEndOfTranslationUnit checkfn);
 
@@ -575,8 +569,6 @@ private:
   std::vector<EvalAssumeFunc> EvalAssumeCheckers;
 
   std::vector<EvalCallFunc> EvalCallCheckers;
-
-  std::vector<InlineCallFunc> InlineCallCheckers;
 
   std::vector<CheckEndOfTranslationUnit> EndOfTranslationUnitCheckers;
 

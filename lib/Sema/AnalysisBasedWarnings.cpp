@@ -14,28 +14,29 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Sema/AnalysisBasedWarnings.h"
-#include "clang/Sema/SemaInternal.h"
-#include "clang/Sema/ScopeInfo.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/SourceLocation.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/Lexer.h"
-#include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclCXX.h"
-#include "clang/AST/ExprObjC.h"
-#include "clang/AST/ExprCXX.h"
-#include "clang/AST/StmtObjC.h"
-#include "clang/AST/StmtCXX.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
-#include "clang/AST/StmtVisitor.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
+#include "clang/AST/ParentMap.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/StmtCXX.h"
+#include "clang/AST/StmtObjC.h"
+#include "clang/AST/StmtVisitor.h"
+#include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
+#include "clang/Analysis/Analyses/ReachableCode.h"
+#include "clang/Analysis/Analyses/ThreadSafety.h"
+#include "clang/Analysis/Analyses/UninitializedValues.h"
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Analysis/CFG.h"
-#include "clang/Analysis/Analyses/ReachableCode.h"
-#include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
-#include "clang/Analysis/Analyses/ThreadSafety.h"
 #include "clang/Analysis/CFGStmtMap.h"
-#include "clang/Analysis/Analyses/UninitializedValues.h"
+#include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/SemaInternal.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/FoldingSet.h"
@@ -46,9 +47,9 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include <algorithm>
+#include <deque>
 #include <iterator>
 #include <vector>
-#include <deque>
 
 using namespace clang;
 
@@ -501,7 +502,7 @@ static void DiagUninitUse(Sema &S, const VarDecl *VD, const UninitUse &Use,
 
     // Information used when building the diagnostic.
     unsigned DiagKind;
-    const char *Str;
+    StringRef Str;
     SourceRange Range;
 
     // FixIts to suppress the diagnosic by removing the dead condition.
@@ -817,6 +818,18 @@ namespace {
 
 static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC,
                                             bool PerFunction) {
+  // Only perform this analysis when using C++11.  There is no good workflow
+  // for this warning when not using C++11.  There is no good way to silence
+  // the warning (no attribute is available) unless we are using C++11's support
+  // for generalized attributes.  Once could use pragmas to silence the warning,
+  // but as a general solution that is gross and not in the spirit of this
+  // warning.
+  //
+  // NOTE: This an intermediate solution.  There are on-going discussions on
+  // how to properly support this warning outside of C++11 with an annotation.
+  if (!AC.getASTContext().getLangOpts().CPlusPlus0x)
+    return;
+
   FallthroughMapper FM(S);
   FM.TraverseStmt(AC.getBody());
 
@@ -903,13 +916,42 @@ public:
 };
 }
 
+static bool isInLoop(const ASTContext &Ctx, const ParentMap &PM,
+                     const Stmt *S) {
+  assert(S);
+
+  do {
+    switch (S->getStmtClass()) {
+    case Stmt::ForStmtClass:
+    case Stmt::WhileStmtClass:
+    case Stmt::CXXForRangeStmtClass:
+    case Stmt::ObjCForCollectionStmtClass:
+      return true;
+    case Stmt::DoStmtClass: {
+      const Expr *Cond = cast<DoStmt>(S)->getCond();
+      llvm::APSInt Val;
+      if (!Cond->EvaluateAsInt(Val, Ctx))
+        return true;
+      return Val.getBoolValue();
+    }
+    default:
+      break;
+    }
+  } while ((S = PM.getParent(S)));
+
+  return false;
+}
+
 
 static void diagnoseRepeatedUseOfWeak(Sema &S,
                                       const sema::FunctionScopeInfo *CurFn,
-                                      const Decl *D) {
+                                      const Decl *D,
+                                      const ParentMap &PM) {
   typedef sema::FunctionScopeInfo::WeakObjectProfileTy WeakObjectProfileTy;
   typedef sema::FunctionScopeInfo::WeakObjectUseMap WeakObjectUseMap;
   typedef sema::FunctionScopeInfo::WeakUseVector WeakUseVector;
+
+  ASTContext &Ctx = S.getASTContext();
 
   const WeakObjectUseMap &WeakMap = CurFn->getWeakObjectUses();
 
@@ -918,8 +960,6 @@ static void diagnoseRepeatedUseOfWeak(Sema &S,
   for (WeakObjectUseMap::const_iterator I = WeakMap.begin(), E = WeakMap.end();
        I != E; ++I) {
     const WeakUseVector &Uses = I->second;
-    if (Uses.size() <= 1)
-      continue;
 
     // Find the first read of the weak object.
     WeakUseVector::const_iterator UI = Uses.begin(), UE = Uses.end();
@@ -931,6 +971,35 @@ static void diagnoseRepeatedUseOfWeak(Sema &S,
     // If there were only writes to this object, don't warn.
     if (UI == UE)
       continue;
+
+    // If there was only one read, followed by any number of writes, and the
+    // read is not within a loop, don't warn. Additionally, don't warn in a
+    // loop if the base object is a local variable -- local variables are often
+    // changed in loops.
+    if (UI == Uses.begin()) {
+      WeakUseVector::const_iterator UI2 = UI;
+      for (++UI2; UI2 != UE; ++UI2)
+        if (UI2->isUnsafe())
+          break;
+
+      if (UI2 == UE) {
+        if (!isInLoop(Ctx, PM, UI->getUseExpr()))
+          continue;
+
+        const WeakObjectProfileTy &Profile = I->first;
+        if (!Profile.isExactProfile())
+          continue;
+
+        const NamedDecl *Base = Profile.getBase();
+        if (!Base)
+          Base = Profile.getProperty();
+        assert(Base && "A profile always has a base or property.");
+
+        if (const VarDecl *BaseVar = dyn_cast<VarDecl>(Base))
+          if (BaseVar->hasLocalStorage() && !isa<ParmVarDecl>(Base))
+            continue;
+      }
+    }
 
     UsesByStmt.push_back(StmtUsesPair(UI->getUseExpr(), I));
   }
@@ -1354,7 +1423,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   if (cast<DeclContext>(D)->isDependentContext())
     return;
 
-  if (Diags.hasErrorOccurred() || Diags.hasFatalErrorOccurred()) {
+  if (Diags.hasUncompilableErrorOccurred() || Diags.hasFatalErrorOccurred()) {
     // Flush out any possibly unreachable diagnostics.
     flushDiagnostics(S, fscope);
     return;
@@ -1475,6 +1544,10 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
     SourceLocation FL = AC.getDecl()->getLocation();
     SourceLocation FEL = AC.getDecl()->getLocEnd();
     thread_safety::ThreadSafetyReporter Reporter(S, FL, FEL);
+    if (Diags.getDiagnosticLevel(diag::warn_thread_safety_beta,D->getLocStart())
+        != DiagnosticsEngine::Ignored)
+      Reporter.setIssueBetaWarnings(true);
+
     thread_safety::runThreadSafetyAnalysis(AC, Reporter);
     Reporter.emitDiagnostics();
   }
@@ -1519,7 +1592,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   if (S.getLangOpts().ObjCARCWeak &&
       Diags.getDiagnosticLevel(diag::warn_arc_repeated_use_of_weak,
                                D->getLocStart()) != DiagnosticsEngine::Ignored)
-    diagnoseRepeatedUseOfWeak(S, fscope, D);
+    diagnoseRepeatedUseOfWeak(S, fscope, D, AC.getParentMap());
 
   // Collect statistics about the CFG if it was built.
   if (S.CollectStats && AC.isCFGBuilt()) {

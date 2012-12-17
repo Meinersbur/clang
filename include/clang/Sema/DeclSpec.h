@@ -23,14 +23,14 @@
 #ifndef LLVM_CLANG_SEMA_DECLSPEC_H
 #define LLVM_CLANG_SEMA_DECLSPEC_H
 
-#include "clang/Sema/AttributeList.h"
-#include "clang/Sema/Ownership.h"
 #include "clang/AST/NestedNameSpecifier.h"
-#include "clang/Lex/Token.h"
 #include "clang/Basic/ExceptionSpecificationType.h"
 #include "clang/Basic/Lambda.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Lex/Token.h"
+#include "clang/Sema/AttributeList.h"
+#include "clang/Sema/Ownership.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -377,15 +377,15 @@ private:
   static bool isExprRep(TST T) {
     return (T == TST_typeofExpr || T == TST_decltype);
   }
+
+  DeclSpec(const DeclSpec &) LLVM_DELETED_FUNCTION;
+  void operator=(const DeclSpec &) LLVM_DELETED_FUNCTION;
+public:
   static bool isDeclRep(TST T) {
     return (T == TST_enum || T == TST_struct ||
             T == TST_interface || T == TST_union ||
             T == TST_class);
   }
-
-  DeclSpec(const DeclSpec &) LLVM_DELETED_FUNCTION;
-  void operator=(const DeclSpec &) LLVM_DELETED_FUNCTION;
-public:
 
   DeclSpec(AttributeFactory &attrFactory)
     : StorageClassSpec(SCS_unspecified),
@@ -600,8 +600,7 @@ public:
   }
 
   bool SetTypeQual(TQ T, SourceLocation Loc, const char *&PrevSpec,
-                   unsigned &DiagID, const LangOptions &Lang,
-                   bool IsTypeSpec);
+                   unsigned &DiagID, const LangOptions &Lang);
 
   bool SetFunctionSpecInline(SourceLocation Loc, const char *&PrevSpec,
                              unsigned &DiagID);
@@ -1102,7 +1101,7 @@ struct DeclaratorChunk {
     /// \brief Whether the ref-qualifier (if any) is an lvalue reference.
     /// Otherwise, it's an rvalue reference.
     unsigned RefQualifierIsLValueRef : 1;
-    
+
     /// The type qualifiers: const/volatile/restrict.
     /// The qualifier bitmask values are the same as in QualType.
     unsigned TypeQuals : 3;
@@ -1117,8 +1116,14 @@ struct DeclaratorChunk {
     /// specified.
     unsigned HasTrailingReturnType : 1;
 
+    /// The location of the left parenthesis in the source.
+    unsigned LParenLoc;
+
     /// When isVariadic is true, the location of the ellipsis in the source.
     unsigned EllipsisLoc;
+
+    /// The location of the right parenthesis in the source.
+    unsigned RParenLoc;
 
     /// NumArgs - This is the number of formal arguments provided for the
     /// declarator.
@@ -1194,10 +1199,19 @@ struct DeclaratorChunk {
     bool isKNRPrototype() const {
       return !hasPrototype && NumArgs != 0;
     }
-    
+
+    SourceLocation getLParenLoc() const {
+      return SourceLocation::getFromRawEncoding(LParenLoc);
+    }
+
     SourceLocation getEllipsisLoc() const {
       return SourceLocation::getFromRawEncoding(EllipsisLoc);
     }
+
+    SourceLocation getRParenLoc() const {
+      return SourceLocation::getFromRawEncoding(RParenLoc);
+    }
+
     SourceLocation getExceptionSpecLoc() const {
       return SourceLocation::getFromRawEncoding(ExceptionSpecLoc);
     }
@@ -1350,11 +1364,13 @@ struct DeclaratorChunk {
 
   /// DeclaratorChunk::getFunction - Return a DeclaratorChunk for a function.
   /// "TheDeclarator" is the declarator that this will be added to.
-  static DeclaratorChunk getFunction(bool hasProto, bool isVariadic,
+  static DeclaratorChunk getFunction(bool hasProto,
                                      bool isAmbiguous,
-                                     SourceLocation EllipsisLoc,
+                                     SourceLocation LParenLoc,
                                      ParamInfo *ArgInfo, unsigned NumArgs,
-                                     unsigned TypeQuals, 
+                                     SourceLocation EllipsisLoc,
+                                     SourceLocation RParenLoc,
+                                     unsigned TypeQuals,
                                      bool RefQualifierIsLvalueRef,
                                      SourceLocation RefQualifierLoc,
                                      SourceLocation ConstQualifierLoc,
@@ -1879,6 +1895,17 @@ public:
       if (getTypeObject(i).getAttrs())
         return true;
     return false;
+  }
+
+  /// \brief Return a source range list of C++11 attributes associated
+  /// with the declarator.
+  void getCXX11AttributeRanges(SmallVector<SourceRange, 4> &Ranges) {
+    AttributeList *AttrList = Attrs.getList();
+    while (AttrList) {
+      if (AttrList->isCXX0XAttribute())
+        Ranges.push_back(AttrList->getRange());
+      AttrList = AttrList->getNext();
+    }
   }
 
   void setAsmLabel(Expr *E) { AsmLabel = E; }

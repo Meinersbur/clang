@@ -13,40 +13,38 @@
 //===----------------------------------------------------------------------===//
 
 #include "CIndexer.h"
+#include "CIndexDiagnostic.h"
 #include "CXComment.h"
 #include "CXCursor.h"
-#include "CXTranslationUnit.h"
-#include "CXString.h"
-#include "CXType.h"
 #include "CXSourceLocation.h"
-#include "CIndexDiagnostic.h"
+#include "CXString.h"
+#include "CXTranslationUnit.h"
+#include "CXType.h"
 #include "CursorVisitor.h"
-
-#include "clang/Basic/Version.h"
-
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/Version.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
-#include "clang/Lex/Lexer.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/Lexer.h"
 #include "clang/Lex/PreprocessingRecord.h"
 #include "clang/Lex/Preprocessor.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/Support/SaveAndRestore.h"
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/CrashRecoveryContext.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Timer.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/Threading.h"
-#include "llvm/Support/Compiler.h"
+#include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace clang::cxcursor;
@@ -1021,12 +1019,12 @@ bool CursorVisitor::VisitObjCPropertyDecl(ObjCPropertyDecl *PD) {
   // Visit synthesized methods since they will be skipped when visiting
   // the @interface.
   if (ObjCMethodDecl *MD = prevDecl->getGetterMethodDecl())
-    if (MD->isSynthesized() && MD->getLexicalDeclContext() == CDecl)
+    if (MD->isPropertyAccessor() && MD->getLexicalDeclContext() == CDecl)
       if (Visit(MakeCXCursor(MD, TU, RegionOfInterest)))
         return true;
 
   if (ObjCMethodDecl *MD = prevDecl->getSetterMethodDecl())
-    if (MD->isSynthesized() && MD->getLexicalDeclContext() == CDecl)
+    if (MD->isPropertyAccessor() && MD->getLexicalDeclContext() == CDecl)
       if (Visit(MakeCXCursor(MD, TU, RegionOfInterest)))
         return true;
 
@@ -2486,7 +2484,6 @@ CXTranslationUnit clang_createTranslationUnit(CXIndex CIdx,
 
   CIndexer *CXXIdx = static_cast<CIndexer *>(CIdx);
   FileSystemOptions FileSystemOpts;
-  FileSystemOpts.WorkingDir = CXXIdx->getWorkingDirectory();
 
   IntrusiveRefCntPtr<DiagnosticsEngine> Diags;
   ASTUnit *TU = ASTUnit::LoadFromASTFile(ast_filename, Diags, FileSystemOpts,
@@ -2556,12 +2553,13 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
   bool IncludeBriefCommentsInCodeCompletion
     = options & CXTranslationUnit_IncludeBriefCommentsInCodeCompletion;
   bool SkipFunctionBodies = options & CXTranslationUnit_SkipFunctionBodies;
+  bool ForSerialization = options & CXTranslationUnit_ForSerialization;
 
   // Configure the diagnostics.
-  DiagnosticOptions DiagOpts;
   IntrusiveRefCntPtr<DiagnosticsEngine>
-    Diags(CompilerInstance::createDiagnostics(DiagOpts, num_command_line_args, 
-                                                command_line_args));
+    Diags(CompilerInstance::createDiagnostics(new DiagnosticOptions,
+                                              num_command_line_args,
+                                              command_line_args));
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,
@@ -2643,6 +2641,7 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
                                  /*AllowPCHWithCompilerErrors=*/true,
                                  SkipFunctionBodies,
                                  /*UserFilesAreVolatile=*/true,
+                                 ForSerialization,
                                  &ErrUnit));
 
   if (NumErrors != Diags->getClient()->getNumErrors()) {
@@ -3047,6 +3046,10 @@ static CXString getDeclSpelling(Decl *D) {
       if (ObjCPropertyDecl *Property = PropImpl->getPropertyDecl())
         return createCXString(Property->getIdentifier()->getName());
     
+    if (ImportDecl *ImportD = dyn_cast<ImportDecl>(D))
+      if (Module *Mod = ImportD->getImportedModule())
+        return createCXString(Mod->getFullModuleName());
+
     return createCXString("");
   }
   
@@ -3246,6 +3249,18 @@ CXSourceRange clang_Cursor_getSpellingNameRange(CXCursor C,
     if (ObjCCategoryImplDecl *
           CID = dyn_cast_or_null<ObjCCategoryImplDecl>(getCursorDecl(C)))
       return cxloc::translateSourceRange(Ctx, CID->getCategoryNameLoc());
+  }
+
+  if (C.kind == CXCursor_ModuleImportDecl) {
+    if (pieceIndex > 0)
+      return clang_getNullRange();
+    if (ImportDecl *ImportD = dyn_cast_or_null<ImportDecl>(getCursorDecl(C))) {
+      ArrayRef<SourceLocation> Locs = ImportD->getIdentifierLocs();
+      if (!Locs.empty())
+        return cxloc::translateSourceRange(Ctx,
+                                         SourceRange(Locs.front(), Locs.back()));
+    }
+    return clang_getNullRange();
   }
 
   // FIXME: A CXCursor_InclusionDirective should give the location of the
@@ -3643,6 +3658,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return createCXString("ObjCDynamicDecl");
   case CXCursor_CXXAccessSpecifier:
     return createCXString("CXXAccessSpecifier");
+  case CXCursor_ModuleImportDecl:
+    return createCXString("ModuleImport");
   }
 
   llvm_unreachable("Unhandled CXCursorKind");
@@ -3839,7 +3856,8 @@ unsigned clang_isInvalid(enum CXCursorKind K) {
 }
 
 unsigned clang_isDeclaration(enum CXCursorKind K) {
-  return K >= CXCursor_FirstDecl && K <= CXCursor_LastDecl;
+  return (K >= CXCursor_FirstDecl && K <= CXCursor_LastDecl) ||
+         (K >= CXCursor_FirstExtraDecl && K <= CXCursor_LastExtraDecl);
 }
 
 unsigned clang_isReference(enum CXCursorKind K) {
@@ -3986,7 +4004,7 @@ CXSourceLocation clang_getCursorLocation(CXCursor C) {
     return cxloc::translateSourceLocation(getCursorContext(C), L);
   }
 
-  if (C.kind < CXCursor_FirstDecl || C.kind > CXCursor_LastDecl)
+  if (!clang_isDeclaration(C.kind))
     return clang_getNullLocation();
 
   Decl *D = getCursorDecl(C);
@@ -4121,7 +4139,7 @@ static SourceRange getRawCursorExtent(CXCursor C) {
     return SourceRange(Start, End);
   }
 
-  if (C.kind >= CXCursor_FirstDecl && C.kind <= CXCursor_LastDecl) {
+  if (clang_isDeclaration(C.kind)) {
     Decl *D = cxcursor::getCursorDecl(C);
     if (!D)
       return SourceRange();
@@ -4144,7 +4162,7 @@ static SourceRange getRawCursorExtent(CXCursor C) {
 /// \brief Retrieves the "raw" cursor extent, which is then extended to include
 /// the decl-specifier-seq for declarations.
 static SourceRange getFullCursorExtent(CXCursor C, SourceManager &SrcMgr) {
-  if (C.kind >= CXCursor_FirstDecl && C.kind <= CXCursor_LastDecl) {
+  if (clang_isDeclaration(C.kind)) {
     Decl *D = cxcursor::getCursorDecl(C);
     if (!D)
       return SourceRange();
@@ -4917,9 +4935,7 @@ void AnnotateTokensWorker::AnnotateTokens() {
 
   for (unsigned I = 0 ; I < TokIdx ; ++I) {
     AnnotateTokensData::iterator Pos = Annotated.find(Tokens[I].int_data[1]);
-    if (Pos != Annotated.end() && 
-        (clang_isInvalid(Cursors[I].kind) ||
-         Pos->second.kind != CXCursor_PreprocessingDirective))
+    if (Pos != Annotated.end() && !clang_isPreprocessing(Cursors[I].kind))
       Cursors[I] = Pos->second;
   }
 
@@ -5049,13 +5065,6 @@ AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
   }
   
   if (clang_isPreprocessing(cursor.kind)) {    
-    // For macro expansions, just note where the beginning of the macro
-    // expansion occurs.
-    if (cursor.kind == CXCursor_MacroExpansion) {
-      Annotated[Loc.int_data] = cursor;
-      return CXChildVisit_Recurse;
-    }
-    
     // Items in the preprocessing record are kept separate from items in
     // declarations, so we keep a separate token index.
     unsigned SavedTokIdx = TokIdx;
@@ -5089,6 +5098,10 @@ AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
       case RangeOverlap:
         Cursors[I] = cursor;
         AdvanceToken();
+        // For macro expansions, just note where the beginning of the macro
+        // expansion occurs.
+        if (cursor.kind == CXCursor_MacroExpansion)
+          break;
         continue;
       }
       break;
@@ -5108,7 +5121,7 @@ AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
 
   // Adjust the annotated range based specific declarations.
   const enum CXCursorKind cursorK = clang_getCursorKind(cursor);
-  if (cursorK >= CXCursor_FirstDecl && cursorK <= CXCursor_LastDecl) {
+  if (clang_isDeclaration(cursorK)) {
     Decl *D = cxcursor::getCursorDecl(cursor);
     
     SourceLocation StartLoc;
@@ -5815,6 +5828,54 @@ CXComment clang_Cursor_getParsedComment(CXCursor C) {
   return cxcomment::createCXComment(FC, getCursorTU(C));
 }
 
+CXModule clang_Cursor_getModule(CXCursor C) {
+  if (C.kind == CXCursor_ModuleImportDecl) {
+    if (ImportDecl *ImportD = dyn_cast_or_null<ImportDecl>(getCursorDecl(C)))
+      return ImportD->getImportedModule();
+  }
+
+  return 0;
+}
+
+CXModule clang_Module_getParent(CXModule CXMod) {
+  if (!CXMod)
+    return 0;
+  Module *Mod = static_cast<Module*>(CXMod);
+  return Mod->Parent;
+}
+
+CXString clang_Module_getName(CXModule CXMod) {
+  if (!CXMod)
+    return createCXString("");
+  Module *Mod = static_cast<Module*>(CXMod);
+  return createCXString(Mod->Name);
+}
+
+CXString clang_Module_getFullName(CXModule CXMod) {
+  if (!CXMod)
+    return createCXString("");
+  Module *Mod = static_cast<Module*>(CXMod);
+  return createCXString(Mod->getFullModuleName());
+}
+
+unsigned clang_Module_getNumTopLevelHeaders(CXModule CXMod) {
+  if (!CXMod)
+    return 0;
+  Module *Mod = static_cast<Module*>(CXMod);
+  return Mod->TopHeaders.size();
+}
+
+CXFile clang_Module_getTopLevelHeader(CXModule CXMod, unsigned Index) {
+  if (!CXMod)
+    return 0;
+  Module *Mod = static_cast<Module*>(CXMod);
+
+  if (Index < Mod->TopHeaders.size())
+    return const_cast<FileEntry *>(Mod->TopHeaders[Index]);
+
+  return 0;
+}
+
 } // end: extern "C"
 
 //===----------------------------------------------------------------------===//
@@ -6068,6 +6129,9 @@ void SetSafetyThreadStackSize(unsigned Value) {
 }
 
 void clang::setThreadBackgroundPriority() {
+  if (getenv("LIBCLANG_BGPRIO_DISABLE"))
+    return;
+
   // FIXME: Move to llvm/Support and make it cross-platform.
 #ifdef __APPLE__
   setpriority(PRIO_DARWIN_THREAD, 0, PRIO_DARWIN_BG);

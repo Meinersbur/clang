@@ -341,6 +341,11 @@ def Final : InheritableAttr {
   let SemaHandler = 0;
 }
 
+def MinSize : InheritableAttr {
+  let Spellings = [GNU<"minsize">];
+  let Subjects = [Function];
+}
+
 def Format : InheritableAttr {
   let Spellings = [GNU<"format">];
   let Args = [StringArgument<"Type">, IntArgument<"FormatIdx">,
@@ -561,6 +566,10 @@ def Packed : InheritableAttr {
   let Spellings = [GNU<"packed">];
 }
 
+def PnaclCall : InheritableAttr {
+  let Spellings = [GNU<"pnaclcall">];
+}
+
 def Pcs : InheritableAttr {
   let Spellings = [GNU<"pcs">];
   let Args = [EnumArgument<"PCS", "PCSType",
@@ -690,7 +699,7 @@ def VecReturn : InheritableAttr {
 }
 
 def WarnUnusedResult : InheritableAttr {
-  let Spellings = [GNU<"warn_unused_result">];
+  let Spellings = [GNU<"warn_unused_result">, CXX11<"clang","warn_unused_result">];
 }
 
 def Weak : InheritableAttr {

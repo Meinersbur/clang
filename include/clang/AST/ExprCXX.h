@@ -16,8 +16,8 @@
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
-#include "clang/AST/UnresolvedSet.h"
 #include "clang/AST/TemplateBase.h"
+#include "clang/AST/UnresolvedSet.h"
 #include "clang/Basic/ExpressionTraits.h"
 #include "clang/Basic/Lambda.h"
 #include "clang/Basic/TypeTraits.h"
@@ -30,6 +30,7 @@ class CXXDestructorDecl;
 class CXXMethodDecl;
 class CXXTemporary;
 class TemplateArgumentListInfo;
+class UuidAttr;
 
 //===--------------------------------------------------------------------===//
 // C++ Expressions.
@@ -88,7 +89,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXOperatorCallExprClass;
   }
-  static bool classof(const CXXOperatorCallExpr *) { return true; }
 
   // Set the FP contractability status of this operator. Only meaningful for
   // operations on floating point types.
@@ -137,7 +137,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXMemberCallExprClass;
   }
-  static bool classof(const CXXMemberCallExpr *) { return true; }
 };
 
 /// CUDAKernelCallExpr - Represents a call to a CUDA kernel function.
@@ -165,7 +164,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CUDAKernelCallExprClass;
   }
-  static bool classof(const CUDAKernelCallExpr *) { return true; }
 };
 
 /// CXXNamedCastExpr - Abstract class common to all of the C++ "named"
@@ -217,7 +215,6 @@ public:
       return false;
     }
   }
-  static bool classof(const CXXNamedCastExpr *) { return true; }
 };
 
 /// CXXStaticCastExpr - A C++ @c static_cast expression
@@ -247,7 +244,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXStaticCastExprClass;
   }
-  static bool classof(const CXXStaticCastExpr *) { return true; }
 };
 
 /// CXXDynamicCastExpr - A C++ @c dynamic_cast expression
@@ -281,7 +277,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXDynamicCastExprClass;
   }
-  static bool classof(const CXXDynamicCastExpr *) { return true; }
 };
 
 /// CXXReinterpretCastExpr - A C++ @c reinterpret_cast expression (C++
@@ -313,7 +308,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXReinterpretCastExprClass;
   }
-  static bool classof(const CXXReinterpretCastExpr *) { return true; }
 };
 
 /// CXXConstCastExpr - A C++ @c const_cast expression (C++ [expr.const.cast]),
@@ -341,7 +335,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXConstCastExprClass;
   }
-  static bool classof(const CXXConstCastExpr *) { return true; }
 };
 
 /// UserDefinedLiteral - A call to a literal operator (C++11 [over.literal])
@@ -410,7 +403,6 @@ public:
   static bool classof(const Stmt *S) {
     return S->getStmtClass() == UserDefinedLiteralClass;
   }
-  static bool classof(const UserDefinedLiteral *) { return true; }
 
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
@@ -441,7 +433,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXBoolLiteralExprClass;
   }
-  static bool classof(const CXXBoolLiteralExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -467,7 +458,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXNullPtrLiteralExprClass;
   }
-  static bool classof(const CXXNullPtrLiteralExpr *) { return true; }
 
   child_range children() { return child_range(); }
 };
@@ -548,7 +538,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXTypeidExprClass;
   }
-  static bool classof(const CXXTypeidExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -623,7 +612,9 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXUuidofExprClass;
   }
-  static bool classof(const CXXUuidofExpr *) { return true; }
+
+  /// Grabs __declspec(uuid()) off a type, or returns 0 if there is none.
+  static UuidAttr *GetUuidAttrOfType(QualType QT);
 
   // Iterators
   child_range children() {
@@ -671,7 +662,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXThisExprClass;
   }
-  static bool classof(const CXXThisExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -722,7 +712,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXThrowExprClass;
   }
-  static bool classof(const CXXThrowExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -807,10 +796,11 @@ public:
     return SourceRange();
   }
 
+  SourceLocation getExprLoc() const LLVM_READONLY { return Loc; }
+
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXDefaultArgExprClass;
   }
-  static bool classof(const CXXDefaultArgExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -887,7 +877,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXBindTemporaryExprClass;
   }
-  static bool classof(const CXXBindTemporaryExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
@@ -1023,7 +1012,6 @@ public:
     return T->getStmtClass() == CXXConstructExprClass ||
       T->getStmtClass() == CXXTemporaryObjectExprClass;
   }
-  static bool classof(const CXXConstructExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -1078,7 +1066,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXFunctionalCastExprClass;
   }
-  static bool classof(const CXXFunctionalCastExpr *) { return true; }
 };
 
 /// @brief Represents a C++ functional cast expression that builds a
@@ -1116,7 +1103,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXTemporaryObjectExprClass;
   }
-  static bool classof(const CXXTemporaryObjectExpr *) { return true; }
 
   friend class ASTStmtReader;
 };
@@ -1128,7 +1114,7 @@ public:
 /// \code
 /// void low_pass_filter(std::vector<double> &values, double cutoff) {
 ///   values.erase(std::remove_if(values.begin(), values.end(),
-//                                [=](double value) { return value > cutoff; });
+///                               [=](double value) { return value > cutoff; });
 /// }
 /// \endcode
 ///
@@ -1409,7 +1395,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == LambdaExprClass;
   }
-  static bool classof(const LambdaExpr *) { return true; }
 
   SourceRange getSourceRange() const LLVM_READONLY {
     return SourceRange(IntroducerRange.getBegin(), ClosingBrace);
@@ -1457,7 +1442,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXScalarValueInitExprClass;
   }
-  static bool classof(const CXXScalarValueInitExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -1482,8 +1466,8 @@ class CXXNewExpr : public Expr {
   /// the source range covering the parenthesized type-id.
   SourceRange TypeIdParens;
 
-  /// \brief Location of the first token.
-  SourceLocation StartLoc;
+  /// \brief Range of the entire new expression.
+  SourceRange Range;
 
   /// \brief Source-range of a paren-delimited initializer.
   SourceRange DirectInitRange;
@@ -1517,7 +1501,7 @@ public:
              SourceRange typeIdParens, Expr *arraySize,
              InitializationStyle initializationStyle, Expr *initializer,
              QualType ty, TypeSourceInfo *AllocatedTypeInfo,
-             SourceLocation startLoc, SourceRange directInitRange);
+             SourceRange Range, SourceRange directInitRange);
   explicit CXXNewExpr(EmptyShell Shell)
     : Expr(CXXNewExprClass, Shell), SubExprs(0) { }
 
@@ -1632,19 +1616,18 @@ public:
     return SubExprs + Array + hasInitializer() + getNumPlacementArgs();
   }
 
-  SourceLocation getStartLoc() const { return StartLoc; }
-  SourceLocation getEndLoc() const;
+  SourceLocation getStartLoc() const { return Range.getBegin(); }
+  SourceLocation getEndLoc() const { return Range.getEnd(); }
 
   SourceRange getDirectInitRange() const { return DirectInitRange; }
 
   SourceRange getSourceRange() const LLVM_READONLY {
-    return SourceRange(getStartLoc(), getEndLoc());
+    return Range;
   }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXNewExprClass;
   }
-  static bool classof(const CXXNewExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -1715,7 +1698,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXDeleteExprClass;
   }
-  static bool classof(const CXXDeleteExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(&Argument, &Argument+1); }
@@ -1904,7 +1886,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXPseudoDestructorExprClass;
   }
-  static bool classof(const CXXPseudoDestructorExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(&Base, &Base + 1); }
@@ -1960,7 +1941,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == UnaryTypeTraitExprClass;
   }
-  static bool classof(const UnaryTypeTraitExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -2032,7 +2012,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == BinaryTypeTraitExprClass;
   }
-  static bool classof(const BinaryTypeTraitExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -2126,7 +2105,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == TypeTraitExprClass;
   }
-  static bool classof(const TypeTraitExpr *) { return true; }
   
   // Iterators
   child_range children() { return child_range(); }
@@ -2201,7 +2179,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == ArrayTypeTraitExprClass;
   }
-  static bool classof(const ArrayTypeTraitExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -2260,7 +2237,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == ExpressionTraitExprClass;
   }
-  static bool classof(const ExpressionTraitExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -2447,7 +2423,6 @@ public:
     return T->getStmtClass() == UnresolvedLookupExprClass ||
            T->getStmtClass() == UnresolvedMemberExprClass;
   }
-  static bool classof(const OverloadExpr *) { return true; }
 
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
@@ -2469,10 +2444,6 @@ class UnresolvedLookupExpr : public OverloadExpr {
   /// call.
   bool RequiresADL;
 
-  /// True if namespace ::std should be considered an associated namespace
-  /// for the purposes of argument-dependent lookup. See C++0x [stmt.ranged]p1.
-  bool StdIsAssociatedNamespace;
-
   /// True if these lookup results are overloaded.  This is pretty
   /// trivially rederivable if we urgently need to kill this field.
   bool Overloaded;
@@ -2491,19 +2462,16 @@ class UnresolvedLookupExpr : public OverloadExpr {
                        const DeclarationNameInfo &NameInfo,
                        bool RequiresADL, bool Overloaded,
                        const TemplateArgumentListInfo *TemplateArgs,
-                       UnresolvedSetIterator Begin, UnresolvedSetIterator End,
-                       bool StdIsAssociatedNamespace)
+                       UnresolvedSetIterator Begin, UnresolvedSetIterator End)
     : OverloadExpr(UnresolvedLookupExprClass, C, QualifierLoc, TemplateKWLoc,
                    NameInfo, TemplateArgs, Begin, End, false, false, false),
       RequiresADL(RequiresADL),
-      StdIsAssociatedNamespace(StdIsAssociatedNamespace),
       Overloaded(Overloaded), NamingClass(NamingClass)
   {}
 
   UnresolvedLookupExpr(EmptyShell Empty)
     : OverloadExpr(UnresolvedLookupExprClass, Empty),
-      RequiresADL(false), StdIsAssociatedNamespace(false), Overloaded(false),
-      NamingClass(0)
+      RequiresADL(false), Overloaded(false), NamingClass(0)
   {}
 
   friend class ASTStmtReader;
@@ -2515,14 +2483,10 @@ public:
                                       const DeclarationNameInfo &NameInfo,
                                       bool ADL, bool Overloaded,
                                       UnresolvedSetIterator Begin,
-                                      UnresolvedSetIterator End,
-                                      bool StdIsAssociatedNamespace = false) {
-    assert((ADL || !StdIsAssociatedNamespace) &&
-           "std considered associated namespace when not performing ADL");
+                                      UnresolvedSetIterator End) {
     return new(C) UnresolvedLookupExpr(C, NamingClass, QualifierLoc,
                                        SourceLocation(), NameInfo,
-                                       ADL, Overloaded, 0, Begin, End,
-                                       StdIsAssociatedNamespace);
+                                       ADL, Overloaded, 0, Begin, End);
   }
 
   static UnresolvedLookupExpr *Create(ASTContext &C,
@@ -2542,10 +2506,6 @@ public:
   /// True if this declaration should be extended by
   /// argument-dependent lookup.
   bool requiresADL() const { return RequiresADL; }
-
-  /// True if namespace \::std should be artificially added to the set of
-  /// associated namespaces for argument-dependent lookup purposes.
-  bool isStdAssociatedNamespace() const { return StdIsAssociatedNamespace; }
 
   /// True if this lookup is overloaded.
   bool isOverloaded() const { return Overloaded; }
@@ -2569,7 +2529,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == UnresolvedLookupExprClass;
   }
-  static bool classof(const UnresolvedLookupExpr *) { return true; }
 };
 
 /// \brief A qualified reference to a name whose declaration cannot
@@ -2720,7 +2679,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == DependentScopeDeclRefExprClass;
   }
-  static bool classof(const DependentScopeDeclRefExpr *) { return true; }
 
   child_range children() { return child_range(); }
 
@@ -2793,7 +2751,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == ExprWithCleanupsClass;
   }
-  static bool classof(const ExprWithCleanups *) { return true; }
 
   // Iterators
   child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
@@ -2906,7 +2863,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXUnresolvedConstructExprClass;
   }
-  static bool classof(const CXXUnresolvedConstructExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -3155,7 +3111,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXDependentScopeMemberExprClass;
   }
-  static bool classof(const CXXDependentScopeMemberExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -3289,7 +3244,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == UnresolvedMemberExprClass;
   }
-  static bool classof(const UnresolvedMemberExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -3333,7 +3287,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == CXXNoexceptExprClass;
   }
-  static bool classof(const CXXNoexceptExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(&Operand, &Operand + 1); }
@@ -3410,7 +3363,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == PackExpansionExprClass;
   }
-  static bool classof(const PackExpansionExpr *) { return true; }
 
   // Iterators
   child_range children() {
@@ -3516,7 +3468,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == SizeOfPackExprClass;
   }
-  static bool classof(const SizeOfPackExpr *) { return true; }
 
   // Iterators
   child_range children() { return child_range(); }
@@ -3560,9 +3511,6 @@ public:
 
   static bool classof(const Stmt *s) {
     return s->getStmtClass() == SubstNonTypeTemplateParmExprClass;
-  }
-  static bool classof(const SubstNonTypeTemplateParmExpr *) {
-    return true;
   }
 
   // Iterators
@@ -3620,9 +3568,6 @@ public:
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == SubstNonTypeTemplateParmPackExprClass;
-  }
-  static bool classof(const SubstNonTypeTemplateParmPackExpr *) {
-    return true;
   }
 
   // Iterators
@@ -3691,7 +3636,6 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == FunctionParmPackExprClass;
   }
-  static bool classof(const FunctionParmPackExpr *) { return true; }
 
   child_range children() { return child_range(); }
 };
@@ -3749,9 +3693,6 @@ public:
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == MaterializeTemporaryExprClass;
-  }
-  static bool classof(const MaterializeTemporaryExpr *) {
-    return true;
   }
 
   // Iterators

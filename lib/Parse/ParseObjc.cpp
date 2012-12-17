@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "RAIIObjectsForParser.h"
+#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Scope.h"
@@ -65,7 +65,7 @@ Parser::DeclGroupPtrTy Parser::ParseObjCAtDirectives() {
   case tok::objc_dynamic:
     SingleDecl = ParseObjCPropertyDynamic(AtLoc);
     break;
-  case tok::objc___experimental_modules_import:
+  case tok::objc_import:
     if (getLangOpts().Modules)
       return ParseModuleImport(AtLoc);
       
@@ -1200,12 +1200,8 @@ ParseObjCProtocolReferences(SmallVectorImpl<Decl *> &Protocols,
   }
 
   // Consume the '>'.
-  if (Tok.isNot(tok::greater)) {
-    Diag(Tok, diag::err_expected_greater);
+  if (ParseGreaterThanInTemplateList(EndLoc, /*ConsumeLastToken=*/true))
     return true;
-  }
-
-  EndLoc = ConsumeToken();
 
   // Convert the list of protocols identifiers into a list of protocol decls.
   Actions.FindProtocolDeclaration(WarnOnDeclarations,

@@ -12,21 +12,21 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Sema/SemaInternal.h"
-#include "clang/Sema/Scope.h"
-#include "clang/Sema/ScopeInfo.h"
-#include "clang/Sema/Initialization.h"
-#include "clang/Sema/Lookup.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
-#include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtCXX.h"
+#include "clang/AST/StmtObjC.h"
 #include "clang/AST/TypeLoc.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/Initialization.h"
+#include "clang/Sema/Lookup.h"
+#include "clang/Sema/Scope.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -371,8 +371,10 @@ Sema::ActOnLabelStmt(SourceLocation IdentLoc, LabelDecl *TheDecl,
   // Otherwise, things are good.  Fill in the declaration and return it.
   LabelStmt *LS = new (Context) LabelStmt(IdentLoc, TheDecl, SubStmt);
   TheDecl->setStmt(LS);
-  if (!TheDecl->isGnuLocal())
+  if (!TheDecl->isGnuLocal()) {
+    TheDecl->setLocStart(IdentLoc);
     TheDecl->setLocation(IdentLoc);
+  }
   return Owned(LS);
 }
 
@@ -1147,7 +1149,7 @@ Sema::ActOnDoStmt(SourceLocation DoLoc, Stmt *Body,
   assert(Cond && "ActOnDoStmt(): missing expression");
 
   ExprResult CondResult = CheckBooleanCondition(Cond, DoLoc);
-  if (CondResult.isInvalid() || CondResult.isInvalid())
+  if (CondResult.isInvalid())
     return StmtError();
   Cond = CondResult.take();
 

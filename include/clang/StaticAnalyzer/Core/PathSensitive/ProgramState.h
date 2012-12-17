@@ -18,13 +18,13 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/ConstraintManager.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/DynamicTypeInfo.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/Environment.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
-#include "clang/StaticAnalyzer/Core/PathSensitive/SValBuilder.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramState_Fwd.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/SValBuilder.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/Store.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/TaintTag.h"
-#include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/ImmutableMap.h"
+#include "llvm/ADT/PointerIntPair.h"
 
 namespace llvm {
 class APSInt;
@@ -203,12 +203,6 @@ public:
   ProgramStateRef BindExpr(const Stmt *S, const LocationContext *LCtx,
                                SVal V, bool Invalidate = true) const;
 
-  /// Create a new state by binding the value 'V' and location 'locaton' to the
-  /// statement 'S' in the state's environment.
-  ProgramStateRef bindExprAndLocation(const Stmt *S,
-                                          const LocationContext *LCtx,
-                                          SVal location, SVal V) const;
-
   ProgramStateRef bindLoc(Loc location,
                           SVal V,
                           bool notifyChanges = true) const;
@@ -252,8 +246,7 @@ public:
   SVal getLValue(QualType ElementType, SVal Idx, SVal Base) const;
 
   /// Returns the SVal bound to the statement 'S' in the state's environment.
-  SVal getSVal(const Stmt *S, const LocationContext *LCtx,
-               bool useOnlyDirectBindings = false) const;
+  SVal getSVal(const Stmt *S, const LocationContext *LCtx) const;
   
   SVal getSValAsScalarOrLoc(const Stmt *Ex, const LocationContext *LCtx) const;
 
@@ -666,11 +659,10 @@ inline SVal ProgramState::getLValue(QualType ElementType, SVal Idx, SVal Base) c
   return UnknownVal();
 }
 
-inline SVal ProgramState::getSVal(const Stmt *Ex, const LocationContext *LCtx,
-                                  bool useOnlyDirectBindings) const{
+inline SVal ProgramState::getSVal(const Stmt *Ex,
+                                  const LocationContext *LCtx) const{
   return Env.getSVal(EnvironmentEntry(Ex, LCtx),
-                     *getStateManager().svalBuilder,
-                     useOnlyDirectBindings);
+                     *getStateManager().svalBuilder);
 }
 
 inline SVal

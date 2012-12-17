@@ -16,33 +16,34 @@
 
 #include "clang/AST/APValue.h"
 #include "clang/AST/DeclBase.h"
-#include "clang/AST/Redeclarable.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExternalASTSource.h"
+#include "clang/AST/Redeclarable.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/Linkage.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/Compiler.h"
 
 namespace clang {
+struct ASTTemplateArgumentListInfo;
 class CXXTemporary;
+class CompoundStmt;
+class DependentFunctionTemplateSpecializationInfo;
 class Expr;
 class FunctionTemplateDecl;
-class Stmt;
-class CompoundStmt;
-class StringLiteral;
-class NestedNameSpecifier;
-class TemplateParameterList;
-class TemplateArgumentList;
-struct ASTTemplateArgumentListInfo;
-class MemberSpecializationInfo;
 class FunctionTemplateSpecializationInfo;
-class DependentFunctionTemplateSpecializationInfo;
+class LabelStmt;
+class MemberSpecializationInfo;
+class Module;
+class NestedNameSpecifier;
+class Stmt;
+class StringLiteral;
+class TemplateArgumentList;
+class TemplateParameterList;
 class TypeLoc;
 class UnresolvedSetImpl;
-class LabelStmt;
-class Module;
-  
+
 /// \brief A container of type source information.
 ///
 /// A client can read the relevant info using TypeLoc wrappers, e.g:
@@ -88,7 +89,6 @@ public:
   static TranslationUnitDecl *Create(ASTContext &C);
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TranslationUnitDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == TranslationUnit; }
   static DeclContext *castToDeclContext(const TranslationUnitDecl *D) {
     return static_cast<DeclContext *>(const_cast<TranslationUnitDecl*>(D));
@@ -214,8 +214,8 @@ public:
   bool isCXXInstanceMember() const;
 
   class LinkageInfo {
-    uint8_t linkage_    : 4;
-    uint8_t visibility_ : 3;
+    uint8_t linkage_    : 2;
+    uint8_t visibility_ : 2;
     uint8_t explicit_   : 1;
 
     void setVisibility(Visibility V, bool E) { visibility_ = V; explicit_ = E; }
@@ -340,7 +340,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const NamedDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstNamed && K <= lastNamed; }
 };
 
@@ -386,7 +385,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const LabelDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Label; }
 };
 
@@ -512,7 +510,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const NamespaceDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Namespace; }
   static DeclContext *castToDeclContext(const NamespaceDecl *D) {
     return static_cast<DeclContext *>(const_cast<NamespaceDecl*>(D));
@@ -542,13 +539,10 @@ public:
 
   /// \brief Determine whether this symbol is weakly-imported,
   ///        or declared with the weak or weak-ref attr.
-  bool isWeak() const {
-    return hasAttr<WeakAttr>() || hasAttr<WeakRefAttr>() || isWeakImported();
-  }
+  bool isWeak() const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ValueDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstValue && K <= lastValue; }
 };
 
@@ -669,7 +663,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const DeclaratorDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstDeclarator && K <= lastDeclarator;
   }
@@ -1211,7 +1204,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const VarDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstVar && K <= lastVar; }
 };
 
@@ -1232,7 +1224,6 @@ public:
   }
 
   // Implement isa/cast/dyncast/etc.
-  static bool classof(const ImplicitParamDecl *D) { return true; }
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == ImplicitParam; }
 };
@@ -1402,7 +1393,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ParmVarDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == ParmVar; }
 
 private:
@@ -1481,6 +1471,10 @@ private:
   bool HasImplicitReturnZero : 1;
   bool IsLateTemplateParsed : 1;
   bool IsConstexpr : 1;
+
+  /// \brief Indicates if the function was a definition but its body was
+  /// skipped.
+  unsigned HasSkippedBody : 1;
 
   /// \brief End part of this FunctionDecl's source range.
   ///
@@ -1565,7 +1559,8 @@ protected:
       HasWrittenPrototype(true), IsDeleted(false), IsTrivial(false),
       IsDefaulted(false), IsExplicitlyDefaulted(false),
       HasImplicitReturnZero(false), IsLateTemplateParsed(false),
-      IsConstexpr(isConstexprSpecified), EndRangeLoc(NameInfo.getEndLoc()),
+      IsConstexpr(isConstexprSpecified), HasSkippedBody(false),
+      EndRangeLoc(NameInfo.getEndLoc()),
       TemplateOrSpecialization(),
       DNLoc(NameInfo.getInfo()) {}
 
@@ -1741,7 +1736,7 @@ public:
 
   /// Whether this is a (C++11) constexpr function or constexpr constructor.
   bool isConstexpr() const { return IsConstexpr; }
-  void setConstexpr(bool IC);
+  void setConstexpr(bool IC) { IsConstexpr = IC; }
 
   /// \brief Whether this function has been deleted.
   ///
@@ -1791,6 +1786,10 @@ public:
 
   /// \brief Determines whether this is a global function.
   bool isGlobal() const;
+
+  /// \brief True if the function was a definition but its body was skipped.
+  bool hasSkippedBody() const { return HasSkippedBody; }
+  void setHasSkippedBody(bool Skipped = true) { HasSkippedBody = Skipped; }
 
   void setPreviousDeclaration(FunctionDecl * PrevDecl);
 
@@ -2073,7 +2072,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const FunctionDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstFunction && K <= lastFunction;
   }
@@ -2207,7 +2205,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const FieldDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstField && K <= lastField; }
 
   friend class ASTDeclReader;
@@ -2246,7 +2243,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const EnumConstantDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == EnumConstant; }
 
   friend class StmtIteratorBase;
@@ -2290,7 +2286,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const IndirectFieldDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == IndirectField; }
   friend class ASTDeclReader;
 };
@@ -2337,7 +2332,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TypeDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstType && K <= lastType; }
 };
 
@@ -2393,7 +2387,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TypedefNameDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstTypedefName && K <= lastTypedefName;
   }
@@ -2416,7 +2409,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TypedefDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Typedef; }
 };
 
@@ -2437,7 +2429,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TypeAliasDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == TypeAlias; }
 };
 
@@ -2669,7 +2660,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const TagDecl *D) { return true; }
   static bool classofKind(Kind K) { return K >= firstTag && K <= lastTag; }
 
   static DeclContext *castToDeclContext(const TagDecl *D) {
@@ -2899,7 +2889,6 @@ public:
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const EnumDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Enum; }
 
   friend class ASTDeclReader;
@@ -3030,10 +3019,14 @@ public:
   virtual void completeDefinition();
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const RecordDecl *D) { return true; }
   static bool classofKind(Kind K) {
     return K >= firstRecord && K <= lastRecord;
   }
+
+  /// isMsStrust - Get whether or not this is an ms_struct which can
+  /// be turned on with an attribute, pragma, or -mms-bitfields
+  /// commandline option.
+  bool isMsStruct(const ASTContext &C) const;
 
 private:
   /// \brief Deserialize just the fields.
@@ -3066,7 +3059,6 @@ public:
   void setAsmString(StringLiteral *Asm) { AsmString = Asm; }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const FileScopeAsmDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == FileScopeAsm; }
 };
 
@@ -3212,7 +3204,6 @@ public:
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const BlockDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Block; }
   static DeclContext *castToDeclContext(const BlockDecl *D) {
     return static_cast<DeclContext *>(const_cast<BlockDecl*>(D));
@@ -3227,7 +3218,7 @@ public:
 ///
 /// An import declaration imports the named module (or submodule). For example:
 /// \code
-///   @__experimental_modules_import std.vector;
+///   @import std.vector;
 /// \endcode
 ///
 /// Import declarations can also be implicitly generated from
@@ -3286,7 +3277,6 @@ public:
   virtual SourceRange getSourceRange() const LLVM_READONLY;
   
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classof(const ImportDecl *D) { return true; }
   static bool classofKind(Kind K) { return K == Import; }
 };
   
@@ -3317,10 +3307,10 @@ void Redeclarable<decl_type>::setPreviousDeclaration(decl_type *PrevDecl) {
     // Point to previous. Make sure that this is actually the most recent
     // redeclaration, or we can build invalid chains. If the most recent
     // redeclaration is invalid, it won't be PrevDecl, but we want it anyway.
-    RedeclLink = PreviousDeclLink(
-                   llvm::cast<decl_type>(PrevDecl->getMostRecentDecl()));
     First = PrevDecl->getFirstDeclaration();
     assert(First->RedeclLink.NextIsLatest() && "Expected first");
+    decl_type *MostRecent = First->RedeclLink.getNext();
+    RedeclLink = PreviousDeclLink(llvm::cast<decl_type>(MostRecent));
   } else {
     // Make this first.
     First = static_cast<decl_type*>(this);

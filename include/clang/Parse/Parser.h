@@ -15,10 +15,10 @@
 #define LLVM_CLANG_PARSE_PARSER_H
 
 #include "clang/Basic/Specifiers.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/CodeCompletionHandler.h"
-#include "clang/Sema/Sema.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
+#include "clang/Sema/Sema.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
@@ -43,15 +43,6 @@ namespace clang {
   class InMessageExpressionRAIIObject;
   class PoisonSEHIdentifiersRAIIObject;
   class VersionTuple;
-
-/// PrettyStackTraceParserEntry - If a crash happens while the parser is active,
-/// an entry is printed for it.
-class PrettyStackTraceParserEntry : public llvm::PrettyStackTraceEntry {
-  const Parser &P;
-public:
-  PrettyStackTraceParserEntry(const Parser &p) : P(p) {}
-  virtual void print(raw_ostream &OS) const;
-};
 
 /// PrecedenceLevels - These are precedences for the binary/ternary
 /// operators in the C99 grammar.  These have been named to relate
@@ -441,6 +432,34 @@ private:
   /// #pragma pack...
   void HandlePragmaPack();
 
+  /// \brief Handle the annotation token produced for
+  /// #pragma ms_struct...
+  void HandlePragmaMSStruct();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma align...
+  void HandlePragmaAlign();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma weak id...
+  void HandlePragmaWeak();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma weak id = id...
+  void HandlePragmaWeakAlias();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma redefine_extname...
+  void HandlePragmaRedefineExtname();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma STDC FP_CONTRACT...
+  void HandlePragmaFPContract();
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma OPENCL EXTENSION...
+  void HandlePragmaOpenCLExtension();
+
   /// GetLookAheadToken - This peeks ahead N tokens and returns that token
   /// without consuming any tokens.  LookAhead(0) returns 'Tok', LookAhead(1)
   /// returns the token after Tok, etc.
@@ -820,9 +839,16 @@ private:
     void addDecl(Decl *D) { Decls.push_back(D); }
   };
 
-  /// A list of late parsed attributes.  Used by ParseGNUAttributes.
-  typedef llvm::SmallVector<LateParsedAttribute*, 2> LateParsedAttrList;
+  // A list of late-parsed attributes.  Used by ParseGNUAttributes.
+  class LateParsedAttrList: public llvm::SmallVector<LateParsedAttribute*, 2> {
+  public:
+    LateParsedAttrList(bool PSoon = false) : ParseSoon(PSoon) { }
 
+    bool parseSoon() { return ParseSoon; }
+
+  private:
+    bool ParseSoon;  // Are we planning to parse these shortly after creation?
+  };
 
   /// Contains the lexed tokens of a member function definition
   /// which needs to be parsed at the end of the class declaration
@@ -834,7 +860,7 @@ private:
 
     /// \brief Whether this member function had an associated template
     /// scope. When true, D is a template declaration.
-    /// othewise, it is a member function declaration.
+    /// otherwise, it is a member function declaration.
     bool TemplateScope;
 
     explicit LexedMethod(Parser* P, Decl *MD)
@@ -1299,6 +1325,8 @@ private:
                                       bool *MayBePseudoDestructor = 0,
                                       bool IsTypename = false);
 
+  void CheckForLParenAfterColonColon();
+
   //===--------------------------------------------------------------------===//
   // C++0x 5.1.2: Lambda expressions
 
@@ -1461,6 +1489,7 @@ private:
   StmtResult ParseCompoundStatement(bool isStmtExpr = false);
   StmtResult ParseCompoundStatement(bool isStmtExpr,
                                     unsigned ScopeFlags);
+  void ParseCompoundStatementLeadingPragmas();
   StmtResult ParseCompoundStatementBody(bool isStmtExpr = false);
   bool ParseParenExprOrCondition(ExprResult &ExprResult,
                                  Decl *&DeclResult,
@@ -1525,8 +1554,8 @@ private:
   // C++ 6: Statements and Blocks
 
   StmtResult ParseCXXTryBlock();
-  StmtResult ParseCXXTryBlockCommon(SourceLocation TryLoc);
-  StmtResult ParseCXXCatchBlock();
+  StmtResult ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry = false);
+  StmtResult ParseCXXCatchBlock(bool FnCatch = false);
 
   //===--------------------------------------------------------------------===//
   // MS: SEH Statements and Blocks
@@ -1599,7 +1628,8 @@ private:
 
   bool ParseImplicitInt(DeclSpec &DS, CXXScopeSpec *SS,
                         const ParsedTemplateInfo &TemplateInfo,
-                        AccessSpecifier AS, DeclSpecContext DSC);
+                        AccessSpecifier AS, DeclSpecContext DSC, 
+                        ParsedAttributesWithRange &Attrs);
   DeclSpecContext getDeclSpecContextFromDeclaratorContext(unsigned Context);
   void ParseDeclarationSpecifiers(DeclSpec &DS,
                 const ParsedTemplateInfo &TemplateInfo = ParsedTemplateInfo(),
@@ -1827,6 +1857,11 @@ private:
   }
   void DiagnoseProhibitedAttributes(ParsedAttributesWithRange &attrs);
 
+  // Forbid C++11 attributes that appear on certain syntactic 
+  // locations which standard permits but we don't supported yet, 
+  // for example, attributes appertain to decl specifiers.
+  void ProhibitCXX11Attributes(ParsedAttributesWithRange &attrs);
+
   void MaybeParseGNUAttributes(Declarator &D,
                                LateParsedAttrList *LateAttrs = 0) {
     if (Tok.is(tok::kw___attribute)) {
@@ -1848,7 +1883,10 @@ private:
   void ParseGNUAttributeArgs(IdentifierInfo *AttrName,
                              SourceLocation AttrNameLoc,
                              ParsedAttributes &Attrs,
-                             SourceLocation *EndLoc);
+                             SourceLocation *EndLoc,
+                             IdentifierInfo *ScopeName,
+                             SourceLocation ScopeLoc,
+                             AttributeList::Syntax Syntax);
 
   void MaybeParseCXX0XAttributes(Declarator &D) {
     if (getLangOpts().CPlusPlus0x && isCXX11AttributeSpecifier()) {
@@ -1878,6 +1916,7 @@ private:
                                     SourceLocation *EndLoc = 0);
   void ParseCXX11Attributes(ParsedAttributesWithRange &attrs,
                             SourceLocation *EndLoc = 0);
+
   IdentifierInfo *TryParseCXX11AttributeIdentifier(SourceLocation &Loc);
 
   void MaybeParseMicrosoftAttributes(ParsedAttributes &attrs,
@@ -2051,7 +2090,8 @@ private:
   void ParseClassSpecifier(tok::TokenKind TagTokKind, SourceLocation TagLoc,
                            DeclSpec &DS, const ParsedTemplateInfo &TemplateInfo,
                            AccessSpecifier AS, bool EnteringContext,
-                           DeclSpecContext DSC);
+                           DeclSpecContext DSC, 
+                           ParsedAttributesWithRange &Attributes);
   void ParseCXXMemberSpecification(SourceLocation StartLoc, unsigned TagType,
                                    Decl *TagDecl);
   ExprResult ParseCXXMemberInitializer(Decl *D, bool IsFunction,
@@ -2126,6 +2166,8 @@ private:
   // C++ 14.3: Template arguments [temp.arg]
   typedef SmallVector<ParsedTemplateArgument, 16> TemplateArgList;
 
+  bool ParseGreaterThanInTemplateList(SourceLocation &RAngleLoc,
+                                      bool ConsumeLastToken);
   bool ParseTemplateIdAfterTemplateName(TemplateTy Template,
                                         SourceLocation TemplateNameLoc,
                                         const CXXScopeSpec &SS,

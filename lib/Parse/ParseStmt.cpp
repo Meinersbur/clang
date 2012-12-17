@@ -14,13 +14,13 @@
 
 #include "clang/Parse/Parser.h"
 #include "RAIIObjectsForParser.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/TypoCorrection.h"
-#include "clang/Basic/Diagnostic.h"
-#include "clang/Basic/PrettyStackTrace.h"
-#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/SmallString.h"
 using namespace clang;
 
@@ -252,6 +252,41 @@ Retry:
   case tok::annot_pragma_pack:
     ProhibitAttributes(Attrs);
     HandlePragmaPack();
+    return StmtEmpty();
+
+  case tok::annot_pragma_msstruct:
+    ProhibitAttributes(Attrs);
+    HandlePragmaMSStruct();
+    return StmtEmpty();
+
+  case tok::annot_pragma_align:
+    ProhibitAttributes(Attrs);
+    HandlePragmaAlign();
+    return StmtEmpty();
+
+  case tok::annot_pragma_weak:
+    ProhibitAttributes(Attrs);
+    HandlePragmaWeak();
+    return StmtEmpty();
+
+  case tok::annot_pragma_weakalias:
+    ProhibitAttributes(Attrs);
+    HandlePragmaWeakAlias();
+    return StmtEmpty();
+
+  case tok::annot_pragma_redefine_extname:
+    ProhibitAttributes(Attrs);
+    HandlePragmaRedefineExtname();
+    return StmtEmpty();
+
+  case tok::annot_pragma_fp_contract:
+    Diag(Tok, diag::err_pragma_fp_contract_scope);
+    ConsumeToken();
+    return StmtError();
+
+  case tok::annot_pragma_opencl_extension:
+    ProhibitAttributes(Attrs);
+    HandlePragmaOpenCLExtension();
     return StmtEmpty();
   }
 
@@ -671,6 +706,48 @@ StmtResult Parser::ParseCompoundStatement(bool isStmtExpr,
   return ParseCompoundStatementBody(isStmtExpr);
 }
 
+/// Parse any pragmas at the start of the compound expression. We handle these
+/// separately since some pragmas (FP_CONTRACT) must appear before any C
+/// statement in the compound, but may be intermingled with other pragmas.
+void Parser::ParseCompoundStatementLeadingPragmas() {
+  bool checkForPragmas = true;
+  while (checkForPragmas) {
+    switch (Tok.getKind()) {
+    case tok::annot_pragma_vis:
+      HandlePragmaVisibility();
+      break;
+    case tok::annot_pragma_pack:
+      HandlePragmaPack();
+      break;
+    case tok::annot_pragma_msstruct:
+      HandlePragmaMSStruct();
+      break;
+    case tok::annot_pragma_align:
+      HandlePragmaAlign();
+      break;
+    case tok::annot_pragma_weak:
+      HandlePragmaWeak();
+      break;
+    case tok::annot_pragma_weakalias:
+      HandlePragmaWeakAlias();
+      break;
+    case tok::annot_pragma_redefine_extname:
+      HandlePragmaRedefineExtname();
+      break;
+    case tok::annot_pragma_opencl_extension:
+      HandlePragmaOpenCLExtension();
+      break;
+    case tok::annot_pragma_fp_contract:
+      HandlePragmaFPContract();
+      break;
+    default:
+      checkForPragmas = false;
+      break;
+    }
+  }
+
+}
+
 /// ParseCompoundStatementBody - Parse a sequence of statements and invoke the
 /// ActOnCompoundStmt action.  This expects the '{' to be the current token, and
 /// consume the '}' at the end of the block.  It does not manipulate the scope
@@ -690,6 +767,9 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
     return StmtError();
 
   Sema::CompoundScopeRAII CompoundScope(Actions);
+
+  // Parse any pragmas at the beginning of the compound statement.
+  ParseCompoundStatementLeadingPragmas();
 
   StmtVector Stmts;
 
@@ -1740,7 +1820,7 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
   assert(Tok.is(tok::kw_asm) && "Not an asm stmt");
   SourceLocation AsmLoc = ConsumeToken();
 
-  if (getLangOpts().MicrosoftExt && Tok.isNot(tok::l_paren) &&
+  if (getLangOpts().AsmBlocks && Tok.isNot(tok::l_paren) &&
       !isTypeQualifier()) {
     msAsm = true;
     return ParseMicrosoftAsmStatement(AsmLoc);
@@ -1923,9 +2003,10 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   assert(Tok.is(tok::l_brace));
   SourceLocation LBraceLoc = Tok.getLocation();
 
-  if (SkipFunctionBodies && trySkippingFunctionBody()) {
+  if (SkipFunctionBodies && Actions.canSkipFunctionBody(Decl) &&
+      trySkippingFunctionBody()) {
     BodyScope.Exit();
-    return Actions.ActOnFinishFunctionBody(Decl, 0);
+    return Actions.ActOnSkippedFunctionBody(Decl);
   }
 
   PrettyDeclStackTraceEntry CrashInfo(Actions, Decl, LBraceLoc,
@@ -1965,13 +2046,14 @@ Decl *Parser::ParseFunctionTryBlock(Decl *Decl, ParseScope &BodyScope) {
   else
     Actions.ActOnDefaultCtorInitializers(Decl);
 
-  if (SkipFunctionBodies && trySkippingFunctionBody()) {
+  if (SkipFunctionBodies && Actions.canSkipFunctionBody(Decl) &&
+      trySkippingFunctionBody()) {
     BodyScope.Exit();
-    return Actions.ActOnFinishFunctionBody(Decl, 0);
+    return Actions.ActOnSkippedFunctionBody(Decl);
   }
 
   SourceLocation LBraceLoc = Tok.getLocation();
-  StmtResult FnBody(ParseCXXTryBlockCommon(TryLoc));
+  StmtResult FnBody(ParseCXXTryBlockCommon(TryLoc, /*FnTry*/true));
   // If we failed to parse the try-catch, we just give the function an empty
   // compound statement as the body.
   if (FnBody.isInvalid()) {
@@ -1989,12 +2071,18 @@ bool Parser::trySkippingFunctionBody() {
   assert(SkipFunctionBodies &&
          "Should only be called when SkipFunctionBodies is enabled");
 
+  if (!PP.isCodeCompletionEnabled()) {
+    ConsumeBrace();
+    SkipUntil(tok::r_brace, /*StopAtSemi=*/false, /*DontConsume=*/false);
+    return true;
+  }
+
   // We're in code-completion mode. Skip parsing for all function bodies unless
   // the body contains the code-completion point.
   TentativeParsingAction PA(*this);
   ConsumeBrace();
   if (SkipUntil(tok::r_brace, /*StopAtSemi=*/false, /*DontConsume=*/false,
-                /*StopAtCodeCompletion=*/PP.isCodeCompletionEnabled())) {
+                /*StopAtCodeCompletion=*/true)) {
     PA.Commit();
     return true;
   }
@@ -2031,13 +2119,14 @@ StmtResult Parser::ParseCXXTryBlock() {
 ///         'try' compound-statement seh-except-block
 ///         'try' compound-statment  seh-finally-block
 ///
-StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
+StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
   if (Tok.isNot(tok::l_brace))
     return StmtError(Diag(Tok, diag::err_expected_lbrace));
   // FIXME: Possible draft standard bug: attribute-specifier should be allowed?
 
   StmtResult TryBlock(ParseCompoundStatement(/*isStmtExpr=*/false,
-                                             Scope::DeclScope|Scope::TryScope));
+                      Scope::DeclScope | Scope::TryScope |
+                        (FnTry ? Scope::FnTryCatchScope : 0)));
   if (TryBlock.isInvalid())
     return TryBlock;
 
@@ -2073,7 +2162,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
     if (Tok.isNot(tok::kw_catch))
       return StmtError(Diag(Tok, diag::err_expected_catch));
     while (Tok.is(tok::kw_catch)) {
-      StmtResult Handler(ParseCXXCatchBlock());
+      StmtResult Handler(ParseCXXCatchBlock(FnTry));
       if (!Handler.isInvalid())
         Handlers.push_back(Handler.release());
     }
@@ -2097,7 +2186,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc) {
 ///         type-specifier-seq
 ///         '...'
 ///
-StmtResult Parser::ParseCXXCatchBlock() {
+StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
   assert(Tok.is(tok::kw_catch) && "Expected 'catch'");
 
   SourceLocation CatchLoc = ConsumeToken();
@@ -2109,7 +2198,8 @@ StmtResult Parser::ParseCXXCatchBlock() {
   // C++ 3.3.2p3:
   // The name in a catch exception-declaration is local to the handler and
   // shall not be redeclared in the outermost block of the handler.
-  ParseScope CatchScope(this, Scope::DeclScope | Scope::ControlScope);
+  ParseScope CatchScope(this, Scope::DeclScope | Scope::ControlScope |
+                          (FnCatch ? Scope::FnTryCatchScope : 0));
 
   // exception-declaration is equivalent to '...' or a parameter-declaration
   // without default arguments.

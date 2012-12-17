@@ -35,15 +35,16 @@
 
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/CharUnits.h"
+#include "clang/AST/Expr.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/TypeLoc.h"
-#include "clang/AST/ASTDiagnostic.h"
-#include "clang/AST/Expr.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstring>
 #include <functional>
 
@@ -2886,19 +2887,13 @@ LValueExprEvaluator::VisitCompoundLiteralExpr(const CompoundLiteralExpr *E) {
 }
 
 bool LValueExprEvaluator::VisitCXXTypeidExpr(const CXXTypeidExpr *E) {
-  if (E->isTypeOperand())
+  if (!E->isPotentiallyEvaluated())
     return Success(E);
-  CXXRecordDecl *RD = E->getExprOperand()->getType()->getAsCXXRecordDecl();
-  // FIXME: The standard says "a typeid expression whose operand is of a
-  // polymorphic class type" is not a constant expression, but it probably
-  // means "a typeid expression whose operand is potentially evaluated".
-  if (RD && RD->isPolymorphic()) {
-    Info.Diag(E, diag::note_constexpr_typeid_polymorphic)
-      << E->getExprOperand()->getType()
-      << E->getExprOperand()->getSourceRange();
-    return false;
-  }
-  return Success(E);
+
+  Info.Diag(E, diag::note_constexpr_typeid_polymorphic)
+    << E->getExprOperand()->getType()
+    << E->getExprOperand()->getSourceRange();
+  return false;
 }
 
 bool LValueExprEvaluator::VisitCXXUuidofExpr(const CXXUuidofExpr *E) {
@@ -4296,6 +4291,7 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
     return Error(E);
   }
 
+  case Builtin::BI__builtin_bswap16:
   case Builtin::BI__builtin_bswap32:
   case Builtin::BI__builtin_bswap64: {
     APSInt Val;
@@ -4919,7 +4915,7 @@ bool IntExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
           if (!LHSValue.Offset.isZero() || !RHSValue.Offset.isZero())
             return false;
           const Expr *LHSExpr = LHSValue.Base.dyn_cast<const Expr*>();
-          const Expr *RHSExpr = LHSValue.Base.dyn_cast<const Expr*>();
+          const Expr *RHSExpr = RHSValue.Base.dyn_cast<const Expr*>();
           if (!LHSExpr || !RHSExpr)
             return false;
           const AddrLabelExpr *LHSAddrExpr = dyn_cast<AddrLabelExpr>(LHSExpr);

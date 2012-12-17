@@ -22,14 +22,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Parse/Parser.h"
-#include "clang/Sema/DeclSpec.h"
-#include "clang/Sema/Scope.h"
-#include "clang/Sema/ParsedTemplate.h"
-#include "clang/Sema/TypoCorrection.h"
-#include "clang/Basic/PrettyStackTrace.h"
 #include "RAIIObjectsForParser.h"
-#include "llvm/ADT/SmallVector.h"
+#include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Sema/DeclSpec.h"
+#include "clang/Sema/ParsedTemplate.h"
+#include "clang/Sema/Scope.h"
+#include "clang/Sema/TypoCorrection.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
 using namespace clang;
 
 /// \brief Return the precedence of the specified binary operator token.
@@ -2486,18 +2486,28 @@ ExprResult Parser::ParseBlockLiteralExpression() {
   } else {
     // Otherwise, pretend we saw (void).
     ParsedAttributes attrs(AttrFactory);
-    ParamInfo.AddTypeInfo(DeclaratorChunk::getFunction(true, false, false,
-                                                       SourceLocation(),
-                                                       0, 0, 0,
-                                                       true, SourceLocation(),
-                                                       SourceLocation(),
-                                                       SourceLocation(),
-                                                       SourceLocation(),
-                                                       EST_None,
-                                                       SourceLocation(),
-                                                       0, 0, 0, 0,
-                                                       CaretLoc, CaretLoc,
-                                                       ParamInfo),
+    SourceLocation NoLoc;
+    ParamInfo.AddTypeInfo(DeclaratorChunk::getFunction(/*HasProto=*/true,
+                                             /*IsAmbiguous=*/false,
+                                             /*RParenLoc=*/NoLoc,
+                                             /*ArgInfo=*/0,
+                                             /*NumArgs=*/0,
+                                             /*EllipsisLoc=*/NoLoc,
+                                             /*RParenLoc=*/NoLoc,
+                                             /*TypeQuals=*/0,
+                                             /*RefQualifierIsLvalueRef=*/true,
+                                             /*RefQualifierLoc=*/NoLoc,
+                                             /*ConstQualifierLoc=*/NoLoc,
+                                             /*VolatileQualifierLoc=*/NoLoc,
+                                             /*MutableLoc=*/NoLoc,
+                                             EST_None,
+                                             /*ESpecLoc=*/NoLoc,
+                                             /*Exceptions=*/0,
+                                             /*ExceptionRanges=*/0,
+                                             /*NumExceptions=*/0,
+                                             /*NoexceptExpr=*/0,
+                                             CaretLoc, CaretLoc,
+                                             ParamInfo),
                           attrs, CaretLoc);
 
     MaybeParseGNUAttributes(ParamInfo);

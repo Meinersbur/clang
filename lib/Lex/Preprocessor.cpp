@@ -27,43 +27,49 @@
 
 #include "clang/Lex/Preprocessor.h"
 #include "MacroArgs.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/CodeCompletionHandler.h"
 #include "clang/Lex/ExternalPreprocessorSource.h"
 #include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/LiteralSupport.h"
 #include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/Pragma.h"
 #include "clang/Lex/PreprocessingRecord.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Lex/ScratchBuffer.h"
-#include "clang/Lex/LexDiagnostic.h"
-#include "clang/Lex/CodeCompletionHandler.h"
-#include "clang/Lex/ModuleLoader.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Support/Capacity.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Capacity.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
 ExternalPreprocessorSource::~ExternalPreprocessorSource() { }
 
-Preprocessor::Preprocessor(DiagnosticsEngine &diags, LangOptions &opts,
+PPMutationListener::~PPMutationListener() { }
+
+Preprocessor::Preprocessor(llvm::IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
+                           DiagnosticsEngine &diags, LangOptions &opts,
                            const TargetInfo *target, SourceManager &SM,
                            HeaderSearch &Headers, ModuleLoader &TheModuleLoader,
                            IdentifierInfoLookup* IILookup,
                            bool OwnsHeaders,
                            bool DelayInitialization,
                            bool IncrProcessing)
-  : Diags(&diags), LangOpts(opts), Target(target),FileMgr(Headers.getFileMgr()),
+  : PPOpts(PPOpts), Diags(&diags), LangOpts(opts), Target(target),
+    FileMgr(Headers.getFileMgr()),
     SourceMgr(SM), HeaderInfo(Headers), TheModuleLoader(TheModuleLoader),
     ExternalSource(0), Identifiers(opts, IILookup), 
     IncrementalProcessing(IncrProcessing), CodeComplete(0), 
     CodeCompletionFile(0), CodeCompletionOffset(0), CodeCompletionReached(0),
     SkipMainFilePreamble(0, true), CurPPLexer(0), 
-    CurDirLookup(0), CurLexerKind(CLK_Lexer), Callbacks(0), MacroArgCache(0), 
-    Record(0), MIChainHead(0), MICache(0) 
+    CurDirLookup(0), CurLexerKind(CLK_Lexer), Callbacks(0), Listener(0),
+    MacroArgCache(0), Record(0), MIChainHead(0), MICache(0) 
 {
   OwnsHeaderSearch = OwnsHeaders;
   
@@ -586,9 +592,7 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
   // If this is a macro to be expanded, do it.
   if (MacroInfo *MI = getMacroInfo(&II)) {
     if (!DisableMacroExpansion) {
-      if (Identifier.isExpandDisabled()) {
-        Diag(Identifier, diag::pp_disabled_macro_expansion);
-      } else if (MI->isEnabled()) {
+      if (!Identifier.isExpandDisabled() && MI->isEnabled()) {
         if (!HandleMacroExpandedIdentifier(Identifier, MI))
           return;
       } else {
@@ -596,7 +600,8 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
         // expanded, even if it's in a context where it could be expanded in the
         // future.
         Identifier.setFlag(Token::DisableExpand);
-        Diag(Identifier, diag::pp_disabled_macro_expansion);
+        if (MI->isObjectLike() || isNextPPTokenLParen())
+          Diag(Identifier, diag::pp_disabled_macro_expansion);
       }
     }
   }
@@ -625,10 +630,10 @@ void Preprocessor::HandleIdentifier(Token &Identifier) {
   if (II.isExtensionToken() && !DisableMacroExpansion)
     Diag(Identifier, diag::ext_token_used);
   
-  // If this is the '__experimental_modules_import' contextual keyword, note
+  // If this is the 'import' contextual keyword, note
   // that the next token indicates a module name.
   //
-  // Note that we do not treat '__experimental_modules_import' as a contextual
+  // Note that we do not treat 'import' as a contextual
   // keyword when we're in a caching lexer, because caching lexers only get
   // used in contexts where import declarations are disallowed.
   if (II.isModulesImport() && !InMacroArgs && !DisableMacroExpansion &&
@@ -684,6 +689,47 @@ void Preprocessor::LexAfterModuleImport(Token &Result) {
   }
 }
 
+bool Preprocessor::FinishLexStringLiteral(Token &Result, std::string &String,
+                                          const char *DiagnosticTag,
+                                          bool AllowMacroExpansion) {
+  // We need at least one string literal.
+  if (Result.isNot(tok::string_literal)) {
+    Diag(Result, diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  // Lex string literal tokens, optionally with macro expansion.
+  SmallVector<Token, 4> StrToks;
+  do {
+    StrToks.push_back(Result);
+
+    if (Result.hasUDSuffix())
+      Diag(Result, diag::err_invalid_string_udl);
+
+    if (AllowMacroExpansion)
+      Lex(Result);
+    else
+      LexUnexpandedToken(Result);
+  } while (Result.is(tok::string_literal));
+
+  // Concatenate and parse the strings.
+  StringLiteralParser Literal(&StrToks[0], StrToks.size(), *this);
+  assert(Literal.isAscii() && "Didn't allow wide strings in");
+
+  if (Literal.hadError)
+    return false;
+
+  if (Literal.Pascal) {
+    Diag(StrToks[0].getLocation(), diag::err_expected_string_literal)
+      << /*Source='in...'*/0 << DiagnosticTag;
+    return false;
+  }
+
+  String = Literal.GetString();
+  return true;
+}
+
 void Preprocessor::addCommentHandler(CommentHandler *Handler) {
   assert(Handler && "NULL comment handler");
   assert(std::find(CommentHandlers.begin(), CommentHandlers.end(), Handler) ==
@@ -718,11 +764,10 @@ CommentHandler::~CommentHandler() { }
 
 CodeCompletionHandler::~CodeCompletionHandler() { }
 
-void Preprocessor::createPreprocessingRecord(bool RecordConditionalDirectives) {
+void Preprocessor::createPreprocessingRecord() {
   if (Record)
     return;
   
-  Record = new PreprocessingRecord(getSourceManager(),
-                                   RecordConditionalDirectives);
+  Record = new PreprocessingRecord(getSourceManager());
   addPPCallbacks(Record);
 }

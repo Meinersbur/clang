@@ -13,9 +13,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Rewrite/Frontend/Rewriters.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/PreprocessorOutputOptions.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -157,7 +157,7 @@ void InclusionRewriter::InclusionDirective(SourceLocation HashLoc,
                                            const FileEntry * /*File*/,
                                            StringRef /*SearchPath*/,
                                            StringRef /*RelativePath*/,
-                                           const Module */*Imported*/) {
+                                           const Module * /*Imported*/) {
   assert(LastInsertedFileChange == FileChanges.end() && "Another inclusion "
     "directive was found before the previous one was processed");
   std::pair<FileChangeMap::iterator, bool> p = FileChanges.insert(

@@ -18,11 +18,11 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/Analysis/CFG.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/Allocator.h"
 
 namespace clang {
@@ -237,9 +237,10 @@ public:
 
   const StackFrameContext *getCurrentStackFrame() const;
 
-  virtual void Profile(llvm::FoldingSetNodeID &ID) = 0;
+  /// Return true if the current LocationContext has no caller context.
+  virtual bool inTopFrame() const;
 
-  static bool classof(const LocationContext*) { return true; }
+  virtual void Profile(llvm::FoldingSetNodeID &ID) = 0;
 
 public:
   static void ProfileCommon(llvm::FoldingSetNodeID &ID,
@@ -272,6 +273,9 @@ public:
   const Stmt *getCallSite() const { return CallSite; }
 
   const CFGBlock *getCallSiteBlock() const { return Block; }
+
+  /// Return true if the current LocationContext has no caller context.
+  virtual bool inTopFrame() const { return getParent() == 0;  }
 
   unsigned getIndex() const { return Index; }
 

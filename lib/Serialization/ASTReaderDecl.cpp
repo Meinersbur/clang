@@ -12,19 +12,19 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Serialization/ASTReader.h"
 #include "ASTCommon.h"
 #include "ASTReaderInternals.h"
-#include "clang/Serialization/ASTReader.h"
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclGroup.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/AST/DeclVisitor.h"
+#include "clang/AST/Expr.h"
 #include "clang/Sema/IdentifierResolver.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
-#include "clang/AST/ASTConsumer.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/DeclVisitor.h"
-#include "clang/AST/DeclGroup.h"
-#include "clang/AST/DeclCXX.h"
-#include "clang/AST/DeclTemplate.h"
-#include "clang/AST/Expr.h"
 #include "llvm/Support/SaveAndRestore.h"
 using namespace clang;
 using namespace clang::serialization;
@@ -46,6 +46,8 @@ namespace clang {
     
     DeclID DeclContextIDForTemplateParmDecl;
     DeclID LexicalDeclContextIDForTemplateParmDecl;
+
+    bool HasPendingBody;
 
     uint64_t GetCurrentCursorOffset();
     
@@ -198,10 +200,13 @@ namespace clang {
                   const RecordData &Record, unsigned &Idx)
       : Reader(Reader), F(F), ThisDeclID(thisDeclID),
         RawLocation(RawLocation), Record(Record), Idx(Idx),
-        TypeIDForTypeDecl(0) { }
+        TypeIDForTypeDecl(0), HasPendingBody(false) { }
 
     static void attachPreviousDecl(Decl *D, Decl *previous);
     static void attachLatestDecl(Decl *D, Decl *latest);
+
+    /// \brief Determine whether this declaration has a pending body.
+    bool hasPendingBody() const { return HasPendingBody; }
 
     void Visit(Decl *D);
 
@@ -320,8 +325,14 @@ void ASTDeclReader::Visit(Decl *D) {
     ID->TypeForDecl = Reader.GetType(TypeIDForTypeDecl).getTypePtrOrNull();
   } else if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
     // FunctionDecl's body was written last after all other Stmts/Exprs.
-    if (Record[Idx++])
-      FD->setLazyBody(GetCurrentCursorOffset());
+    // We only read it if FD doesn't already have a body (e.g., from another
+    // module).
+    // FIXME: Also consider = default and = delete.
+    // FIXME: Can we diagnose ODR violations somehow?
+    if (Record[Idx++]) {
+      Reader.PendingBodies[FD] = GetCurrentCursorOffset();
+      HasPendingBody = true;
+    }
   } else if (D->isTemplateParameter()) {
     // If we have a fully initialized template parameter, we can now
     // set its DeclContext.
@@ -517,6 +528,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->IsExplicitlyDefaulted = Record[Idx++];
   FD->HasImplicitReturnZero = Record[Idx++];
   FD->IsConstexpr = Record[Idx++];
+  FD->HasSkippedBody = Record[Idx++];
   FD->EndRangeLoc = ReadSourceLocation(Record, Idx);
 
   switch ((FunctionDecl::TemplatedKind)Record[Idx++]) {
@@ -629,21 +641,19 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
   VisitNamedDecl(MD);
   if (Record[Idx++]) {
-    // In practice, this won't be executed (since method definitions
-    // don't occur in header files).
-    // Switch case IDs for this method body.
-    ASTReader::SwitchCaseMapTy SwitchCaseStmtsForObjCMethod;
-    SaveAndRestore<ASTReader::SwitchCaseMapTy *>
-      SCFOM(Reader.CurrSwitchCaseStmts, &SwitchCaseStmtsForObjCMethod);
-    MD->setBody(Reader.ReadStmt(F));
+    // Load the body on-demand. Most clients won't care, because method
+    // definitions rarely show up in headers.
+    Reader.PendingBodies[MD] = GetCurrentCursorOffset();
+    HasPendingBody = true;
     MD->setSelfDecl(ReadDeclAs<ImplicitParamDecl>(Record, Idx));
     MD->setCmdDecl(ReadDeclAs<ImplicitParamDecl>(Record, Idx));
   }
   MD->setInstanceMethod(Record[Idx++]);
   MD->setVariadic(Record[Idx++]);
-  MD->setSynthesized(Record[Idx++]);
+  MD->setPropertyAccessor(Record[Idx++]);
   MD->setDefined(Record[Idx++]);
   MD->IsOverriding = Record[Idx++];
+  MD->HasSkippedBody = Record[Idx++];
 
   MD->IsRedeclaration = Record[Idx++];
   MD->HasRedeclaration = Record[Idx++];
@@ -847,6 +857,8 @@ void ASTDeclReader::VisitObjCImplementationDecl(ObjCImplementationDecl *D) {
   D->setSuperClass(ReadDeclAs<ObjCInterfaceDecl>(Record, Idx));
   D->setIvarLBraceLoc(ReadSourceLocation(Record, Idx));
   D->setIvarRBraceLoc(ReadSourceLocation(Record, Idx));
+  D->setHasNonZeroConstructors(Record[Idx++]);
+  D->setHasDestructors(Record[Idx++]);
   llvm::tie(D->IvarInitializers, D->NumIvarInitializers)
       = Reader.ReadCXXCtorInitializers(F, Record, Idx);
 }
@@ -1073,11 +1085,7 @@ void ASTDeclReader::ReadCXXDefinitionData(
                                    const RecordData &Record, unsigned &Idx) {
   // Note: the caller has deserialized the IsLambda bit already.
   Data.UserDeclaredConstructor = Record[Idx++];
-  Data.UserDeclaredCopyConstructor = Record[Idx++];
-  Data.UserDeclaredMoveConstructor = Record[Idx++];
-  Data.UserDeclaredCopyAssignment = Record[Idx++];
-  Data.UserDeclaredMoveAssignment = Record[Idx++];
-  Data.UserDeclaredDestructor = Record[Idx++];
+  Data.UserDeclaredSpecialMembers = Record[Idx++];
   Data.Aggregate = Record[Idx++];
   Data.PlainOldData = Record[Idx++];
   Data.Empty = Record[Idx++];
@@ -1091,25 +1099,26 @@ void ASTDeclReader::ReadCXXDefinitionData(
   Data.HasMutableFields = Record[Idx++];
   Data.HasOnlyCMembers = Record[Idx++];
   Data.HasInClassInitializer = Record[Idx++];
-  Data.HasTrivialDefaultConstructor = Record[Idx++];
+  Data.HasUninitializedReferenceMember = Record[Idx++];
+  Data.NeedOverloadResolutionForMoveConstructor = Record[Idx++];
+  Data.NeedOverloadResolutionForMoveAssignment = Record[Idx++];
+  Data.NeedOverloadResolutionForDestructor = Record[Idx++];
+  Data.DefaultedMoveConstructorIsDeleted = Record[Idx++];
+  Data.DefaultedMoveAssignmentIsDeleted = Record[Idx++];
+  Data.DefaultedDestructorIsDeleted = Record[Idx++];
+  Data.HasTrivialSpecialMembers = Record[Idx++];
+  Data.HasIrrelevantDestructor = Record[Idx++];
   Data.HasConstexprNonCopyMoveConstructor = Record[Idx++];
   Data.DefaultedDefaultConstructorIsConstexpr = Record[Idx++];
   Data.HasConstexprDefaultConstructor = Record[Idx++];
-  Data.HasTrivialCopyConstructor = Record[Idx++];
-  Data.HasTrivialMoveConstructor = Record[Idx++];
-  Data.HasTrivialCopyAssignment = Record[Idx++];
-  Data.HasTrivialMoveAssignment = Record[Idx++];
-  Data.HasTrivialDestructor = Record[Idx++];
-  Data.HasIrrelevantDestructor = Record[Idx++];
   Data.HasNonLiteralTypeFieldsOrBases = Record[Idx++];
   Data.ComputedVisibleConversions = Record[Idx++];
   Data.UserProvidedDefaultConstructor = Record[Idx++];
-  Data.DeclaredDefaultConstructor = Record[Idx++];
-  Data.DeclaredCopyConstructor = Record[Idx++];
-  Data.DeclaredMoveConstructor = Record[Idx++];
-  Data.DeclaredCopyAssignment = Record[Idx++];
-  Data.DeclaredMoveAssignment = Record[Idx++];
-  Data.DeclaredDestructor = Record[Idx++];
+  Data.DeclaredSpecialMembers = Record[Idx++];
+  Data.ImplicitCopyConstructorHasConstParam = Record[Idx++];
+  Data.ImplicitCopyAssignmentHasConstParam = Record[Idx++];
+  Data.HasDeclaredCopyConstructorWithConstParam = Record[Idx++];
+  Data.HasDeclaredCopyAssignmentWithConstParam = Record[Idx++];
   Data.FailedImplicitMoveConstructor = Record[Idx++];
   Data.FailedImplicitMoveAssignment = Record[Idx++];
 
@@ -1246,6 +1255,7 @@ void ASTDeclReader::VisitImportDecl(ImportDecl *D) {
   SourceLocation *StoredLocs = reinterpret_cast<SourceLocation *>(D + 1);
   for (unsigned I = 0, N = Record.back(); I != N; ++I)
     StoredLocs[I] = ReadSourceLocation(Record, Idx);
+  ++Idx; // The number of stored source locations.
 }
 
 void ASTDeclReader::VisitAccessSpecDecl(AccessSpecDecl *D) {
@@ -1342,10 +1352,10 @@ void ASTDeclReader::VisitClassTemplateDecl(ClassTemplateDecl *D) {
     for (unsigned I = 0; I != Size; ++I)
       SpecIDs.push_back(ReadDeclID(Record, Idx));
 
+    ClassTemplateDecl::Common *CommonPtr = D->getCommonPtr();
     if (SpecIDs[0]) {
       typedef serialization::DeclID DeclID;
       
-      ClassTemplateDecl::Common *CommonPtr = D->getCommonPtr();
       // FIXME: Append specializations!
       CommonPtr->LazySpecializations
         = new (Reader.getContext()) DeclID [SpecIDs.size()];
@@ -1353,7 +1363,7 @@ void ASTDeclReader::VisitClassTemplateDecl(ClassTemplateDecl *D) {
              SpecIDs.size() * sizeof(DeclID));
     }
     
-    // InjectedClassNameType is computed.
+    CommonPtr->InjectedClassNameType = Reader.readType(F, Record, Idx);
   }
 }
 
@@ -1656,7 +1666,7 @@ inline void ASTReader::LoadedDecl(unsigned Index, Decl *D) {
 /// This routine should return true for anything that might affect
 /// code generation, e.g., inline function definitions, Objective-C
 /// declarations with metadata, etc.
-static bool isConsumerInterestedIn(Decl *D) {
+static bool isConsumerInterestedIn(Decl *D, bool HasBody) {
   // An ObjCMethodDecl is never considered as "interesting" because its
   // implementation container always is.
 
@@ -1668,7 +1678,7 @@ static bool isConsumerInterestedIn(Decl *D) {
     return Var->isFileVarDecl() &&
            Var->isThisDeclarationADefinition() == VarDecl::Definition;
   if (FunctionDecl *Func = dyn_cast<FunctionDecl>(D))
-    return Func->doesThisDeclarationHaveABody();
+    return Func->doesThisDeclarationHaveABody() || HasBody;
   
   return false;
 }
@@ -1775,11 +1785,13 @@ ASTDeclReader::FindExistingResult::~FindExistingResult() {
   if (!AddResult || Existing)
     return;
   
-  DeclContext *DC = New->getDeclContext()->getRedeclContext();
-  if (DC->isTranslationUnit() && Reader.SemaObj) {
+  if (New->getDeclContext()->getRedeclContext()->isTranslationUnit()
+      && Reader.SemaObj) {
     Reader.SemaObj->IdResolver.tryAddTopLevelDecl(New, New->getDeclName());
-  } else if (DC->isNamespace()) {
-    DC->addDecl(New);
+  } else {
+    DeclContext *DC = New->getLexicalDeclContext();
+    if (DC->isNamespace())
+      DC->addDecl(New);
   }
 }
 
@@ -2154,7 +2166,7 @@ Decl *ASTReader::ReadDeclRecord(DeclID ID) {
   // AST consumer might need to know about, queue it.
   // We don't pass it to the consumer immediately because we may be in recursive
   // loading, and some declarations may still be initializing.
-  if (isConsumerInterestedIn(D))
+  if (isConsumerInterestedIn(D, Reader.hasPendingBody()))
     InterestingDecls.push_back(D);
 
   return D;
@@ -2503,61 +2515,4 @@ void ASTDeclReader::UpdateDecl(Decl *D, ModuleFile &ModuleFile,
       break;
     }
   }
-}
-
-/// \brief Return a template specialization of ND (should be a TemplateDecl)
-///  that matches FD or TD.
-static NamedDecl* findMatchingSpecialization(FunctionDecl* FD,
-                                             ClassTemplateSpecializationDecl*TD,
-                                             NamedDecl* ND) {
-  TemplateDecl* Templt = dyn_cast<TemplateDecl>(ND);
-  if (!Templt) return 0;
-  if (FD) {
-    FunctionTemplateDecl* FTD = dyn_cast<FunctionTemplateDecl>(Templt);
-    if (!FTD) return 0;
-    const TemplateArgumentList* TmpltArgs = FD->getTemplateSpecializationArgs();
-    assert(TmpltArgs || "Template without arguments");
-    void* InsertionPoint;
-    return FTD->findSpecialization(TmpltArgs->data(), TmpltArgs->size(),
-                                   InsertionPoint);
-  } else {
-    ClassTemplateDecl* CTD = dyn_cast<ClassTemplateDecl>(Templt);
-    if (!CTD) return 0;
-    const TemplateArgumentList& TmpltArgs = TD->getTemplateArgs();
-    void* InsertionPoint;
-    return CTD->findSpecialization(TmpltArgs.data(), TmpltArgs.size(),
-                                   InsertionPoint);
-  }
-  return 0;
-}
-
-/// \brief Find out whether an instantiation (outside the module) already exists
-bool ASTReader::needPendingInstantiation(ValueDecl* D) const {
-  DeclContext *DC = D->getDeclContext()->getRedeclContext();
-  DeclarationName Name = D->getDeclName();
-  assert(Name && "unnamed template");
-
-  FunctionDecl* FD = dyn_cast<FunctionDecl>(D);
-  ClassTemplateSpecializationDecl* CD
-    = FD ? 0 : dyn_cast<ClassTemplateSpecializationDecl>(D);
-
-  NamedDecl* FoundSpecialization = 0;
-  if (DC->isTranslationUnit() && SemaObj) {
-    IdentifierResolver &IdResolver = SemaObj->IdResolver;
-    for (IdentifierResolver::iterator I = IdResolver.begin(Name), 
-           IEnd = IdResolver.end();
-         I != IEnd && !FoundSpecialization; ++I)
-      FoundSpecialization = findMatchingSpecialization(FD, CD, *I);
-  } else {
-    // templates are redeclarables, i.e. they must have been merged into
-    // the primary context. Use localUncachedLookup to not pick up template
-    // decls from modules again.
-    llvm::SmallVector<NamedDecl*, 6> Results;
-    DC->getPrimaryContext()->localUncachedLookup(Name, Results);
-    for (llvm::SmallVector<NamedDecl *, 6>::const_iterator
-           I = Results.begin(), E = Results.end();
-         I != E && FoundSpecialization; ++I)
-      FoundSpecialization = findMatchingSpecialization(FD, CD, *I);
-  }
-  return FoundSpecialization && isSameEntity(FoundSpecialization, D);
 }

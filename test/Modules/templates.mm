@@ -1,9 +1,10 @@
 // RUN: rm -rf %t
 // RUN: %clang_cc1 -x objective-c++ -fmodules -fmodule-cache-path %t -I %S/Inputs -verify %s -Wno-objc-root-class
-// RUN: %clang_cc1 -x objective-c++ -fmodules -fmodule-cache-path %t -I %S/Inputs -emit-llvm %s -o - -Wno-objc-root-class | grep pendingInstantiation | FileCheck %s
+// RUN: %clang_cc1 -x objective-c++ -fmodules -fmodule-cache-path %t -I %S/Inputs -emit-llvm %s -o - -Wno-objc-root-class | grep Emit | FileCheck %s
+// expected-no-diagnostics
 
-@__experimental_modules_import templates_left;
-@__experimental_modules_import templates_right;
+@import templates_left;
+@import templates_right;
 
 
 void testTemplateClasses() {
@@ -18,11 +19,18 @@ void testTemplateClasses() {
 }
 
 void testPendingInstantiations() {
-  // CHECK: call
-  // CHECK: call
-  // CHECK: {{define .*pendingInstantiation.*[(]i}}
-  // CHECK: {{define .*pendingInstantiation.*[(]double}}
-  // CHECK: call
+  // CHECK: call {{.*pendingInstantiationEmit}}
+  // CHECK: call {{.*pendingInstantiationEmit}}
+  // CHECK: define {{.*pendingInstantiationEmit.*[(]i}}
+  // CHECK: define {{.*pendingInstantiationEmit.*[(]double}}
   triggerPendingInstantiation();
   triggerPendingInstantiationToo();
 }
+
+void testRedeclDefinition() {
+  // CHECK: define {{.*redeclDefinitionEmit}}
+  redeclDefinitionEmit();
+}
+
+// CHECK: call {{.*pendingInstantiation}}
+// CHECK: call {{.*redeclDefinitionEmit}}

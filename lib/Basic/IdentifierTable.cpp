@@ -14,12 +14,11 @@
 
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
-#include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringSwitch.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cctype>
 #include <cstdio>
 
@@ -83,7 +82,7 @@ IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
       
 
   // Add the '_experimental_modules_import' contextual keyword.
-  get("__experimental_modules_import").setModulesImport(true);
+  get("import").setModulesImport(true);
 }
 
 //===----------------------------------------------------------------------===//
