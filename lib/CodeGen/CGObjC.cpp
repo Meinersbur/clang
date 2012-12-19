@@ -2799,10 +2799,6 @@ void CodeGenFunction::EmitExtendGCLifetime(llvm::Value *object) {
   Builder.CreateCall(extender, object)->setDoesNotThrow();
 }
 
-static bool hasAtomicCopyHelperAPI(const ObjCRuntime &runtime) {
-  return runtime.hasAtomicCopyHelper();
-}
-
 /// GenerateObjCAtomicSetterCopyHelperFunction - Given a c++ object type with
 /// non-trivial copy assignment function, produce following helper function.
 /// static void copyHelper(Ty *dest, const Ty *source) { *dest = *source; }
@@ -2810,9 +2806,8 @@ static bool hasAtomicCopyHelperAPI(const ObjCRuntime &runtime) {
 llvm::Constant *
 CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
                                         const ObjCPropertyImplDecl *PID) {
-  // FIXME. This api is for NeXt runtime only for now.
   if (!getLangOpts().CPlusPlus ||
-      !hasAtomicCopyHelperAPI(getLangOpts().ObjCRuntime))
+      !getLangOpts().ObjCRuntime.hasAtomicCopyHelper())
     return 0;
   QualType Ty = PID->getPropertyIvarDecl()->getType();
   if (!Ty->isRecordType())
@@ -2894,9 +2889,8 @@ CodeGenFunction::GenerateObjCAtomicSetterCopyHelperFunction(
 llvm::Constant *
 CodeGenFunction::GenerateObjCAtomicGetterCopyHelperFunction(
                                             const ObjCPropertyImplDecl *PID) {
-  // FIXME. This api is for NeXt runtime only for now.
   if (!getLangOpts().CPlusPlus ||
-      !hasAtomicCopyHelperAPI(getLangOpts().ObjCRuntime))
+      !getLangOpts().ObjCRuntime.hasAtomicCopyHelper())
     return 0;
   const ObjCPropertyDecl *PD = PID->getPropertyDecl();
   QualType Ty = PD->getType();

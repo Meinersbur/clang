@@ -538,8 +538,15 @@ void CodeGenFunction::EmitTypeCheck(TypeCheckKind TCK, SourceLocation Loc,
 
   // If possible, check that the vptr indicates that there is a subobject of
   // type Ty at offset zero within this object.
+  //
+  // C++11 [basic.life]p5,6:
+  //   [For storage which does not refer to an object within its lifetime]
+  //   The program has undefined behavior if:
+  //    -- the [pointer or glvalue] is used to access a non-static data member
+  //       or call a non-static member function
   CXXRecordDecl *RD = Ty->getAsCXXRecordDecl();
-  if (getLangOpts().SanitizeVptr && TCK != TCK_ConstructorCall &&
+  if (getLangOpts().SanitizeVptr &&
+      (TCK == TCK_MemberAccess || TCK == TCK_MemberCall) &&
       RD && RD->hasDefinition() && RD->isDynamicClass()) {
     // Compute a hash of the mangled name of the type.
     //
@@ -1193,7 +1200,7 @@ RValue CodeGenFunction::EmitLoadOfBitfieldLValue(LValue LV) {
   } else {
     if (Info.Offset)
       Val = Builder.CreateLShr(Val, Info.Offset, "bf.lshr");
-    if (Info.Offset + Info.Size < Info.StorageSize)
+    if (static_cast<unsigned>(Info.Offset) + Info.Size < Info.StorageSize)
       Val = Builder.CreateAnd(Val, llvm::APInt::getLowBitsSet(Info.StorageSize,
                                                               Info.Size),
                               "bf.clear");
@@ -1394,7 +1401,7 @@ void CodeGenFunction::EmitStoreThroughBitfieldLValue(RValue Src, LValue Dst,
 
     ResultVal = Builder.CreateIntCast(ResultVal, ResLTy, Info.IsSigned,
                                       "bf.result.cast");
-    *Result = ResultVal;
+    *Result = EmitFromMemory(ResultVal, Dst.getType());
   }
 }
 
