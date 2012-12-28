@@ -1871,6 +1871,19 @@ public:
   };
   ObjCSubscriptKind CheckSubscriptingKind(Expr *FromE);
 
+  // Note that LK_String is intentionally after the other literals, as
+  // this is used for diagnostics logic.
+  enum ObjCLiteralKind {
+    LK_Array,
+    LK_Dictionary,
+    LK_Numeric,
+    LK_Boxed,
+    LK_String,
+    LK_Block,
+    LK_None
+  };
+  ObjCLiteralKind CheckLiteralKind(Expr *FromE);
+
   ExprResult PerformObjectMemberConversion(Expr *From,
                                            NestedNameSpecifier *Qualifier,
                                            NamedDecl *FoundDecl,
@@ -3367,13 +3380,6 @@ public:
                               UnqualifiedId &Name,
                               TypeResult Type);
 
-  /// InitializeVarWithConstructor - Creates an CXXConstructExpr
-  /// and sets it as the initializer for the passed in VarDecl.
-  bool InitializeVarWithConstructor(VarDecl *VD,
-                                    CXXConstructorDecl *Constructor,
-                                    MultiExprArg Exprs,
-                                    bool HadMultipleCandidates);
-
   /// BuildCXXConstructExpr - Creates a complete call to a constructor,
   /// including handling of its default argument expressions.
   ///
@@ -3381,8 +3387,9 @@ public:
   ExprResult
   BuildCXXConstructExpr(SourceLocation ConstructLoc, QualType DeclInitType,
                         CXXConstructorDecl *Constructor, MultiExprArg Exprs,
-                        bool HadMultipleCandidates, bool RequiresZeroInit,
-                        unsigned ConstructKind, SourceRange ParenRange);
+                        bool HadMultipleCandidates, bool IsListInitialization,
+                        bool RequiresZeroInit, unsigned ConstructKind,
+                        SourceRange ParenRange);
 
   // FIXME: Can re remove this and have the above BuildCXXConstructExpr check if
   // the constructor can be elidable?
@@ -3390,8 +3397,8 @@ public:
   BuildCXXConstructExpr(SourceLocation ConstructLoc, QualType DeclInitType,
                         CXXConstructorDecl *Constructor, bool Elidable,
                         MultiExprArg Exprs, bool HadMultipleCandidates,
-                        bool RequiresZeroInit, unsigned ConstructKind,
-                        SourceRange ParenRange);
+                        bool IsListInitialization, bool RequiresZeroInit,
+                        unsigned ConstructKind, SourceRange ParenRange);
 
   /// BuildCXXDefaultArgExpr - Creates a CXXDefaultArgExpr, instantiating
   /// the default expr if needed.

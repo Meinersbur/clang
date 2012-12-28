@@ -1632,8 +1632,8 @@ InitListChecker::CheckDesignatedInitializer(const InitializedEntity &Entity,
     StructuredList = IsFirstDesignator? SyntacticToSemantic.lookup(IList)
       : getStructuredSubobjectInit(IList, Index, CurrentObjectType,
                                    StructuredList, StructuredIndex,
-                                   SourceRange(D->getStartLocation(),
-                                               DIE->getSourceRange().getEnd()));
+                                   SourceRange(D->getLocStart(),
+                                               DIE->getLocEnd()));
     assert(StructuredList && "Expected a structured initializer list");
   }
 
@@ -1801,10 +1801,10 @@ InitListChecker::CheckDesignatedInitializer(const InitializedEntity &Entity,
         if (!VerifyOnly) {
           DesignatedInitExpr::Designator *NextD
             = DIE->getDesignator(DesigIdx + 1);
-          SemaRef.Diag(NextD->getStartLocation(),
+          SemaRef.Diag(NextD->getLocStart(),
                         diag::err_designator_into_flexible_array_member)
-            << SourceRange(NextD->getStartLocation(),
-                           DIE->getSourceRange().getEnd());
+            << SourceRange(NextD->getLocStart(),
+                           DIE->getLocEnd());
           SemaRef.Diag(Field->getLocation(), diag::note_flexible_array_member)
             << *Field;
         }
@@ -4563,6 +4563,7 @@ static ExprResult CopyObject(Sema &S,
   CurInit = S.BuildCXXConstructExpr(Loc, T, Constructor, Elidable,
                                     ConstructorArgs,
                                     HadMultipleCandidates,
+                                    /*ListInit*/ false,
                                     /*ZeroInit*/ false,
                                     CXXConstructExpr::CK_Complete,
                                     SourceRange());
@@ -4652,7 +4653,8 @@ PerformConstructorInitialization(Sema &S,
                                  const InitializationKind &Kind,
                                  MultiExprArg Args,
                                  const InitializationSequence::Step& Step,
-                                 bool &ConstructorInitRequiresZeroInit) {
+                                 bool &ConstructorInitRequiresZeroInit,
+                                 bool IsListInitialization) {
   unsigned NumArgs = Args.size();
   CXXConstructorDecl *Constructor
     = cast<CXXConstructorDecl>(Step.Function.Function);
@@ -4710,13 +4712,12 @@ PerformConstructorInitialization(Sema &S,
     if (Kind.getKind() != InitializationKind::IK_DirectList)
       ParenRange = Kind.getParenRange();
 
-    CurInit = S.Owned(new (S.Context) CXXTemporaryObjectExpr(S.Context,
-                                                             Constructor,
-                                                             TSInfo,
-                                                             ConstructorArgs,
-                                                             ParenRange,
-                                                     HadMultipleCandidates,
-                                         ConstructorInitRequiresZeroInit));
+    CurInit = S.Owned(
+      new (S.Context) CXXTemporaryObjectExpr(S.Context, Constructor,
+                                             TSInfo, ConstructorArgs,
+                                             ParenRange, IsListInitialization,
+                                             HadMultipleCandidates,
+                                             ConstructorInitRequiresZeroInit));
   } else {
     CXXConstructExpr::ConstructionKind ConstructKind =
       CXXConstructExpr::CK_Complete;
@@ -4741,6 +4742,7 @@ PerformConstructorInitialization(Sema &S,
                                         Constructor, /*Elidable=*/true,
                                         ConstructorArgs,
                                         HadMultipleCandidates,
+                                        IsListInitialization,
                                         ConstructorInitRequiresZeroInit,
                                         ConstructKind,
                                         parenRange);
@@ -4749,6 +4751,7 @@ PerformConstructorInitialization(Sema &S,
                                         Constructor,
                                         ConstructorArgs,
                                         HadMultipleCandidates,
+                                        IsListInitialization,
                                         ConstructorInitRequiresZeroInit,
                                         ConstructKind,
                                         parenRange);
@@ -5084,6 +5087,7 @@ InitializationSequence::Perform(Sema &S,
         CurInit = S.BuildCXXConstructExpr(Loc, Step->Type, Constructor,
                                           ConstructorArgs,
                                           HadMultipleCandidates,
+                                          /*ListInit*/ false,
                                           /*ZeroInit*/ false,
                                           CXXConstructExpr::CK_Complete,
                                           SourceRange());
@@ -5239,7 +5243,8 @@ InitializationSequence::Perform(Sema &S,
       CurInit = PerformConstructorInitialization(S, UseTemporary ? TempEntity :
                                                                    Entity,
                                                  Kind, Arg, *Step,
-                                               ConstructorInitRequiresZeroInit);
+                                               ConstructorInitRequiresZeroInit,
+                                               /*IsListInitialization*/ true);
       break;
     }
 
@@ -5272,7 +5277,8 @@ InitializationSequence::Perform(Sema &S,
       CurInit = PerformConstructorInitialization(S, UseTemporary ? TempEntity
                                                                  : Entity,
                                                  Kind, Args, *Step,
-                                               ConstructorInitRequiresZeroInit);
+                                               ConstructorInitRequiresZeroInit,
+                                               /*IsListInitialization*/ false);
       break;
     }
 

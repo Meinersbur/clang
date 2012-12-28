@@ -1583,8 +1583,7 @@ EmitBitCastOfLValueToProperType(CodeGenFunction &CGF,
 
 static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
                                       const Expr *E, const VarDecl *VD) {
-  assert((VD->hasExternalStorage() || VD->isFileVarDecl()) &&
-         "Var decl must have external storage or be a file var decl!");
+  assert(VD->hasLinkage() && "Var decl must have linkage!");
 
   llvm::Value *V = CGF.CGM.GetAddrOfGlobalVar(VD);
   llvm::Type *RealVarTy = CGF.getTypes().ConvertTypeForMem(VD->getType());
@@ -1658,7 +1657,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
     // Check if this is a global variable.
-    if (VD->hasExternalStorage() || VD->isFileVarDecl()) 
+    if (VD->hasLinkage())
       return EmitGlobalVarDeclLValue(*this, E, VD);
 
     bool isBlockVariable = VD->hasAttr<BlocksAttr>();
@@ -2020,10 +2019,10 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
     llvm::FunctionType::get(CGM.VoidTy, ArgTypes, false);
   llvm::AttrBuilder B;
   if (!Recover) {
-    B.addAttribute(llvm::Attributes::NoReturn)
-     .addAttribute(llvm::Attributes::NoUnwind);
+    B.addAttribute(llvm::Attribute::NoReturn)
+     .addAttribute(llvm::Attribute::NoUnwind);
   }
-  B.addAttribute(llvm::Attributes::UWTable);
+  B.addAttribute(llvm::Attribute::UWTable);
 
   // Checks that have two variants use a suffix to differentiate them
   bool NeedsAbortSuffix = (RecoverKind != CRK_Unrecoverable) &&
@@ -2032,7 +2031,7 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
                               (NeedsAbortSuffix? "_abort" : "")).str();
   llvm::Value *Fn =
     CGM.CreateRuntimeFunction(FnType, FunctionName,
-                              llvm::Attributes::get(getLLVMContext(), B));
+                              llvm::Attribute::get(getLLVMContext(), B));
   llvm::CallInst *HandlerCall = Builder.CreateCall(Fn, Args);
   if (Recover) {
     Builder.CreateBr(Cont);

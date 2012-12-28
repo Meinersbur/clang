@@ -20,6 +20,11 @@ def warn_variables_not_in_loop_body : Warning<
   "used in loop condition not modified in loop body">,
   InGroup<DiagGroup<"loop-analysis">>, DefaultIgnore;
 
+def warn_duplicate_enum_values : Warning<
+  "element %0 has been implicitly assigned %1 which another element has "
+  "been assigned">, InGroup<DiagGroup<"duplicate-enum">>, DefaultIgnore;
+def note_duplicate_element : Note<"element %0 also has value %1">;
+
 // Constant expressions
 def err_expr_not_ice : Error<
   "expression is not an %select{integer|integral}0 constant expression">;
@@ -2507,9 +2512,10 @@ def err_ovl_no_viable_oper : Error<"no viable overloaded '%0'">;
 def err_ovl_deleted_oper : Error<
   "overload resolution selected %select{unavailable|deleted}0 operator '%1'%2">;
 def err_ovl_deleted_special_oper : Error<
-  "overload resolution selected implicitly-deleted %select{default constructor|"
-  "copy constructor|move constructor|copy assignment operator|move assignment "
-  "operator|destructor|'%1'}0%2">;
+  "object of type %0 cannot be %select{constructed|copied|moved|assigned|"
+  "assigned|destroyed}1 because its %select{default constructor|"
+  "copy constructor|move constructor|copy assignment operator|"
+  "move assignment operator|destructor}1 is implicitly deleted">;
 def err_ovl_no_viable_subscript :
     Error<"no viable overloaded operator[] for type %0">;
 def err_ovl_no_oper :
@@ -2631,7 +2637,7 @@ def err_template_arg_must_be_type_suggest : Error<
 def err_template_arg_must_be_expr : Error<
   "template argument for non-type template parameter must be an expression">;
 def err_template_arg_nontype_ambig : Error<
-  "template argument for non-type template parameter is treated as type %0">;
+  "template argument for non-type template parameter is treated as function type %0">;
 def err_template_arg_must_be_template : Error<
   "template argument for template template parameter must be a class template%select{| or type alias template}0">;
 def ext_template_arg_local_type : ExtWarn<
@@ -3252,6 +3258,8 @@ def err_inline_declaration_block_scope : Error<
   "inline declaration of %0 not allowed in block scope">;
 def err_static_non_static : Error<
   "static declaration of %0 follows non-static declaration">;
+def err_different_language_linkage : Error<
+  "declaration of %0 has a different language linkage">;
 def warn_weak_import : Warning <
   "an already-declared variable is made a weak_import declaration %0">;
 def warn_static_non_static : ExtWarn<
@@ -3687,6 +3695,11 @@ def warn_arc_retained_assign : Warning<
   InGroup<ARCUnsafeRetainedAssign>;
 def warn_arc_retained_property_assign : Warning<
   "assigning retained object to unsafe property"
+  "; object will be released after assignment">,
+  InGroup<ARCUnsafeRetainedAssign>;
+def warn_arc_literal_assign : Warning<
+  "assigning %select{array literal|dictionary literal|numeric literal|boxed expression|<should not happen>|block literal}0"
+  " to a weak %select{property|variable}1"
   "; object will be released after assignment">,
   InGroup<ARCUnsafeRetainedAssign>;
 def err_arc_new_array_without_ownership : Error<

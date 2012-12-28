@@ -397,7 +397,12 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
   // Support allowing the SDKROOT environment variable used by xcrun and other
   // Xcode tools to define the default sysroot, by making it the default for
   // isysroot.
-  if (!Args.hasArg(options::OPT_isysroot)) {
+  if (const Arg *A = Args.getLastArg(options::OPT_isysroot)) {
+    // Warn if the path does not exist.
+    bool Exists;
+    if (llvm::sys::fs::exists(A->getValue(), Exists) || !Exists)
+      getDriver().Diag(clang::diag::warn_missing_sysroot) << A->getValue();
+  } else {
     if (char *env = ::getenv("SDKROOT")) {
       // We only use this value as the default if it is an absolute path and
       // exists.
@@ -965,10 +970,10 @@ bool Generic_GCC::GCCVersion::operator<(const GCCVersion &RHS) const {
   if (Minor < RHS.Minor) return true; if (Minor > RHS.Minor) return false;
 
   // Note that we rank versions with *no* patch specified is better than ones
-  // hard-coding a patch version. Thus if the RHS has no patch, it always
-  // wins, and the LHS only wins if it has no patch and the RHS does have
-  // a patch.
-  if (RHS.Patch == -1) return true;   if (Patch == -1) return false;
+  // hard-coding a patch version. Thus if only the RHS or LHS has no patch,
+  // it wins.
+  if (RHS.Patch == -1 && Patch != -1) return true;
+  if (RHS.Patch != -1 && Patch == -1) return false;
   if (Patch < RHS.Patch) return true; if (Patch > RHS.Patch) return false;
   if (PatchSuffix == RHS.PatchSuffix) return false;
 
