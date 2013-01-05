@@ -14,22 +14,22 @@
 #ifndef CLANG_CODEGEN_CODEGENFUNCTION_H
 #define CLANG_CODEGEN_CODEGENFUNCTION_H
 
-#include "clang/AST/Type.h"
-#include "clang/AST/ExprCXX.h"
-#include "clang/AST/ExprObjC.h"
-#include "clang/AST/CharUnits.h"
-#include "clang/Frontend/CodeGenOptions.h"
-#include "clang/Basic/ABI.h"
-#include "clang/Basic/TargetInfo.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ValueHandle.h"
-#include "llvm/Support/Debug.h"
-#include "CodeGenModule.h"
 #include "CGBuilder.h"
 #include "CGDebugInfo.h"
 #include "CGValue.h"
+#include "CodeGenModule.h"
+#include "clang/AST/CharUnits.h"
+#include "clang/AST/ExprCXX.h"
+#include "clang/AST/ExprObjC.h"
+#include "clang/AST/Type.h"
+#include "clang/Basic/ABI.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Frontend/CodeGenOptions.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
   class BasicBlock;
@@ -1686,11 +1686,6 @@ public:
   /// StartBlock - Start new block named N. If insert block is a dummy block
   /// then reuse it.
   void StartBlock(const char *N);
-
-  /// GetAddrOfStaticLocalVar - Return the address of a static local variable.
-  llvm::Constant *GetAddrOfStaticLocalVar(const VarDecl *BVD) {
-    return cast<llvm::Constant>(GetAddrOfLocalVar(BVD));
-  }
 
   /// GetAddrOfLocalVar - Return the address of a local variable.
   llvm::Value *GetAddrOfLocalVar(const VarDecl *VD) {

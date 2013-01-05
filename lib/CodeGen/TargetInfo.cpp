@@ -17,9 +17,9 @@
 #include "CodeGenFunction.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "llvm/Type.h"
-#include "llvm/DataLayout.h"
 #include "llvm/ADT/Triple.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
 using namespace CodeGen;
@@ -1019,8 +1019,8 @@ void X86_32TargetCodeGenInfo::SetTargetAttributes(const Decl *D,
       // Now add the 'alignstack' attribute with a value of 16.
       llvm::AttrBuilder B;
       B.addStackAlignmentAttr(16);
-      Fn->addAttribute(llvm::AttrListPtr::FunctionIndex,
-                       llvm::Attributes::get(CGM.getLLVMContext(), B));
+      Fn->addAttribute(llvm::AttributeSet::FunctionIndex,
+                       llvm::Attribute::get(CGM.getLLVMContext(), B));
     }
   }
 }
@@ -1387,7 +1387,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
     } else if ((k == BuiltinType::Float || k == BuiltinType::Double) ||
                (k == BuiltinType::LongDouble &&
                 getContext().getTargetInfo().getTriple().getOS() ==
-                llvm::Triple::NativeClient)) {
+                llvm::Triple::NaCl)) {
       Current = SSE;
     } else if (k == BuiltinType::LongDouble) {
       Lo = X87;
@@ -1476,7 +1476,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase,
     else if (ET == getContext().DoubleTy ||
              (ET == getContext().LongDoubleTy &&
               getContext().getTargetInfo().getTriple().getOS() ==
-              llvm::Triple::NativeClient))
+              llvm::Triple::NaCl))
       Lo = Hi = SSE;
     else if (ET == getContext().LongDoubleTy)
       Current = ComplexX87;
@@ -2804,6 +2804,9 @@ PPC64_SVR4_ABIInfo::classifyReturnType(QualType RetTy) const {
   if (RetTy->isVoidType())
     return ABIArgInfo::getIgnore();
 
+  if (RetTy->isAnyComplexType())
+    return ABIArgInfo::getDirect();
+
   if (isAggregateTypeForABI(RetTy))
     return ABIArgInfo::getIndirect(0);
 
@@ -3641,7 +3644,7 @@ SetTargetAttributes(const Decl *D, llvm::GlobalValue *GV,
       // OpenCL __kernel functions get a kernel calling convention
       F->setCallingConv(llvm::CallingConv::PTX_Kernel);
       // And kernel functions are not subject to inlining
-      F->addFnAttr(llvm::Attributes::NoInline);
+      F->addFnAttr(llvm::Attribute::NoInline);
     }
   }
 
@@ -3757,7 +3760,7 @@ void MBlazeTargetCodeGenInfo::SetTargetAttributes(const Decl *D,
       F->setCallingConv(CC);
 
       // Step 2: Add attributes goodness.
-      F->addFnAttr(llvm::Attributes::NoInline);
+      F->addFnAttr(llvm::Attribute::NoInline);
   }
 
   // Step 3: Emit _interrupt_handler alias.
@@ -3795,7 +3798,7 @@ void MSP430TargetCodeGenInfo::SetTargetAttributes(const Decl *D,
       F->setCallingConv(llvm::CallingConv::MSP430_INTR);
 
       // Step 2: Add attributes goodness.
-      F->addFnAttr(llvm::Attributes::NoInline);
+      F->addFnAttr(llvm::Attribute::NoInline);
 
       // Step 3: Emit ISR vector alias.
       unsigned Num = attr->getNumber() / 2;
@@ -4152,7 +4155,7 @@ void TCETargetCodeGenInfo::SetTargetAttributes(const Decl *D,
   if (M.getLangOpts().OpenCL) {
     if (FD->hasAttr<OpenCLKernelAttr>()) {
       // OpenCL C Kernel functions are not subject to inlining
-      F->addFnAttr(llvm::Attributes::NoInline);
+      F->addFnAttr(llvm::Attribute::NoInline);
           
       if (FD->hasAttr<ReqdWorkGroupSizeAttr>()) {
 
@@ -4357,7 +4360,7 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
         Kind = ARMABIInfo::AAPCS_VFP;
 
       switch (Triple.getOS()) {
-        case llvm::Triple::NativeClient:
+        case llvm::Triple::NaCl:
           return *(TheTargetCodeGenInfo =
                    new NaClARMTargetCodeGenInfo(Types, Kind));
         default:
@@ -4429,7 +4432,7 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
     case llvm::Triple::MinGW32:
     case llvm::Triple::Cygwin:
       return *(TheTargetCodeGenInfo = new WinX86_64TargetCodeGenInfo(Types));
-    case llvm::Triple::NativeClient:
+    case llvm::Triple::NaCl:
       return *(TheTargetCodeGenInfo = new NaClX86_64TargetCodeGenInfo(Types, HasAVX));
     default:
       return *(TheTargetCodeGenInfo = new X86_64TargetCodeGenInfo(Types,

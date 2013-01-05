@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/CommentParser.h"
-#include "clang/AST/CommentSema.h"
-#include "clang/AST/CommentDiagnostic.h"
 #include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/CommentDiagnostic.h"
+#include "clang/AST/CommentSema.h"
 #include "clang/Basic/SourceManager.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -175,8 +175,7 @@ public:
     memcpy(TextPtr, WordText.c_str(), Length + 1);
     StringRef Text = StringRef(TextPtr, Length);
 
-    formTokenWithChars(Tok, Loc, WordBegin,
-                       Pos.BufferPtr - WordBegin, Text);
+    formTokenWithChars(Tok, Loc, WordBegin, Length, Text);
     return true;
   }
 
@@ -318,7 +317,7 @@ BlockCommandComment *Parser::parseBlockCommand() {
     PC = S.actOnParamCommandStart(Tok.getLocation(),
                                   Tok.getEndLocation(),
                                   Tok.getCommandID());
-  } if (Info->IsTParamCommand) {
+  } else if (Info->IsTParamCommand) {
     IsTParam = true;
     TPC = S.actOnTParamCommandStart(Tok.getLocation(),
                                     Tok.getEndLocation(),

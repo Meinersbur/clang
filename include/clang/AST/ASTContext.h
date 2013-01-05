@@ -15,21 +15,21 @@
 #ifndef LLVM_CLANG_AST_ASTCONTEXT_H
 #define LLVM_CLANG_AST_ASTCONTEXT_H
 
+#include "clang/AST/CanonicalType.h"
+#include "clang/AST/CommentCommandTraits.h"
+#include "clang/AST/Decl.h"
+#include "clang/AST/LambdaMangleContext.h"
+#include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/PrettyPrinter.h"
+#include "clang/AST/RawCommentList.h"
+#include "clang/AST/TemplateName.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/VersionTuple.h"
-#include "clang/AST/Decl.h"
-#include "clang/AST/LambdaMangleContext.h"
-#include "clang/AST/NestedNameSpecifier.h"
-#include "clang/AST/PrettyPrinter.h"
-#include "clang/AST/TemplateName.h"
-#include "clang/AST/Type.h"
-#include "clang/AST/CanonicalType.h"
-#include "clang/AST/RawCommentList.h"
-#include "clang/AST/CommentCommandTraits.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -232,6 +232,8 @@ class ASTContext : public RefCountedBase<ASTContext> {
 
   QualType ObjCConstantStringType;
   mutable RecordDecl *CFConstantStringTypeDecl;
+  
+  mutable QualType ObjCSuperType;
   
   QualType ObjCNSStringType;
 
@@ -716,6 +718,9 @@ public:
   CanQualType PseudoObjectTy, ARCUnbridgedCastTy;
   CanQualType ObjCBuiltinIdTy, ObjCBuiltinClassTy, ObjCBuiltinSelTy;
   CanQualType ObjCBuiltinBoolTy;
+  CanQualType OCLImage1dTy, OCLImage1dArrayTy, OCLImage1dBufferTy;
+  CanQualType OCLImage2dTy, OCLImage2dArrayTy;
+  CanQualType OCLImage3dTy;
 
   // Types for deductions in C++0x [stmt.ranged]'s desugaring. Built on demand.
   mutable QualType AutoDeductTy;     // Deduction against 'auto'.
@@ -1112,7 +1117,11 @@ public:
 
   /// \brief Return the C structure type used to represent constant CFStrings.
   QualType getCFConstantStringType() const;
-
+  
+  /// \brief Returns the C struct type for objc_super
+  QualType getObjCSuperType() const;
+  void setObjCSuperType(QualType ST) { ObjCSuperType = ST; }
+  
   /// Get the structure type used to representation CFStrings, or NULL
   /// if it hasn't yet been built.
   QualType getRawCFConstantStringType() const {

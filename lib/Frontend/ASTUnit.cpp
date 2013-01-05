@@ -12,40 +12,40 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/ASTUnit.h"
-#include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclVisitor.h"
-#include "clang/AST/TypeOrdering.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/AST/TypeOrdering.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/FrontendOptions.h"
 #include "clang/Frontend/MultiplexConsumer.h"
 #include "clang/Frontend/Utils.h"
-#include "clang/Serialization/ASTReader.h"
-#include "clang/Serialization/ASTWriter.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
-#include "clang/Basic/TargetOptions.h"
-#include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/Diagnostic.h"
+#include "clang/Serialization/ASTReader.h"
+#include "clang/Serialization/ASTWriter.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Atomic.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Timer.h"
+#include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/MutexGuard.h"
-#include "llvm/Support/CrashRecoveryContext.h"
-#include <cstdlib>
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Timer.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdio>
+#include <cstdlib>
 #include <sys/stat.h>
 using namespace clang;
 
@@ -310,7 +310,7 @@ static unsigned getDeclShowContexts(NamedDecl *ND,
       Contexts |= (1LL << CodeCompletionContext::CCC_EnumTag);
       
       // Part of the nested-name-specifier in C++0x.
-      if (LangOpts.CPlusPlus0x)
+      if (LangOpts.CPlusPlus11)
         IsNestedNameSpecifier = true;
     } else if (RecordDecl *Record = dyn_cast<RecordDecl>(ND)) {
       if (Record->isUnion())
@@ -2435,9 +2435,6 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
 
   // If the main file has been overridden due to the use of a preamble,
   // make that override happen and introduce the preamble.
-  StoredDiagnostics.insert(StoredDiagnostics.end(),
-                           stored_diag_begin(),
-                           stored_diag_afterDriver_begin());
   if (OverrideMainBuffer) {
     PreprocessorOpts.addRemappedFile(OriginalSourceFile, OverrideMainBuffer);
     PreprocessorOpts.PrecompiledPreambleBytes.first = Preamble.size();
@@ -2459,17 +2456,9 @@ void ASTUnit::CodeComplete(StringRef File, unsigned Line, unsigned Column,
   OwningPtr<SyntaxOnlyAction> Act;
   Act.reset(new SyntaxOnlyAction);
   if (Act->BeginSourceFile(*Clang.get(), Clang->getFrontendOpts().Inputs[0])) {
-    if (OverrideMainBuffer) {
-      std::string ModName = getPreambleFile(this);
-      TranslateStoredDiagnostics(Clang->getModuleManager(), ModName,
-                                 getSourceManager(), PreambleDiagnostics,
-                                 StoredDiagnostics);
-    }
     Act->Execute();
     Act->EndSourceFile();
   }
-
-  checkAndSanitizeDiags(StoredDiagnostics, getSourceManager());
 }
 
 bool ASTUnit::Save(StringRef File) {

@@ -12,21 +12,21 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Lex/ModuleMap.h"
-#include "clang/Lex/Lexer.h"
-#include "clang/Lex/LiteralSupport.h"
-#include "clang/Lex/LexDiagnostic.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TargetOptions.h"
+#include "clang/Lex/LexDiagnostic.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/LiteralSupport.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/PathV2.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/StringSwitch.h"
 #include <stdlib.h>
 using namespace clang;
 
@@ -158,7 +158,20 @@ Module *ModuleMap::findModuleForHeader(const FileEntry *File) {
   
   const DirectoryEntry *Dir = File->getDir();
   llvm::SmallVector<const DirectoryEntry *, 2> SkippedDirs;
+#ifdef LLVM_ON_UNIX
+  // Note: as an egregious but useful hack we use the real path here, because
+  // frameworks moving from top-level frameworks to embedded frameworks tend
+  // to be symlinked from the top-level location to the embedded location,
+  // and we need to resolve lookups as if we had found the embedded location.
+  char RealDirName[PATH_MAX];
+  StringRef DirName;
+  if (realpath(Dir->getName(), RealDirName))
+    DirName = RealDirName;
+  else
+    DirName = Dir->getName();
+#else
   StringRef DirName = Dir->getName();
+#endif
 
   // Keep walking up the directory hierarchy, looking for a directory with
   // an umbrella header.

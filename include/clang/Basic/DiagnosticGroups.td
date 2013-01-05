@@ -143,7 +143,6 @@ def MismatchedParameterTypes : DiagGroup<"mismatched-parameter-types">;
 def MismatchedReturnTypes : DiagGroup<"mismatched-return-types">;
 def MismatchedTags : DiagGroup<"mismatched-tags">;
 def MissingFieldInitializers : DiagGroup<"missing-field-initializers">;
-def ModuleBuild : DiagGroup<"module-build">;
 def NullCharacter : DiagGroup<"null-character">;
 def NullDereference : DiagGroup<"null-dereference">;
 def InitializerOverrides : DiagGroup<"initializer-overrides">;
@@ -406,6 +405,7 @@ def ThreadSafety : DiagGroup<"thread-safety",
                              [ThreadSafetyAttributes, 
                               ThreadSafetyAnalysis,
                               ThreadSafetyPrecise]>;
+def ThreadSafetyBeta : DiagGroup<"thread-safety-beta">;
 
 // Note that putting warnings in -Wall will not disable them by default. If a
 // warning should be active _only_ when -Wall is passed in, mark it as

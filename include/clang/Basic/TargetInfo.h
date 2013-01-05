@@ -15,20 +15,20 @@
 #ifndef LLVM_CLANG_BASIC_TARGETINFO_H
 #define LLVM_CLANG_BASIC_TARGETINFO_H
 
+#include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/LLVM.h"
+#include "clang/Basic/Specifiers.h"
+#include "clang/Basic/TargetOptions.h"
+#include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/DataTypes.h"
-#include "clang/Basic/AddressSpaces.h"
-#include "clang/Basic/TargetOptions.h"
-#include "clang/Basic/VersionTuple.h"
-#include "clang/Basic/Specifiers.h"
 #include <cassert>
-#include <vector>
 #include <string>
+#include <vector>
 
 namespace llvm {
 struct fltSemantics;
@@ -742,13 +742,19 @@ public:
 
   bool isBigEndian() const { return BigEndian; }
 
+  enum CallingConvMethodType {
+    CCMT_Unknown,
+    CCMT_Member,
+    CCMT_NonMember
+  };
+
   /// \brief Gets the default calling convention for the given target and
   /// declaration context.
-  virtual CallingConv getDefaultCallingConv() const {
+  virtual CallingConv getDefaultCallingConv(CallingConvMethodType MT) const {
     // Not all targets will specify an explicit calling convention that we can
     // express.  This will always do the right thing, even though it's not
     // an explicit calling convention.
-    return CC_Default;
+    return CC_C;
   }
 
   enum CallingConvCheckResult {

@@ -67,6 +67,8 @@ def err_drv_command_failed : Error<
   "%0 command failed with exit code %1 (use -v to see invocation)">;
 def err_drv_command_signalled : Error<
   "%0 command failed due to signal (use -v to see invocation)">;
+def err_drv_force_crash : Error<
+  "failing because environment variable '%0' is set">;
 def err_drv_invalid_mfloat_abi : Error<
   "invalid float ABI '%0'">;
 def err_drv_invalid_libcxx_deployment : Error<
@@ -101,8 +103,6 @@ def err_drv_mg_requires_m_or_mm : Error<
   "option '-MG' requires '-M' or '-MM'">;
 def err_drv_asan_android_requires_pie : Error<
   "AddressSanitizer on Android requires '-pie'">;
-def err_drv_sanitizer_requires_pie : Error<
-  "%select{Thread|Memory}0Sanitizer requires '-pie'">;
 def err_drv_unknown_objc_runtime : Error<
   "unknown or ill-formed Objective-C runtime '%0'">;
 
@@ -138,6 +138,8 @@ def warn_drv_objc_gc_unsupported : Warning<
   "Objective-C garbage collection is not supported on this platform, ignoring '%0'">;
 def warn_drv_pch_not_first_include : Warning<
   "precompiled header '%0' was ignored because '%1' is not first '-include'">;
+def warn_missing_sysroot : Warning<"no such sysroot directory: '%0'">,
+  InGroup<DiagGroup<"missing-sysroot">>;
 
 def note_drv_command_failed_diag_msg : Note<
   "diagnostic msg: %0">;

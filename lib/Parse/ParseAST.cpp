@@ -12,17 +12,17 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Parse/ParseAST.h"
-#include "clang/Parse/ParseDiagnostic.h"
-#include "clang/Sema/Sema.h"
-#include "clang/Sema/CodeCompleteConsumer.h"
-#include "clang/Sema/SemaConsumer.h"
-#include "clang/Sema/ExternalSemaSource.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExternalASTSource.h"
 #include "clang/AST/Stmt.h"
+#include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
+#include "clang/Sema/CodeCompleteConsumer.h"
+#include "clang/Sema/ExternalSemaSource.h"
+#include "clang/Sema/Sema.h"
+#include "clang/Sema/SemaConsumer.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include <cstdio>
@@ -129,7 +129,7 @@ void clang::ParseAST(Sema &S, bool PrintStats, bool SkipFunctionBodies) {
       // is due to a top-level semicolon, an action override, or a parse error
       // skipping something.
       if (ADecl && !Consumer->HandleTopLevelDecl(ADecl.get()))
-	return;
+        return;
     } while (!P.ParseTopLevelDecl(ADecl));
   }
 

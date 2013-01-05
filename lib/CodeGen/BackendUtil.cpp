@@ -9,31 +9,32 @@
 
 #include "clang/CodeGen/BackendUtil.h"
 #include "clang/Basic/Diagnostic.h"
-#include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/LangOptions.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
-#include "llvm/Module.h"
-#include "llvm/PassManager.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/SubtargetFeature.h"
+#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Transforms/Instrumentation.h"
+#include "llvm/TargetTransformInfo.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Scalar.h"
 using namespace clang;
 using namespace llvm;
@@ -60,10 +61,8 @@ private:
       CodeGenPasses->add(new DataLayout(TheModule));
       // Add TargetTransformInfo.
       if (TM) {
-        TargetTransformInfo *TTI =
-        new TargetTransformInfo(TM->getScalarTargetTransformInfo(),
-                                TM->getVectorTargetTransformInfo());
-        CodeGenPasses->add(TTI);
+        CodeGenPasses->add(createNoTTIPass(TM->getScalarTargetTransformInfo(),
+                                           TM->getVectorTargetTransformInfo()));
       }
     }
     return CodeGenPasses;
@@ -74,10 +73,9 @@ private:
       PerModulePasses = new PassManager();
       PerModulePasses->add(new DataLayout(TheModule));
       if (TM) {
-        TargetTransformInfo *TTI =
-        new TargetTransformInfo(TM->getScalarTargetTransformInfo(),
-                                TM->getVectorTargetTransformInfo());
-        PerModulePasses->add(TTI);
+        PerModulePasses->add(
+            createNoTTIPass(TM->getScalarTargetTransformInfo(),
+                            TM->getVectorTargetTransformInfo()));
       }
     }
     return PerModulePasses;
@@ -88,10 +86,9 @@ private:
       PerFunctionPasses = new FunctionPassManager(TheModule);
       PerFunctionPasses->add(new DataLayout(TheModule));
       if (TM) {
-        TargetTransformInfo *TTI =
-        new TargetTransformInfo(TM->getScalarTargetTransformInfo(),
-                                TM->getVectorTargetTransformInfo());
-        PerFunctionPasses->add(TTI);
+        PerFunctionPasses->add(
+            createNoTTIPass(TM->getScalarTargetTransformInfo(),
+                            TM->getVectorTargetTransformInfo()));
       }
     }
     return PerFunctionPasses;
@@ -135,14 +132,17 @@ public:
   void EmitAssembly(BackendAction Action, raw_ostream *OS);
 };
 
-// We need this wrapper to access LangOpts from extension functions that
-// we add to the PassManagerBuilder.
+// We need this wrapper to access LangOpts and CGOpts from extension functions
+// that we add to the PassManagerBuilder.
 class PassManagerBuilderWrapper : public PassManagerBuilder {
 public:
-  PassManagerBuilderWrapper(const LangOptions &LangOpts)
-      : PassManagerBuilder(), LangOpts(LangOpts) {}
+  PassManagerBuilderWrapper(const CodeGenOptions &CGOpts,
+                            const LangOptions &LangOpts)
+      : PassManagerBuilder(), CGOpts(CGOpts), LangOpts(LangOpts) {}
+  const CodeGenOptions &getCGOpts() const { return CGOpts; }
   const LangOptions &getLangOpts() const { return LangOpts; }
 private:
+  const CodeGenOptions &CGOpts;
   const LangOptions &LangOpts;
 };
 
@@ -172,21 +172,31 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
                                       PassManagerBase &PM) {
   const PassManagerBuilderWrapper &BuilderWrapper =
       static_cast<const PassManagerBuilderWrapper&>(Builder);
+  const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
   const LangOptions &LangOpts = BuilderWrapper.getLangOpts();
   PM.add(createAddressSanitizerFunctionPass(LangOpts.SanitizeInitOrder,
                                             LangOpts.SanitizeUseAfterReturn,
-                                            LangOpts.SanitizeUseAfterScope));
-  PM.add(createAddressSanitizerModulePass(LangOpts.SanitizeInitOrder));
+                                            LangOpts.SanitizeUseAfterScope,
+                                            CGOpts.SanitizerBlacklistFile));
+  PM.add(createAddressSanitizerModulePass(LangOpts.SanitizeInitOrder,
+                                          CGOpts.SanitizerBlacklistFile));
 }
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
                                    PassManagerBase &PM) {
-  PM.add(createMemorySanitizerPass());
+  const PassManagerBuilderWrapper &BuilderWrapper =
+      static_cast<const PassManagerBuilderWrapper&>(Builder);
+  const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
+  PM.add(createMemorySanitizerPass(CGOpts.MemorySanitizerTrackOrigins,
+                                   CGOpts.SanitizerBlacklistFile));
 }
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
                                    PassManagerBase &PM) {
-  PM.add(createThreadSanitizerPass());
+  const PassManagerBuilderWrapper &BuilderWrapper =
+      static_cast<const PassManagerBuilderWrapper&>(Builder);
+  const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
+  PM.add(createThreadSanitizerPass(CGOpts.SanitizerBlacklistFile));
 }
 
 void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
@@ -200,7 +210,7 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
     Inlining = CodeGenOpts.NoInlining;
   }
 
-  PassManagerBuilderWrapper PMBuilder(LangOpts);
+  PassManagerBuilderWrapper PMBuilder(CodeGenOpts, LangOpts);
   PMBuilder.OptLevel = OptLevel;
   PMBuilder.SizeLevel = CodeGenOpts.OptimizeSize;
 
@@ -288,7 +298,9 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
   if (CodeGenOpts.EmitGcovArcs || CodeGenOpts.EmitGcovNotes) {
     MPM->add(createGCOVProfilerPass(CodeGenOpts.EmitGcovNotes,
                                     CodeGenOpts.EmitGcovArcs,
-                                    TargetTriple.isMacOSX()));
+                                    TargetTriple.isMacOSX(),
+                                    false,
+                                    CodeGenOpts.DisableRedZone));
 
     if (CodeGenOpts.getDebugInfo() == CodeGenOptions::NoDebugInfo)
       MPM->add(createStripSymbolsPass(true));
@@ -466,8 +478,8 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
   PM->add(TLI);
 
   // Add TargetTransformInfo.
-  PM->add(new TargetTransformInfo(TM->getScalarTargetTransformInfo(),
-                                  TM->getVectorTargetTransformInfo()));
+  PM->add(createNoTTIPass(TM->getScalarTargetTransformInfo(),
+                          TM->getVectorTargetTransformInfo()));
 
   // Normal mode, emit a .s or .o file by running the code generator. Note,
   // this also adds codegenerator level optimization passes.

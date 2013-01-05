@@ -9,7 +9,12 @@
 #ifndef CLANG_LIB_DRIVER_SANITIZERARGS_H_
 #define CLANG_LIB_DRIVER_SANITIZERARGS_H_
 
+#include "clang/Driver/Arg.h"
 #include "clang/Driver/ArgList.h"
+#include "clang/Driver/Driver.h"
+#include "clang/Driver/DriverDiagnostic.h"
+#include "clang/Driver/Options.h"
+#include "llvm/ADT/StringSwitch.h"
 
 namespace clang {
 namespace driver {
@@ -34,9 +39,11 @@ class SanitizerArgs {
     NeedsUbsanRt = (Undefined & ~Bounds) | Integer
   };
   unsigned Kind;
+  std::string BlacklistFile;
+  bool MsanTrackOrigins;
 
  public:
-  SanitizerArgs() : Kind(0) {}
+  SanitizerArgs() : Kind(0), BlacklistFile(""), MsanTrackOrigins(false) {}
   /// Parses the sanitizer arguments from an argument list.
   SanitizerArgs(const Driver &D, const ArgList &Args);
 
@@ -57,6 +64,14 @@ class SanitizerArgs {
 #include "clang/Basic/Sanitizers.def"
     SanitizeOpt.pop_back();
     CmdArgs.push_back(Args.MakeArgString(SanitizeOpt));
+    if (!BlacklistFile.empty()) {
+      llvm::SmallString<64> BlacklistOpt("-fsanitize-blacklist=");
+      BlacklistOpt += BlacklistFile;
+      CmdArgs.push_back(Args.MakeArgString(BlacklistOpt));
+    }
+
+    if (MsanTrackOrigins)
+      CmdArgs.push_back(Args.MakeArgString("-fsanitize-memory-track-origins"));
   }
 
  private:
