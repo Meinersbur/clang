@@ -1318,8 +1318,8 @@ public:
 
   Decl *ActOnDeclarator(Scope *S, Declarator &D);
 
-  Decl *HandleDeclarator(Scope *S, Declarator &D,
-                         MultiTemplateParamsArg TemplateParameterLists);
+  NamedDecl *HandleDeclarator(Scope *S, Declarator &D,
+                              MultiTemplateParamsArg TemplateParameterLists);
   void RegisterLocallyScopedExternCDecl(NamedDecl *ND,
                                         const LookupResult &Previous,
                                         Scope *S);
@@ -1669,7 +1669,7 @@ public:
   bool isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New);
 
   /// Attribute merging methods. Return true if a new attribute was added.
-  AvailabilityAttr *mergeAvailabilityAttr(Decl *D, SourceRange Range,
+  AvailabilityAttr *mergeAvailabilityAttr(NamedDecl *D, SourceRange Range,
                                           IdentifierInfo *Platform,
                                           VersionTuple Introduced,
                                           VersionTuple Deprecated,
@@ -1683,9 +1683,10 @@ public:
   FormatAttr *mergeFormatAttr(Decl *D, SourceRange Range, StringRef Format,
                               int FormatIdx, int FirstArg);
   SectionAttr *mergeSectionAttr(Decl *D, SourceRange Range, StringRef Name);
-  bool mergeDeclAttribute(Decl *New, InheritableAttr *Attr);
+  bool mergeDeclAttribute(NamedDecl *New, InheritableAttr *Attr);
 
-  void mergeDeclAttributes(Decl *New, Decl *Old, bool MergeDeprecation = true);
+  void mergeDeclAttributes(NamedDecl *New, Decl *Old,
+                           bool MergeDeprecation = true);
   void MergeTypedefNameDecl(TypedefNameDecl *New, LookupResult &OldDecls);
   bool MergeFunctionDecl(FunctionDecl *New, Decl *Old, Scope *S);
   bool MergeCompatibleFunctionDecls(FunctionDecl *New, FunctionDecl *Old,
@@ -2660,7 +2661,7 @@ public:
                                    SourceLocation StarLoc,
                                    Expr *DestExp);
   StmtResult ActOnContinueStmt(SourceLocation ContinueLoc, Scope *CurScope);
-  StmtResult ActOnBreakStmt(SourceLocation GotoLoc, Scope *CurScope);
+  StmtResult ActOnBreakStmt(SourceLocation BreakLoc, Scope *CurScope);
 
   const VarDecl *getCopyElisionCandidate(QualType ReturnType, Expr *E,
                                          bool AllowFunctionParameters);
@@ -3433,7 +3434,7 @@ public:
   public:
     explicit ImplicitExceptionSpecification(Sema &Self)
       : Self(&Self), ComputedEST(EST_BasicNoexcept) {
-      if (!Self.getLangOpts().CPlusPlus0x)
+      if (!Self.getLangOpts().CPlusPlus11)
         ComputedEST = EST_DynamicNone;
     }
 
@@ -4285,7 +4286,7 @@ public:
                             SourceLocation ColonLoc,
                             AttributeList *Attrs = 0);
 
-  Decl *ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS,
+  NamedDecl *ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS,
                                  Declarator &D,
                                  MultiTemplateParamsArg TemplateParameterLists,
                                  Expr *BitfieldWidth, const VirtSpecifiers &VS,
@@ -4445,8 +4446,8 @@ public:
                                   TypeSourceInfo *TSInfo);
   Decl *ActOnFriendTypeDecl(Scope *S, const DeclSpec &DS,
                             MultiTemplateParamsArg TemplateParams);
-  Decl *ActOnFriendFunctionDecl(Scope *S, Declarator &D,
-                                MultiTemplateParamsArg TemplateParams);
+  NamedDecl *ActOnFriendFunctionDecl(Scope *S, Declarator &D,
+                                     MultiTemplateParamsArg TemplateParams);
 
   QualType CheckConstructorDeclarator(Declarator &D, QualType R,
                                       StorageClass& SC);

@@ -958,7 +958,9 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
 
   StringRef FloatABI = getMipsFloatABI(D, Args);
 
-  if (FloatABI == "soft") {
+  bool IsMips16 = Args.getLastArg(options::OPT_mips16) != NULL;
+
+  if (FloatABI == "soft" || (FloatABI == "hard" && IsMips16)) {
     // Floating point operations and argument passing are soft.
     CmdArgs.push_back("-msoft-float");
     CmdArgs.push_back("-mfloat-abi");
@@ -969,6 +971,11 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
     // Now it is the only method.
     CmdArgs.push_back("-target-feature");
     CmdArgs.push_back("+soft-float");
+
+    if (FloatABI == "hard" && IsMips16) {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-mips16-hard-float");
+    }
   }
   else if (FloatABI == "single") {
     // Restrict the use of hardware floating-point
@@ -2479,6 +2486,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   SanitizerArgs Sanitize(D, Args);
   Sanitize.addArgs(Args, CmdArgs);
+
+  if (!Args.hasFlag(options::OPT_fsanitize_recover,
+                    options::OPT_fno_sanitize_recover,
+                    true))
+    CmdArgs.push_back("-fno-sanitize-recover");
 
   // Report and error for -faltivec on anything other then PowerPC.
   if (const Arg *A = Args.getLastArg(options::OPT_faltivec))
@@ -4677,6 +4689,14 @@ void openbsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
   const Driver &D = getToolChain().getDriver();
   ArgStringList CmdArgs;
 
+  // Silence warning for "clang -g foo.o -o foo"
+  Args.ClaimAllArgs(options::OPT_g_Group);
+  // and "clang -emit-llvm foo.o -o foo"
+  Args.ClaimAllArgs(options::OPT_emit_llvm);
+  // and for "clang -w foo.o -o foo". Other warning options are already
+  // handled somewhere else.
+  Args.ClaimAllArgs(options::OPT_w);
+
   if ((!Args.hasArg(options::OPT_nostdlib)) &&
       (!Args.hasArg(options::OPT_shared))) {
     CmdArgs.push_back("-e");
@@ -4731,6 +4751,10 @@ void openbsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_L);
   Args.AddAllArgs(CmdArgs, options::OPT_T_Group);
   Args.AddAllArgs(CmdArgs, options::OPT_e);
+  Args.AddAllArgs(CmdArgs, options::OPT_s);
+  Args.AddAllArgs(CmdArgs, options::OPT_t);
+  Args.AddAllArgs(CmdArgs, options::OPT_Z_Flag);
+  Args.AddAllArgs(CmdArgs, options::OPT_r);
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
 

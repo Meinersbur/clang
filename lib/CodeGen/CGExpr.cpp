@@ -24,10 +24,10 @@
 #include "clang/Basic/ConvertUTF.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/DataLayout.h"
-#include "llvm/Intrinsics.h"
-#include "llvm/LLVMContext.h"
-#include "llvm/MDBuilder.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/MDBuilder.h"
 using namespace clang;
 using namespace CodeGen;
 
@@ -1583,8 +1583,6 @@ EmitBitCastOfLValueToProperType(CodeGenFunction &CGF,
 
 static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
                                       const Expr *E, const VarDecl *VD) {
-  assert(VD->hasLinkage() && "Var decl must have linkage!");
-
   llvm::Value *V = CGF.CGM.GetAddrOfGlobalVar(VD);
   llvm::Type *RealVarTy = CGF.getTypes().ConvertTypeForMem(VD->getType());
   V = EmitBitCastOfLValueToProperType(CGF, V, RealVarTy);
@@ -1657,7 +1655,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
     // Check if this is a global variable.
-    if (VD->hasLinkage())
+    if (VD->hasLinkage() || VD->isStaticDataMember())
       return EmitGlobalVarDeclLValue(*this, E, VD);
 
     bool isBlockVariable = VD->hasAttr<BlocksAttr>();
@@ -1666,7 +1664,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
                      !VD->getType()->isReferenceType() &&
                      !isBlockVariable;
 
-    llvm::Value *V = LocalDeclMap[VD];
+    llvm::Value *V = LocalDeclMap.lookup(VD);
     if (!V && VD->isStaticLocal()) 
       V = CGM.getStaticLocalDeclAddress(VD);
 
@@ -1992,7 +1990,7 @@ void CodeGenFunction::EmitCheck(llvm::Value *Checked, StringRef CheckName,
 
   llvm::Constant *Info = llvm::ConstantStruct::getAnon(StaticArgs);
   llvm::GlobalValue *InfoPtr =
-      new llvm::GlobalVariable(CGM.getModule(), Info->getType(), true,
+      new llvm::GlobalVariable(CGM.getModule(), Info->getType(), false,
                                llvm::GlobalVariable::PrivateLinkage, Info);
   InfoPtr->setUnnamedAddr(true);
 

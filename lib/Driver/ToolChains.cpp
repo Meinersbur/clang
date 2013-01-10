@@ -966,20 +966,33 @@ Generic_GCC::GCCVersion Linux::GCCVersion::Parse(StringRef VersionText) {
 
 /// \brief Less-than for GCCVersion, implementing a Strict Weak Ordering.
 bool Generic_GCC::GCCVersion::operator<(const GCCVersion &RHS) const {
-  if (Major < RHS.Major) return true; if (Major > RHS.Major) return false;
-  if (Minor < RHS.Minor) return true; if (Minor > RHS.Minor) return false;
+  if (Major != RHS.Major)
+    return Major < RHS.Major;
+  if (Minor != RHS.Minor)
+    return Minor < RHS.Minor;
+  if (Patch != RHS.Patch) {
+    // Note that versions without a specified patch sort higher than those with
+    // a patch.
+    if (RHS.Patch == -1)
+      return true;
+    if (Patch == -1)
+      return false;
 
-  // Note that we rank versions with *no* patch specified is better than ones
-  // hard-coding a patch version. Thus if only the RHS or LHS has no patch,
-  // it wins.
-  if (RHS.Patch == -1 && Patch != -1) return true;
-  if (RHS.Patch != -1 && Patch == -1) return false;
-  if (Patch < RHS.Patch) return true; if (Patch > RHS.Patch) return false;
-  if (PatchSuffix == RHS.PatchSuffix) return false;
+    // Otherwise just sort on the patch itself.
+    return Patch < RHS.Patch;
+  }
+  if (PatchSuffix != RHS.PatchSuffix) {
+    // Sort empty suffixes higher.
+    if (RHS.PatchSuffix.empty())
+      return true;
+    if (PatchSuffix.empty())
+      return false;
 
-  // Finally, between completely tied version numbers, the version with the
-  // suffix loses as we prefer full releases.
-  if (RHS.PatchSuffix.empty()) return true;
+    // Provide a lexicographic sort to make this a total ordering.
+    return PatchSuffix < RHS.PatchSuffix;
+  }
+
+  // The versions are equal.
   return false;
 }
 
@@ -2045,6 +2058,7 @@ enum LinuxDistro {
   DebianLenny,
   DebianSqueeze,
   DebianWheezy,
+  DebianJessie,
   Exherbo,
   RHEL4,
   RHEL5,
@@ -2082,7 +2096,7 @@ static bool IsOpenSuse(enum LinuxDistro Distro) {
 }
 
 static bool IsDebian(enum LinuxDistro Distro) {
-  return Distro >= DebianLenny && Distro <= DebianWheezy;
+  return Distro >= DebianLenny && Distro <= DebianJessie;
 }
 
 static bool IsUbuntu(enum LinuxDistro Distro) {
@@ -2149,6 +2163,8 @@ static LinuxDistro DetectLinuxDistro(llvm::Triple::ArchType Arch) {
       return DebianSqueeze;
     else if (Data.startswith("wheezy/sid")  || Data[0] == '7')
       return DebianWheezy;
+    else if (Data.startswith("jessie/sid")  || Data[0] == '8')
+      return DebianJessie;
     return UnknownDistro;
   }
 
@@ -2313,7 +2329,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     ExtraOpts.push_back("--no-add-needed");
 
   if (Distro == DebianSqueeze || Distro == DebianWheezy ||
-      IsOpenSuse(Distro) ||
+      Distro == DebianJessie || IsOpenSuse(Distro) ||
       (IsRedhat(Distro) && Distro != RHEL4 && Distro != RHEL5) ||
       (IsUbuntu(Distro) && Distro >= UbuntuKarmic))
     ExtraOpts.push_back("--build-id");

@@ -633,7 +633,7 @@ ASTContext::ASTContext(LangOptions& LOpts, SourceManager &SM,
     Comments(SM), CommentsLoaded(false),
     CommentCommandTraits(BumpAlloc),
     LastSDM(0, 0),
-    UniqueBlockByRefTypeID(0) 
+    UniqueBlockByRefTypeID(0)
 {
   if (size_reserve > 0) Types.reserve(size_reserve);
   TUDecl = TranslationUnitDecl::Create(*this);
@@ -889,6 +889,8 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
                        SignedCharTy : BoolTy);
   
   ObjCConstantStringType = QualType();
+  
+  ObjCSuperType = QualType();
 
   // void * type
   VoidPtrTy = getPointerType(VoidTy);
@@ -947,6 +949,7 @@ ASTContext::setInstantiatedFromStaticDataMember(VarDecl *Inst, VarDecl *Tmpl,
          "Already noted what static data member was instantiated from");
   InstantiatedFromStaticDataMember[Inst] 
     = new (*this) MemberSpecializationInfo(Tmpl, TSK, PointOfInstantiation);
+  Inst->ClearLVCache();
 }
 
 FunctionDecl *ASTContext::getClassScopeSpecializationPattern(
@@ -4294,6 +4297,16 @@ QualType ASTContext::getCFConstantStringType() const {
   return getTagDeclType(CFConstantStringTypeDecl);
 }
 
+QualType ASTContext::getObjCSuperType() const {
+  if (ObjCSuperType.isNull()) {
+    RecordDecl *ObjCSuperTypeDecl  =
+      CreateRecordDecl(*this, TTK_Struct, TUDecl, &Idents.get("objc_super"));
+    TUDecl->addDecl(ObjCSuperTypeDecl);
+    ObjCSuperType = getTagDeclType(ObjCSuperTypeDecl);
+  }
+  return ObjCSuperType;
+}
+
 void ASTContext::setCFConstantStringType(QualType T) {
   const RecordType *Rec = T->getAs<RecordType>();
   assert(Rec && "Invalid CFConstantStringType");
@@ -4857,6 +4870,7 @@ static char getObjCEncodingForPrimitiveKind(const ASTContext *C,
 #include "clang/AST/BuiltinTypes.def"
       llvm_unreachable("invalid builtin type for @encode");
     }
+    llvm_unreachable("invalid BuiltinType::Kind value");
 }
 
 static char ObjCEncodingForEnumType(const ASTContext *C, const EnumType *ET) {
@@ -7205,6 +7219,9 @@ static QualType DecodeTypeFromStr(const char *&Str, const ASTContext &Context,
   case 'H':
     Type = Context.getObjCSelType();
     break;
+  case 'M':
+    Type = Context.getObjCSuperType();
+    break;
   case 'a':
     Type = Context.getBuiltinVaListType();
     assert(!Type.isNull() && "builtin va list type not initialized!");
@@ -7451,9 +7468,8 @@ GVALinkage ASTContext::GetGVALinkageForVariable(const VarDecl *VD) {
     TSK = VD->getTemplateSpecializationKind();
 
   Linkage L = VD->getLinkage();
-  if (L == ExternalLinkage && getLangOpts().CPlusPlus &&
-      VD->getType()->getLinkage() == UniqueExternalLinkage)
-    L = UniqueExternalLinkage;
+  assert (!(L == ExternalLinkage && getLangOpts().CPlusPlus &&
+            VD->getType()->getLinkage() == UniqueExternalLinkage));
 
   switch (L) {
   case NoLinkage:

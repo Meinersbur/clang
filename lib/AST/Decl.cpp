@@ -268,8 +268,8 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
   if (D->isInAnonymousNamespace()) {
     const VarDecl *Var = dyn_cast<VarDecl>(D);
     const FunctionDecl *Func = dyn_cast<FunctionDecl>(D);
-    if ((!Var || !Var->getDeclContext()->isExternCContext()) &&
-        (!Func || !Func->getDeclContext()->isExternCContext()))
+    if ((!Var || !Var->hasCLanguageLinkage()) &&
+        (!Func || !Func->hasCLanguageLinkage()))
       return LinkageInfo::uniqueExternal();
   }
 
@@ -634,6 +634,31 @@ LinkageInfo NamedDecl::getLinkageAndVisibility() const {
   CachedLinkage = LV.linkage();
   CacheValidAndVisibility = LV.visibility() + 1;
   CachedVisibilityExplicit = LV.visibilityExplicit();
+
+#ifndef NDEBUG
+  // In C (because of gnu inline) and in c++ with microsoft extensions an
+  // static can follow an extern, so we can have two decls with different
+  // linkages.
+  const LangOptions &Opts = getASTContext().getLangOpts();
+  if (!Opts.CPlusPlus || Opts.MicrosoftExt)
+    return LV;
+
+  // We have just computed the linkage for this decl. By induction we know
+  // that all other computed linkages match, check that the one we just computed
+  // also does.
+  NamedDecl *D = NULL;
+  for (redecl_iterator I = redecls_begin(), E = redecls_end(); I != E; ++I) {
+    NamedDecl *T = cast<NamedDecl>(*I);
+    if (T == this)
+      continue;
+    if (T->CacheValidAndVisibility != 0) {
+      D = T;
+      break;
+    }
+  }
+  assert(!D || D->CachedLinkage == CachedLinkage);
+#endif
+
   return LV;
 }
 
@@ -772,11 +797,15 @@ static LinkageInfo computeLVForDecl(const NamedDecl *D, bool OnlyTemplate) {
   //   one such matching entity, the program is ill-formed. Otherwise,
   //   if no matching entity is found, the block scope entity receives
   //   external linkage.
-  if (D->getLexicalDeclContext()->isFunctionOrMethod()) {
+  if (D->getDeclContext()->isFunctionOrMethod()) {
     if (const FunctionDecl *Function = dyn_cast<FunctionDecl>(D)) {
       if (Function->isInAnonymousNamespace() &&
           !Function->getDeclContext()->isExternCContext())
         return LinkageInfo::uniqueExternal();
+
+      // This is a "void f();" which got merged with a file static.
+      if (Function->getStorageClass() == SC_Static)
+        return LinkageInfo::internal();
 
       LinkageInfo LV;
       if (!OnlyTemplate) {
@@ -1177,10 +1206,10 @@ SourceRange VarDecl::getSourceRange() const {
   return DeclaratorDecl::getSourceRange();
 }
 
-template<typename decl_type>
-static bool hasCLanguageLinkageTemplate(const decl_type &D) {
+template<typename T>
+static bool hasCLanguageLinkageTemplate(const T &D) {
   // Language linkage is a C++ concept, but saying that everything in C has
-  // C language linkage fits the implementation nicelly.
+  // C language linkage fits the implementation nicely.
   ASTContext &Context = D.getASTContext();
   if (!Context.getLangOpts().CPlusPlus)
     return true;
@@ -1195,7 +1224,7 @@ static bool hasCLanguageLinkageTemplate(const decl_type &D) {
   // If the first decl is in an extern "C" context, any other redeclaration
   // will have C language linkage. If the first one is not in an extern "C"
   // context, we would have reported an error for any other decl being in one.
-  const decl_type *First = D.getFirstDeclaration();
+  const T *First = D.getFirstDeclaration();
   return First->getDeclContext()->isExternCContext();
 }
 
@@ -1385,7 +1414,7 @@ bool VarDecl::isUsableInConstantExpressions(ASTContext &C) const {
 
   // In C++11, any variable of reference type can be used in a constant
   // expression if it is initialized by a constant expression.
-  if (Lang.CPlusPlus0x && getType()->isReferenceType())
+  if (Lang.CPlusPlus11 && getType()->isReferenceType())
     return true;
 
   // Only const objects can be used in constant expressions in C++. C++98 does
@@ -1401,7 +1430,7 @@ bool VarDecl::isUsableInConstantExpressions(ASTContext &C) const {
 
   // Additionally, in C++11, non-volatile constexpr variables can be used in
   // constant expressions.
-  return Lang.CPlusPlus0x && isConstexpr();
+  return Lang.CPlusPlus11 && isConstexpr();
 }
 
 /// Convert the initializer for this declaration to the elaborated EvaluatedStmt
@@ -1457,7 +1486,7 @@ APValue *VarDecl::evaluateValue(
 
   // In C++11, we have determined whether the initializer was a constant
   // expression as a side-effect.
-  if (getASTContext().getLangOpts().CPlusPlus0x && !Eval->CheckedICE) {
+  if (getASTContext().getLangOpts().CPlusPlus11 && !Eval->CheckedICE) {
     Eval->CheckedICE = true;
     Eval->IsICE = Result && Notes.empty();
   }
@@ -1481,7 +1510,7 @@ bool VarDecl::checkInitIsICE() const {
 
   // In C++11, evaluate the initializer to check whether it's a constant
   // expression.
-  if (getASTContext().getLangOpts().CPlusPlus0x) {
+  if (getASTContext().getLangOpts().CPlusPlus11) {
     llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
     evaluateValue(Notes);
     return Eval->IsICE;
@@ -2440,7 +2469,7 @@ unsigned FunctionDecl::getMemoryFunctionKind() const {
     return Builtin::BIstrlen;
 
   default:
-    if (isExternC()) {
+    if (hasCLanguageLinkage()) {
       if (FnInfo->isStr("memset"))
         return Builtin::BImemset;
       else if (FnInfo->isStr("memcpy"))
