@@ -4004,7 +4004,7 @@ TryToFixInvalidVariablyModifiedTypeSourceInfo(TypeSourceInfo *TInfo,
   return FixedTInfo;
 }
 
-/// \brief Register the given locally-scoped external C declaration so
+/// \brief Register the given locally-scoped extern "C" declaration so
 /// that it can be found later for redeclarations
 void
 Sema::RegisterLocallyScopedExternCDecl(NamedDecl *ND,
@@ -4013,15 +4013,15 @@ Sema::RegisterLocallyScopedExternCDecl(NamedDecl *ND,
   assert(ND->getLexicalDeclContext()->isFunctionOrMethod() &&
          "Decl is not a locally-scoped decl!");
   // Note that we have a locally-scoped external with this name.
-  LocallyScopedExternalDecls[ND->getDeclName()] = ND;
+  LocallyScopedExternCDecls[ND->getDeclName()] = ND;
 
   if (!Previous.isSingleResult())
     return;
 
   NamedDecl *PrevDecl = Previous.getFoundDecl();
 
-  // If there was a previous declaration of this variable, it may be
-  // in our identifier chain. Update the identifier chain with the new
+  // If there was a previous declaration of this entity, it may be in
+  // our identifier chain. Update the identifier chain with the new
   // declaration.
   if (S && IdResolver.ReplaceDecl(PrevDecl, ND)) {
     // The previous declaration was found on the identifer resolver
@@ -4045,20 +4045,20 @@ Sema::RegisterLocallyScopedExternCDecl(NamedDecl *ND,
 }
 
 llvm::DenseMap<DeclarationName, NamedDecl *>::iterator
-Sema::findLocallyScopedExternalDecl(DeclarationName Name) {
+Sema::findLocallyScopedExternCDecl(DeclarationName Name) {
   if (ExternalSource) {
     // Load locally-scoped external decls from the external source.
     SmallVector<NamedDecl *, 4> Decls;
-    ExternalSource->ReadLocallyScopedExternalDecls(Decls);
+    ExternalSource->ReadLocallyScopedExternCDecls(Decls);
     for (unsigned I = 0, N = Decls.size(); I != N; ++I) {
       llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-        = LocallyScopedExternalDecls.find(Decls[I]->getDeclName());
-      if (Pos == LocallyScopedExternalDecls.end())
-        LocallyScopedExternalDecls[Decls[I]->getDeclName()] = Decls[I];
+        = LocallyScopedExternCDecls.find(Decls[I]->getDeclName());
+      if (Pos == LocallyScopedExternCDecls.end())
+        LocallyScopedExternCDecls[Decls[I]->getDeclName()] = Decls[I];
     }
   }
   
-  return LocallyScopedExternalDecls.find(Name);
+  return LocallyScopedExternCDecls.find(Name);
 }
 
 /// \brief Diagnose function specifiers on a declaration of an identifier that
@@ -4691,6 +4691,14 @@ void Sema::CheckShadow(Scope *S, VarDecl *D) {
   CheckShadow(S, D, R);
 }
 
+template<typename T>
+static bool mayConflictWithNonVisibleExternC(const T *ND) {
+  VarDecl::StorageClass SC = ND->getStorageClass();
+  if (ND->hasCLanguageLinkage() && (SC == SC_Extern || SC == SC_PrivateExtern))
+    return true;
+  return ND->getDeclContext()->isTranslationUnit();
+}
+
 /// \brief Perform semantic checking on a newly-created variable
 /// declaration.
 ///
@@ -4793,13 +4801,12 @@ bool Sema::CheckVariableDeclaration(VarDecl *NewVD,
     NewVD->setTypeSourceInfo(FixedTInfo);
   }
 
-  if (Previous.empty() && NewVD->isExternC()) {
-    // Since we did not find anything by this name and we're declaring
-    // an extern "C" variable, look for a non-visible extern "C"
-    // declaration with the same name.
+  if (Previous.empty() && mayConflictWithNonVisibleExternC(NewVD)) {
+    // Since we did not find anything by this name, look for a non-visible
+    // extern "C" declaration with the same name.
     llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-      = findLocallyScopedExternalDecl(NewVD->getDeclName());
-    if (Pos != LocallyScopedExternalDecls.end())
+      = findLocallyScopedExternCDecl(NewVD->getDeclName());
+    if (Pos != LocallyScopedExternCDecls.end())
       Previous.addDecl(Pos->second);
   }
 
@@ -6146,13 +6153,12 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
          && "Variably modified return types are not handled here");
 
   // Check for a previous declaration of this name.
-  if (Previous.empty() && NewFD->isExternC()) {
-    // Since we did not find anything by this name and we're declaring
-    // an extern "C" function, look for a non-visible extern "C"
-    // declaration with the same name.
+  if (Previous.empty() && mayConflictWithNonVisibleExternC(NewFD)) {
+    // Since we did not find anything by this name, look for a non-visible
+    // extern "C" declaration with the same name.
     llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-      = findLocallyScopedExternalDecl(NewFD->getDeclName());
-    if (Pos != LocallyScopedExternalDecls.end())
+      = findLocallyScopedExternCDecl(NewFD->getDeclName());
+    if (Pos != LocallyScopedExternCDecls.end())
       Previous.addDecl(Pos->second);
   }
 
@@ -8291,8 +8297,8 @@ NamedDecl *Sema::ImplicitlyDefineFunction(SourceLocation Loc,
   // this name as a function or variable. If so, use that
   // (non-visible) declaration, and complain about it.
   llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-    = findLocallyScopedExternalDecl(&II);
-  if (Pos != LocallyScopedExternalDecls.end()) {
+    = findLocallyScopedExternCDecl(&II);
+  if (Pos != LocallyScopedExternCDecls.end()) {
     Diag(Loc, diag::warn_use_out_of_scope_declaration) << Pos->second;
     Diag(Pos->second->getLocation(), diag::note_previous_declaration);
     return Pos->second;

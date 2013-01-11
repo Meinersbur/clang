@@ -502,7 +502,8 @@ public:
   virtual void EmitSynchronizedStmt(CodeGenFunction &CGF,
                                     const ObjCAtSynchronizedStmt &S);
   virtual void EmitThrowStmt(CodeGenFunction &CGF,
-                             const ObjCAtThrowStmt &S);
+                             const ObjCAtThrowStmt &S,
+                             bool ClearInsertionPoint=true);
   virtual llvm::Value * EmitObjCWeakRead(CodeGenFunction &CGF,
                                          llvm::Value *AddrWeakObj);
   virtual void EmitObjCWeakAssign(CodeGenFunction &CGF,
@@ -674,6 +675,8 @@ class CGObjCGNUstep : public CGObjCGNU {
     }
   public:
     CGObjCGNUstep(CodeGenModule &Mod) : CGObjCGNU(Mod, 9, 3) {
+      ObjCRuntime R = CGM.getLangOpts().ObjCRuntime;
+
       llvm::StructType *SlotStructTy = llvm::StructType::get(PtrTy,
           PtrTy, PtrTy, IntTy, IMPTy, NULL);
       SlotTy = llvm::PointerType::getUnqual(SlotStructTy);
@@ -692,6 +695,15 @@ class CGObjCGNUstep : public CGObjCGNU {
         ExitCatchFn.init(&CGM, "__cxa_end_catch", VoidTy, NULL);
         // void _Unwind_Resume_or_Rethrow(void*)
         ExceptionReThrowFn.init(&CGM, "_Unwind_Resume_or_Rethrow", VoidTy,
+            PtrTy, NULL);
+      } else if (R.getVersion() >= VersionTuple(1, 7)) {
+        llvm::Type *VoidTy = llvm::Type::getVoidTy(VMContext);
+        // id objc_begin_catch(void *e)
+        EnterCatchFn.init(&CGM, "objc_begin_catch", IdTy, PtrTy, NULL);
+        // void objc_end_catch(void)
+        ExitCatchFn.init(&CGM, "objc_end_catch", VoidTy, NULL);
+        // void _Unwind_Resume_or_Rethrow(void*)
+        ExceptionReThrowFn.init(&CGM, "objc_exception_rethrow", VoidTy,
             PtrTy, NULL);
       }
       llvm::Type *VoidTy = llvm::Type::getVoidTy(VMContext);
@@ -2637,7 +2649,8 @@ void CGObjCGNU::EmitTryStmt(CodeGenFunction &CGF,
 }
 
 void CGObjCGNU::EmitThrowStmt(CodeGenFunction &CGF,
-                              const ObjCAtThrowStmt &S) {
+                              const ObjCAtThrowStmt &S,
+                              bool ClearInsertionPoint) {
   llvm::Value *ExceptionAsObject;
 
   if (const Expr *ThrowExpr = S.getThrowExpr()) {
@@ -2653,7 +2666,8 @@ void CGObjCGNU::EmitThrowStmt(CodeGenFunction &CGF,
       CGF.EmitCallOrInvoke(ExceptionThrowFn, ExceptionAsObject);
   Throw.setDoesNotReturn();
   CGF.Builder.CreateUnreachable();
-  CGF.Builder.ClearInsertionPoint();
+  if (ClearInsertionPoint)
+    CGF.Builder.ClearInsertionPoint();
 }
 
 llvm::Value * CGObjCGNU::EmitObjCWeakRead(CodeGenFunction &CGF,
