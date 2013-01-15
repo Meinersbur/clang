@@ -2393,7 +2393,7 @@ bool CursorVisitor::Visit(Stmt *S) {
 }
 
 namespace {
-typedef llvm::SmallVector<SourceRange, 4> RefNamePieces;
+typedef SmallVector<SourceRange, 4> RefNamePieces;
 RefNamePieces buildPieces(unsigned NameFlags, bool IsMemberRefExpr, 
                           const DeclarationNameInfo &NI, 
                           const SourceRange &QLoc, 
@@ -4462,7 +4462,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::CXXConversion: {
     const FunctionDecl *Def = 0;
     if (cast<FunctionDecl>(D)->getBody(Def))
-      return MakeCXCursor(const_cast<FunctionDecl *>(Def), TU);
+      return MakeCXCursor(Def, TU);
     return clang_getNullCursor();
   }
 
@@ -4935,7 +4935,7 @@ class AnnotateTokensWorker {
     SourceRange CursorRange;
     unsigned BeforeChildrenTokenIdx;
   };
-  llvm::SmallVector<PostChildrenInfo, 8> PostChildrenInfos;
+  SmallVector<PostChildrenInfo, 8> PostChildrenInfos;
   
   bool MoreTokens() const { return TokIdx < NumTokens; }
   unsigned NextToken() const { return TokIdx; }
@@ -6233,7 +6233,7 @@ MacroInfo *cxindex::getMacroInfo(const IdentifierInfo &II,
 
   ASTUnit *Unit = static_cast<ASTUnit *>(TU->TUData);
   Preprocessor &PP = Unit->getPreprocessor();
-  MacroInfo *MI = PP.getMacroInfoHistory(const_cast<IdentifierInfo*>(&II));
+  MacroInfo *MI = PP.getMacroInfoHistory(&II);
   while (MI) {
     if (MacroDefLoc == MI->getDefinitionLoc())
       return MI;
@@ -6391,7 +6391,7 @@ cxindex::Logger::~Logger() {
 
   static llvm::TimeRecord sBeginTR = llvm::TimeRecord::getCurrentTime();
 
-  llvm::raw_ostream &OS = llvm::errs();
+  raw_ostream &OS = llvm::errs();
   OS << "[libclang:" << Name << ':';
 
   // FIXME: Portability.

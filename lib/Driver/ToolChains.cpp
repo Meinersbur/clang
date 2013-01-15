@@ -404,9 +404,10 @@ void Darwin::AddDeploymentTarget(DerivedArgList &Args) const {
       getDriver().Diag(clang::diag::warn_missing_sysroot) << A->getValue();
   } else {
     if (char *env = ::getenv("SDKROOT")) {
-      // We only use this value as the default if it is an absolute path and
-      // exists.
-      if (llvm::sys::path::is_absolute(env) && llvm::sys::fs::exists(env)) {
+      // We only use this value as the default if it is an absolute path,
+      // exists, and it is not the root path.
+      if (llvm::sys::path::is_absolute(env) && llvm::sys::fs::exists(env) &&
+          StringRef(env) != "/") {
         Args.append(Args.MakeSeparateArg(
                       0, Opts.getOption(options::OPT_isysroot), env));
       }
@@ -1646,7 +1647,7 @@ StringRef Hexagon_TC::GetTargetCPU(const ArgList &Args)
   // Select the default CPU (v4) if none was given or detection failed.
   Arg *A = GetLastHexagonArchArg (Args);
   if (A) {
-    llvm::StringRef WhichHexagon = A->getValue();
+    StringRef WhichHexagon = A->getValue();
     if (WhichHexagon.startswith("hexagon"))
       return WhichHexagon.substr(sizeof("hexagon") - 1);
     if (WhichHexagon != "")

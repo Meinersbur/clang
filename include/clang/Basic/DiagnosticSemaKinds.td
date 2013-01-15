@@ -1118,8 +1118,6 @@ def note_nontrivial_variadic : Note<"because it is a variadic function">;
 def note_nontrivial_subobject : Note<
   "because the function selected to %select{construct|copy|move|copy|move|"
   "destroy}2 %select{base class|field}0 of type %1 is not trivial">;
-def note_nontrivial_user_declared_ctor : Note<
-  "because type %0 has a user-declared constructor">;
 def note_nontrivial_objc_ownership : Note<
   "because type %0 has a member with %select{no|no|__strong|__weak|"
   "__autoreleasing}1 ownership">;
@@ -1763,6 +1761,9 @@ def warn_attribute_after_definition_ignored : Warning<
    InGroup<IgnoredAttributes>;
 def warn_unknown_attribute_ignored : Warning<
   "unknown attribute %0 ignored">, InGroup<UnknownAttributes>;
+def warn_cxx11_gnu_attribute_on_type : Warning<
+  "attribute %0 ignored, because it cannot be applied to a type">,
+  InGroup<IgnoredAttributes>;
 def warn_unhandled_ms_attribute_ignored : Warning<
   "__declspec attribute %0 is not supported">, 
   InGroup<IgnoredAttributes>;
@@ -1878,6 +1879,16 @@ def warn_availability_version_ordering : Warning<
   "attribute ignored">, InGroup<Availability>;
 def warn_mismatched_availability: Warning<
   "availability does not match previous declaration">, InGroup<Availability>;
+def warn_mismatched_availability_override : Warning<
+  "overriding method %select{introduced after|"
+  "deprecated before|obsoleted before}0 overridden method on %1 (%2 vs. %3)">, 
+  InGroup<Availability>;
+def warn_mismatched_availability_override_unavail : Warning<
+  "overriding method cannot be unavailable on %0 when its overridden method is "
+  "available">,
+  InGroup<Availability>;
+def note_overridden_method : Note<
+  "overridden method is here">;
 
 // Thread Safety Attributes
 def warn_thread_attribute_ignored : Warning<
@@ -4325,8 +4336,6 @@ def error_no_super_class_message : Error<
   "no @interface declaration found in class messaging of %0">;
 def error_root_class_cannot_use_super : Error<
   "%0 cannot use 'super' because it is a root class">;
-def err_invalid_receiver_to_message : Error<
-  "invalid receiver to message expression">;
 def err_invalid_receiver_to_message_super : Error<
   "'super' is only valid in a method body">;
 def err_invalid_receiver_class_message : Error<
@@ -4625,8 +4634,6 @@ let CategoryName = "Lambda Issue" in {
     "cannot deduce lambda return type from initializer list">;
   def err_lambda_capture_default_arg : Error<
     "lambda expression in default argument cannot capture any entity">;
-  def err_lambda_unexpanded_pack : Error<
-    "unexpanded function parameter pack capture is unsupported">;
   def err_lambda_incomplete_result : Error<
     "incomplete result type %0 in lambda expression">;
   def err_lambda_objc_object_result : Error<
@@ -6082,7 +6089,7 @@ def err_module_private_local_class : Error<
   "local %select{struct|interface|union|class|enum}0 cannot be declared "
   "__module_private__">;
 def err_module_private_definition : Error<
-  "definition of %0 must be imported before it is required">;
+  "definition of %0 must be imported from module '%1' before it is required">;
 }
 
 let CategoryName = "Documentation Issue" in {

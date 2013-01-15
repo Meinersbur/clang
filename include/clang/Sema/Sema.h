@@ -275,12 +275,6 @@ public:
   /// This is only necessary for issuing pretty diagnostics.
   ExtVectorDeclsType ExtVectorDecls;
 
-  /// \brief The set of types for which we have already complained about the
-  /// definitions being hidden.
-  ///
-  /// This set is used to suppress redundant diagnostics.
-  llvm::SmallPtrSet<NamedDecl *, 4> HiddenDefinitions;
-
   /// FieldCollector - Collects CXXFieldDecls during parsing of C++ classes.
   OwningPtr<CXXFieldCollector> FieldCollector;
 
@@ -546,7 +540,7 @@ public:
   RecordDecl *MSVCGuidDecl;
 
   /// \brief Caches identifiers/selectors for NSFoundation APIs.
-  llvm::OwningPtr<NSAPI> NSAPIObj;
+  OwningPtr<NSAPI> NSAPIObj;
 
   /// \brief The declaration of the Objective-C NSNumber class.
   ObjCInterfaceDecl *NSNumberDecl;
@@ -636,7 +630,7 @@ public:
 
     /// \brief The lambdas that are present within this context, if it
     /// is indeed an unevaluated context.
-    llvm::SmallVector<LambdaExpr *, 2> Lambdas;
+    SmallVector<LambdaExpr *, 2> Lambdas;
 
     /// \brief The declaration that provides context for the lambda expression
     /// if the normal declaration context does not suffice, e.g., in a
@@ -652,11 +646,11 @@ public:
 
     /// \brief If we are processing a decltype type, a set of call expressions
     /// for which we have deferred checking the completeness of the return type.
-    llvm::SmallVector<CallExpr*, 8> DelayedDecltypeCalls;
+    SmallVector<CallExpr *, 8> DelayedDecltypeCalls;
 
     /// \brief If we are processing a decltype type, a set of temporary binding
     /// expressions for which we have deferred checking the destructor.
-    llvm::SmallVector<CXXBindTemporaryExpr*, 8> DelayedDecltypeBinds;
+    SmallVector<CXXBindTemporaryExpr *, 8> DelayedDecltypeBinds;
 
     ExpressionEvaluationContextRecord(ExpressionEvaluationContext Context,
                                       unsigned NumCleanupObjects,
@@ -1456,6 +1450,14 @@ public:
   DeclResult ActOnModuleImport(SourceLocation AtLoc, SourceLocation ImportLoc,
                                ModuleIdPath Path);
 
+  /// \brief Create an implicit import of the given module at the given
+  /// source location.
+  ///
+  /// This routine is typically used for error recovery, when the entity found
+  /// by name lookup is actually hidden within a module that we know about but
+  /// the user has forgotten to import.
+  void createImplicitModuleImport(SourceLocation Loc, Module *Mod);
+
   /// \brief Retrieve a suitable printing policy.
   PrintingPolicy getPrintingPolicy() const {
     return getPrintingPolicy(Context, PP);
@@ -1552,7 +1554,7 @@ public:
 
   // This is used for both record definitions and ObjC interface declarations.
   void ActOnFields(Scope* S, SourceLocation RecLoc, Decl *TagDecl,
-                   llvm::ArrayRef<Decl *> Fields,
+                   ArrayRef<Decl *> Fields,
                    SourceLocation LBrac, SourceLocation RBrac,
                    AttributeList *AttrList);
 
@@ -1675,7 +1677,8 @@ public:
                                           VersionTuple Deprecated,
                                           VersionTuple Obsoleted,
                                           bool IsUnavailable,
-                                          StringRef Message);
+                                          StringRef Message,
+                                          bool Override);
   VisibilityAttr *mergeVisibilityAttr(Decl *D, SourceRange Range,
                                       VisibilityAttr::VisibilityType Vis);
   DLLImportAttr *mergeDLLImportAttr(Decl *D, SourceRange Range);
@@ -1683,10 +1686,24 @@ public:
   FormatAttr *mergeFormatAttr(Decl *D, SourceRange Range, StringRef Format,
                               int FormatIdx, int FirstArg);
   SectionAttr *mergeSectionAttr(Decl *D, SourceRange Range, StringRef Name);
-  bool mergeDeclAttribute(NamedDecl *New, InheritableAttr *Attr);
+  bool mergeDeclAttribute(NamedDecl *New, InheritableAttr *Attr,
+                          bool Override);
+
+  /// \brief Describes the kind of merge to perform for availability
+  /// attributes (including "deprecated", "unavailable", and "availability").
+  enum AvailabilityMergeKind {
+    /// \brief Don't merge availability attributes at all.
+    AMK_None,
+    /// \brief Merge availability attributes for a redeclaration, which requires
+    /// an exact match.
+    AMK_Redeclaration,
+    /// \brief Merge availability attributes for an override, which requires
+    /// an exact match or a weakening of constraints.
+    AMK_Override
+  };
 
   void mergeDeclAttributes(NamedDecl *New, Decl *Old,
-                           bool MergeDeprecation = true);
+                           AvailabilityMergeKind AMK = AMK_Redeclaration);
   void MergeTypedefNameDecl(TypedefNameDecl *New, LookupResult &OldDecls);
   bool MergeFunctionDecl(FunctionDecl *New, Decl *Old, Scope *S);
   bool MergeCompatibleFunctionDecls(FunctionDecl *New, FunctionDecl *Old,
@@ -1897,13 +1914,13 @@ public:
 
   void AddOverloadCandidate(FunctionDecl *Function,
                             DeclAccessPair FoundDecl,
-                            llvm::ArrayRef<Expr *> Args,
+                            ArrayRef<Expr *> Args,
                             OverloadCandidateSet& CandidateSet,
                             bool SuppressUserConversions = false,
                             bool PartialOverloading = false,
                             bool AllowExplicit = false);
   void AddFunctionCandidates(const UnresolvedSetImpl &Functions,
-                             llvm::ArrayRef<Expr *> Args,
+                             ArrayRef<Expr *> Args,
                              OverloadCandidateSet& CandidateSet,
                              bool SuppressUserConversions = false,
                             TemplateArgumentListInfo *ExplicitTemplateArgs = 0);
@@ -1917,7 +1934,7 @@ public:
                           DeclAccessPair FoundDecl,
                           CXXRecordDecl *ActingContext, QualType ObjectType,
                           Expr::Classification ObjectClassification,
-                          llvm::ArrayRef<Expr *> Args,
+                          ArrayRef<Expr *> Args,
                           OverloadCandidateSet& CandidateSet,
                           bool SuppressUserConversions = false);
   void AddMethodTemplateCandidate(FunctionTemplateDecl *MethodTmpl,
@@ -1926,13 +1943,13 @@ public:
                                  TemplateArgumentListInfo *ExplicitTemplateArgs,
                                   QualType ObjectType,
                                   Expr::Classification ObjectClassification,
-                                  llvm::ArrayRef<Expr *> Args,
+                                  ArrayRef<Expr *> Args,
                                   OverloadCandidateSet& CandidateSet,
                                   bool SuppressUserConversions = false);
   void AddTemplateOverloadCandidate(FunctionTemplateDecl *FunctionTemplate,
                                     DeclAccessPair FoundDecl,
                                  TemplateArgumentListInfo *ExplicitTemplateArgs,
-                                    llvm::ArrayRef<Expr *> Args,
+                                    ArrayRef<Expr *> Args,
                                     OverloadCandidateSet& CandidateSet,
                                     bool SuppressUserConversions = false);
   void AddConversionCandidate(CXXConversionDecl *Conversion,
@@ -1949,7 +1966,7 @@ public:
                              DeclAccessPair FoundDecl,
                              CXXRecordDecl *ActingContext,
                              const FunctionProtoType *Proto,
-                             Expr *Object, llvm::ArrayRef<Expr*> Args,
+                             Expr *Object, ArrayRef<Expr *> Args,
                              OverloadCandidateSet& CandidateSet);
   void AddMemberOperatorCandidates(OverloadedOperatorKind Op,
                                    SourceLocation OpLoc,
@@ -1967,7 +1984,7 @@ public:
                                     OverloadCandidateSet& CandidateSet);
   void AddArgumentDependentLookupCandidates(DeclarationName Name,
                                             bool Operator, SourceLocation Loc,
-                                            llvm::ArrayRef<Expr *> Args,
+                                            ArrayRef<Expr *> Args,
                                 TemplateArgumentListInfo *ExplicitTemplateArgs,
                                             OverloadCandidateSet& CandidateSet,
                                             bool PartialOverloading = false);
@@ -2015,7 +2032,7 @@ public:
                                             FunctionDecl *Fn);
 
   void AddOverloadedCallCandidates(UnresolvedLookupExpr *ULE,
-                                   llvm::ArrayRef<Expr *> Args,
+                                   ArrayRef<Expr *> Args,
                                    OverloadCandidateSet &CandidateSet,
                                    bool PartialOverloading = false);
 
@@ -2262,7 +2279,7 @@ public:
 
   void ArgumentDependentLookup(DeclarationName Name, bool Operator,
                                SourceLocation Loc,
-                               llvm::ArrayRef<Expr *> Args,
+                               ArrayRef<Expr *> Args,
                                ADLResult &Functions);
 
   void LookupVisibleDecls(Scope *S, LookupNameKind Kind,
@@ -2281,7 +2298,7 @@ public:
                              const ObjCObjectPointerType *OPT = 0);
 
   void FindAssociatedClassesAndNamespaces(SourceLocation InstantiationLoc,
-                                          llvm::ArrayRef<Expr *> Args,
+                                          ArrayRef<Expr *> Args,
                                    AssociatedNamespaceSet &AssociatedNamespaces,
                                    AssociatedClassSet &AssociatedClasses);
 
@@ -2552,8 +2569,14 @@ public:
   FullExprArg MakeFullExpr(Expr *Arg, SourceLocation CC) {
     return FullExprArg(ActOnFinishFullExpr(Arg, CC).release());
   }
+  FullExprArg MakeFullDiscardedValueExpr(Expr *Arg) {
+    ExprResult FE =
+      ActOnFinishFullExpr(Arg, Arg ? Arg->getExprLoc() : SourceLocation(),
+                          /*DiscardedValue*/ true);
+    return FullExprArg(FE.release());
+  }
 
-  StmtResult ActOnExprStmt(FullExprArg Expr);
+  StmtResult ActOnExprStmt(ExprResult Arg);
 
   StmtResult ActOnNullStmt(SourceLocation SemiLoc,
                            bool HasLeadingEmptyMacro = false);
@@ -2918,7 +2941,7 @@ public:
   bool DiagnoseEmptyLookup(Scope *S, CXXScopeSpec &SS, LookupResult &R,
                            CorrectionCandidateCallback &CCC,
                            TemplateArgumentListInfo *ExplicitTemplateArgs = 0,
-                       llvm::ArrayRef<Expr *> Args = llvm::ArrayRef<Expr *>());
+                           ArrayRef<Expr *> Args = ArrayRef<Expr *>());
 
   ExprResult LookupInObjCMethod(LookupResult &LookUp, Scope *S,
                                 IdentifierInfo *II,
@@ -3523,7 +3546,7 @@ public:
                                    ArrayRef<ParsedType> DynamicExceptions,
                                    ArrayRef<SourceRange> DynamicExceptionRanges,
                                    Expr *NoexceptExpr,
-                                   llvm::SmallVectorImpl<QualType> &Exceptions,
+                                   SmallVectorImpl<QualType> &Exceptions,
                                    FunctionProtoType::ExtProtoInfo &EPI);
 
   /// \brief Determine if a special member function should have a deleted
@@ -3956,7 +3979,8 @@ public:
     return ActOnFinishFullExpr(Expr, Expr ? Expr->getExprLoc()
                                           : SourceLocation());
   }
-  ExprResult ActOnFinishFullExpr(Expr *Expr, SourceLocation CC);
+  ExprResult ActOnFinishFullExpr(Expr *Expr, SourceLocation CC,
+                                 bool DiscardedValue = false);
   StmtResult ActOnFinishFullStmt(Stmt *Stmt);
 
   // Marks SS invalid if it represents an incomplete type.
@@ -4139,7 +4163,7 @@ public:
                                        SourceRange IntroducerRange,
                                        TypeSourceInfo *MethodType,
                                        SourceLocation EndLoc,
-                                       llvm::ArrayRef<ParmVarDecl *> Params);
+                                       ArrayRef<ParmVarDecl *> Params);
 
   /// \brief Introduce the scope for a lambda expression.
   sema::LambdaScopeInfo *enterLambdaScope(CXXMethodDecl *CallOperator,
@@ -5342,7 +5366,7 @@ public:
   /// must be set.
   bool CheckParameterPacksForExpansion(SourceLocation EllipsisLoc,
                                        SourceRange PatternRange,
-                             llvm::ArrayRef<UnexpandedParameterPack> Unexpanded,
+                             ArrayRef<UnexpandedParameterPack> Unexpanded,
                              const MultiLevelTemplateArgumentList &TemplateArgs,
                                        bool &ShouldExpand,
                                        bool &RetainExpansion,
@@ -5467,7 +5491,7 @@ public:
   TemplateDeductionResult
   DeduceTemplateArguments(FunctionTemplateDecl *FunctionTemplate,
                           TemplateArgumentListInfo *ExplicitTemplateArgs,
-                          llvm::ArrayRef<Expr *> Args,
+                          ArrayRef<Expr *> Args,
                           FunctionDecl *&Specialization,
                           sema::TemplateDeductionInfo &Info);
 
@@ -6374,8 +6398,7 @@ public:
   /// \brief Check whether the given new method is a valid override of the
   /// given overridden method, and set any properties that should be inherited.
   void CheckObjCMethodOverride(ObjCMethodDecl *NewMethod,
-                               const ObjCMethodDecl *Overridden,
-                               bool IsImplementation);
+                               const ObjCMethodDecl *Overridden);
 
   /// \brief Describes the compatibility of a result type with its method.
   enum ResultTypeCompatibilityKind {
@@ -7084,7 +7107,7 @@ public:
   void CodeCompleteTag(Scope *S, unsigned TagSpec);
   void CodeCompleteTypeQualifiers(DeclSpec &DS);
   void CodeCompleteCase(Scope *S);
-  void CodeCompleteCall(Scope *S, Expr *Fn, llvm::ArrayRef<Expr *> Args);
+  void CodeCompleteCall(Scope *S, Expr *Fn, ArrayRef<Expr *> Args);
   void CodeCompleteInitializer(Scope *S, Decl *D);
   void CodeCompleteReturn(Scope *S);
   void CodeCompleteAfterIf(Scope *S);
@@ -7201,12 +7224,11 @@ private:
   bool CheckBlockCall(NamedDecl *NDecl, CallExpr *TheCall,
                       const FunctionProtoType *Proto);
   void CheckConstructorCall(FunctionDecl *FDecl,
-                            Expr **Args,
-                            unsigned NumArgs,
+                            ArrayRef<const Expr *> Args,
                             const FunctionProtoType *Proto,
                             SourceLocation Loc);
 
-  void checkCall(NamedDecl *FDecl, Expr **Args, unsigned NumArgs,
+  void checkCall(NamedDecl *FDecl, ArrayRef<const Expr *> Args,
                  unsigned NumProtoArgs, bool IsMemberFunction,
                  SourceLocation Loc, SourceRange Range,
                  VariadicCallType CallType);
@@ -7254,7 +7276,7 @@ private:
   };
 
   StringLiteralCheckType checkFormatStringExpr(const Expr *E,
-                                               Expr **Args, unsigned NumArgs,
+                                               ArrayRef<const Expr *> Args,
                                                bool HasVAListArg,
                                                unsigned format_idx,
                                                unsigned firstDataArg,
@@ -7263,16 +7285,17 @@ private:
                                                bool inFunctionCall = true);
 
   void CheckFormatString(const StringLiteral *FExpr, const Expr *OrigFormatExpr,
-                         Expr **Args, unsigned NumArgs, bool HasVAListArg,
+                         ArrayRef<const Expr *> Args, bool HasVAListArg,
                          unsigned format_idx, unsigned firstDataArg,
                          FormatStringType Type, bool inFunctionCall,
                          VariadicCallType CallType);
 
-  bool CheckFormatArguments(const FormatAttr *Format, Expr **Args,
-                            unsigned NumArgs, bool IsCXXMember,
+  bool CheckFormatArguments(const FormatAttr *Format,
+                            ArrayRef<const Expr *> Args,
+                            bool IsCXXMember,
                             VariadicCallType CallType,
                             SourceLocation Loc, SourceRange Range);
-  bool CheckFormatArguments(Expr **Args, unsigned NumArgs,
+  bool CheckFormatArguments(ArrayRef<const Expr *> Args,
                             bool HasVAListArg, unsigned format_idx,
                             unsigned firstDataArg, FormatStringType Type,
                             VariadicCallType CallType,

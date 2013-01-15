@@ -970,7 +970,7 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
 
 /// \brief Wrapper around a case statement checking if AttrName is
 /// one of the thread safety attributes
-bool Parser::IsThreadSafetyAttribute(llvm::StringRef AttrName){
+bool Parser::IsThreadSafetyAttribute(StringRef AttrName) {
   return llvm::StringSwitch<bool>(AttrName)
       .Case("guarded_by", true)
       .Case("guarded_var", true)
@@ -4761,7 +4761,9 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
           Actions.CurContext->isRecord()));
       Sema::CXXThisScopeRAII ThisScope(Actions,
                                dyn_cast<CXXRecordDecl>(Actions.CurContext),
-                               DS.getTypeQualifiers(),
+                               DS.getTypeQualifiers() |
+                               (D.getDeclSpec().isConstexprSpecified()
+                                  ? Qualifiers::Const : 0),
                                IsCXX11MemberFunction);
 
       // Parse exception-specification[opt].

@@ -1021,7 +1021,7 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
   // Imports
   if (Chain) {
     serialization::ModuleManager &Mgr = Chain->getModuleManager();
-    llvm::SmallVector<char, 128> ModulePaths;
+    SmallVector<char, 128> ModulePaths;
     Record.clear();
 
     for (ModuleManager::ModuleIterator M = Mgr.begin(), MEnd = Mgr.end();
@@ -1552,7 +1552,7 @@ void ASTWriter::WriteHeaderSearch(const HeaderSearch &HS, StringRef isysroot) {
   
   // Free all of the strings we had to duplicate.
   for (unsigned I = 0, N = SavedStrings.size(); I != N; ++I)
-    free((void*)SavedStrings[I]);
+    free(const_cast<char *>(SavedStrings[I]));
 }
 
 /// \brief Writes the block containing the serialized form of the
@@ -2107,6 +2107,12 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
   Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob)); // Name
   unsigned ExcludedHeaderAbbrev = Stream.EmitAbbrev(Abbrev);
 
+  Abbrev = new BitCodeAbbrev();
+  Abbrev->Add(BitCodeAbbrevOp(SUBMODULE_LINK_LIBRARY));
+  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // IsFramework
+  Abbrev->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Blob));     // Name
+  unsigned LinkLibraryAbbrev = Stream.EmitAbbrev(Abbrev);
+
   // Write the submodule metadata block.
   RecordData Record;
   Record.push_back(getNumberOfModules(WritingModule));
@@ -2209,7 +2215,16 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
       }
       Stream.EmitRecord(SUBMODULE_EXPORTS, Record);
     }
-    
+
+    // Emit the link libraries.
+    for (unsigned I = 0, N = Mod->LinkLibraries.size(); I != N; ++I) {
+      Record.clear();
+      Record.push_back(SUBMODULE_LINK_LIBRARY);
+      Record.push_back(Mod->LinkLibraries[I].IsFramework);
+      Stream.EmitRecordWithBlob(LinkLibraryAbbrev, Record,
+                                Mod->LinkLibraries[I].Library);
+    }
+
     // Queue up the submodules of this module.
     for (Module::submodule_iterator Sub = Mod->submodule_begin(),
                                  SubEnd = Mod->submodule_end();
@@ -3035,7 +3050,7 @@ uint64_t ASTWriter::WriteDeclContextVisibleBlock(ASTContext &Context,
 
   // Create the on-disk hash table representation.
   DeclarationName ConversionName;
-  llvm::SmallVector<NamedDecl *, 4> ConversionDecls;
+  SmallVector<NamedDecl *, 4> ConversionDecls;
   for (StoredDeclsMap::iterator D = Map->begin(), DEnd = Map->end();
        D != DEnd; ++D) {
     DeclarationName Name = D->first;
@@ -3217,7 +3232,7 @@ void ASTWriter::WriteRedeclarations() {
 }
 
 void ASTWriter::WriteObjCCategories() {
-  llvm::SmallVector<ObjCCategoriesInfo, 2> CategoriesMap;
+  SmallVector<ObjCCategoriesInfo, 2> CategoriesMap;
   RecordData Categories;
   
   for (unsigned I = 0, N = ObjCClassesWithCategories.size(); I != N; ++I) {

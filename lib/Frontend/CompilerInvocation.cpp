@@ -70,7 +70,7 @@ static unsigned getOptimizationLevel(ArgList &Args, InputKind IK,
 
     assert (A->getOption().matches(options::OPT_O));
 
-    llvm::StringRef S(A->getValue());
+    StringRef S(A->getValue());
     if (S == "s" || S == "z" || S.empty())
       return 2;
 
@@ -1241,6 +1241,9 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.ApplePragmaPack = Args.hasArg(OPT_fapple_pragma_pack);
   Opts.CurrentModule = Args.getLastArgValue(OPT_fmodule_name);
 
+  // Check if -fopenmp is specified.
+  Opts.OpenMP = Args.hasArg(OPT_fopenmp);
+
   // Record whether the __DEPRECATED define was requested.
   Opts.Deprecated = Args.hasFlag(OPT_fdeprecated_macro,
                                  OPT_fno_deprecated_macro,
@@ -1495,7 +1498,7 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
 namespace {
 
   class ModuleSignature {
-    llvm::SmallVector<uint64_t, 16> Data;
+    SmallVector<uint64_t, 16> Data;
     unsigned CurBit;
     uint64_t CurValue;
     

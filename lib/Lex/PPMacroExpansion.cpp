@@ -32,7 +32,7 @@
 #include <ctime>
 using namespace clang;
 
-MacroInfo *Preprocessor::getMacroInfoHistory(IdentifierInfo *II) const {
+MacroInfo *Preprocessor::getMacroInfoHistory(const IdentifierInfo *II) const {
   assert(II->hadMacroDefinition() && "Identifier has not been not a macro!");
 
   macro_iterator Pos = Macros.find(II);
@@ -965,7 +965,7 @@ static bool EvaluateHasIncludeCommon(Token &Tok,
                                      IdentifierInfo *II, Preprocessor &PP,
                                      const DirectoryLookup *LookupFrom) {
   // Save the location of the current token.  If a '(' is later found, use
-  // that location.  If no, use the end of this location instead.
+  // that location.  If not, use the end of this location instead.
   SourceLocation LParenLoc = Tok.getLocation();
 
   // Get '('.
@@ -1355,7 +1355,7 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
       // We construct a SmallVector here to talk to getDiagnosticIDs().
       // Although we don't use the result, this isn't a hot path, and not
       // worth special casing.
-      llvm::SmallVector<diag::kind, 10> Diags;
+      SmallVector<diag::kind, 10> Diags;
       Value = !getDiagnostics().getDiagnosticIDs()->
         getDiagnosticsInGroup(WarningName.substr(2), Diags);
     } while (false);
