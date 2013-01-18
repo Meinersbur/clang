@@ -69,7 +69,7 @@ enum LineType {
 
 class AnnotatedToken {
 public:
-  AnnotatedToken(const FormatToken &FormatTok)
+  explicit AnnotatedToken(const FormatToken &FormatTok)
       : FormatTok(FormatTok), Type(TT_Unknown), SpaceRequiredBefore(false),
         CanBreakBefore(false), MustBreakBefore(false),
         ClosesTemplateDeclaration(false), MatchingParen(NULL), Parent(NULL) {}
@@ -117,7 +117,7 @@ public:
     for (std::list<FormatToken>::const_iterator I = ++Line.Tokens.begin(),
                                                 E = Line.Tokens.end();
          I != E; ++I) {
-      Current->Children.push_back(*I);
+      Current->Children.push_back(AnnotatedToken(*I));
       Current->Children[0].Parent = Current;
       Current = &Current->Children[0];
     }
@@ -189,40 +189,120 @@ struct OptimizationParameters {
   unsigned PenaltyExcessCharacter;
 };
 
-/// \brief Replaces the whitespace in front of \p Tok. Only call once for
-/// each \c FormatToken.
-static void replaceWhitespace(const AnnotatedToken &Tok, unsigned NewLines,
-                              unsigned Spaces, const FormatStyle &Style,
-                              SourceManager &SourceMgr,
-                              tooling::Replacements &Replaces) {
-  Replaces.insert(tooling::Replacement(
-      SourceMgr, Tok.FormatTok.WhiteSpaceStart, Tok.FormatTok.WhiteSpaceLength,
-      std::string(NewLines, '\n') + std::string(Spaces, ' ')));
-}
-
-/// \brief Like \c replaceWhitespace, but additionally adds right-aligned
-/// backslashes to escape newlines inside a preprocessor directive.
+/// \brief Manages the whitespaces around tokens and their replacements.
 ///
-/// This function and \c replaceWhitespace have the same behavior if
-/// \c Newlines == 0.
-static void replacePPWhitespace(
-    const AnnotatedToken &Tok, unsigned NewLines, unsigned Spaces,
-    unsigned WhitespaceStartColumn, const FormatStyle &Style,
-    SourceManager &SourceMgr, tooling::Replacements &Replaces) {
-  std::string NewLineText;
-  if (NewLines > 0) {
-    unsigned Offset = std::min<int>(Style.ColumnLimit - 1,
-                                    WhitespaceStartColumn);
-    for (unsigned i = 0; i < NewLines; ++i) {
-      NewLineText += std::string(Style.ColumnLimit - Offset - 1, ' ');
-      NewLineText += "\\\n";
-      Offset = 0;
+/// This includes special handling for certain constructs, e.g. the alignment of
+/// trailing line comments.
+class WhitespaceManager {
+public:
+  WhitespaceManager(SourceManager &SourceMgr) : SourceMgr(SourceMgr) {}
+
+  /// \brief Replaces the whitespace in front of \p Tok. Only call once for
+  /// each \c AnnotatedToken.
+  void replaceWhitespace(const AnnotatedToken &Tok, unsigned NewLines,
+                         unsigned Spaces, unsigned WhitespaceStartColumn,
+                         const FormatStyle &Style) {
+    if (Tok.Type == TT_LineComment && NewLines < 2 &&
+        (Tok.Parent != NULL || !Comments.empty())) {
+      if (Style.ColumnLimit >=
+          Spaces + WhitespaceStartColumn + Tok.FormatTok.TokenLength) {
+        Comments.push_back(StoredComment());
+        Comments.back().Tok = Tok.FormatTok;
+        Comments.back().Spaces = Spaces;
+        Comments.back().NewLines = NewLines;
+        Comments.back().MinColumn = WhitespaceStartColumn + Spaces;
+        Comments.back().MaxColumn = Style.ColumnLimit -
+                                    Spaces - Tok.FormatTok.TokenLength;
+        return;
+      }
+    } else if (NewLines == 0 && Tok.Children.empty() &&
+               Tok.Type != TT_LineComment) {
+      alignComments();
+    }
+    storeReplacement(Tok.FormatTok,
+                     std::string(NewLines, '\n') + std::string(Spaces, ' '));
+  }
+
+  /// \brief Like \c replaceWhitespace, but additionally adds right-aligned
+  /// backslashes to escape newlines inside a preprocessor directive.
+  ///
+  /// This function and \c replaceWhitespace have the same behavior if
+  /// \c Newlines == 0.
+  void replacePPWhitespace(const AnnotatedToken &Tok, unsigned NewLines,
+                           unsigned Spaces, unsigned WhitespaceStartColumn,
+                           const FormatStyle &Style) {
+    std::string NewLineText;
+    if (NewLines > 0) {
+      unsigned Offset = std::min<int>(Style.ColumnLimit - 1,
+                                      WhitespaceStartColumn);
+      for (unsigned i = 0; i < NewLines; ++i) {
+        NewLineText += std::string(Style.ColumnLimit - Offset - 1, ' ');
+        NewLineText += "\\\n";
+        Offset = 0;
+      }
+    }
+    storeReplacement(Tok.FormatTok, NewLineText + std::string(Spaces, ' '));
+  }
+
+  /// \brief Returns all the \c Replacements created during formatting.
+  const tooling::Replacements &generateReplacements() {
+    alignComments();
+    return Replaces;
+  }
+
+private:
+  /// \brief Structure to store a comment for later layout and alignment.
+  struct StoredComment {
+    FormatToken Tok;
+    unsigned MinColumn;
+    unsigned MaxColumn;
+    unsigned NewLines;
+    unsigned Spaces;
+  };
+  SmallVector<StoredComment, 16> Comments;
+  typedef SmallVector<StoredComment, 16>::iterator comment_iterator;
+
+  /// \brief Try to align all stashed comments.
+  void alignComments() {
+    unsigned MinColumn = 0;
+    unsigned MaxColumn = UINT_MAX;
+    comment_iterator Start = Comments.begin();
+    for (comment_iterator I = Comments.begin(), E = Comments.end(); I != E;
+         ++I) {
+      if (I->MinColumn > MaxColumn || I->MaxColumn < MinColumn) {
+        alignComments(Start, I, MinColumn);
+        MinColumn = I->MinColumn;
+        MaxColumn = I->MaxColumn;
+        Start = I;
+      } else {
+        MinColumn = std::max(MinColumn, I->MinColumn);
+        MaxColumn = std::min(MaxColumn, I->MaxColumn);
+      }
+    }
+    alignComments(Start, Comments.end(), MinColumn);
+    Comments.clear();
+  }
+
+  /// \brief Put all the comments between \p I and \p E into \p Column.
+  void alignComments(comment_iterator I, comment_iterator E, unsigned Column) {
+    while (I != E) {
+      unsigned Spaces = I->Spaces + Column - I->MinColumn;
+      storeReplacement(I->Tok, std::string(I->NewLines, '\n') +
+                       std::string(Spaces, ' '));
+      ++I;
     }
   }
-  Replaces.insert(tooling::Replacement(SourceMgr, Tok.FormatTok.WhiteSpaceStart,
-                                       Tok.FormatTok.WhiteSpaceLength,
-                                       NewLineText + std::string(Spaces, ' ')));
-}
+
+  /// \brief Stores \p Text as the replacement for the whitespace in front of
+  /// \p Tok.
+  void storeReplacement(const FormatToken &Tok, const std::string Text) {
+    Replaces.insert(tooling::Replacement(SourceMgr, Tok.WhiteSpaceStart,
+                                         Tok.WhiteSpaceLength, Text));
+  }
+
+  SourceManager &SourceMgr;
+  tooling::Replacements Replaces;
+};
 
 /// \brief Returns if a token is an Objective-C selector name.
 ///
@@ -238,9 +318,10 @@ public:
   UnwrappedLineFormatter(const FormatStyle &Style, SourceManager &SourceMgr,
                          const AnnotatedLine &Line, unsigned FirstIndent,
                          const AnnotatedToken &RootToken,
-                         tooling::Replacements &Replaces, bool StructuralError)
+                         WhitespaceManager &Whitespaces, bool StructuralError)
       : Style(Style), SourceMgr(SourceMgr), Line(Line),
-        FirstIndent(FirstIndent), RootToken(RootToken), Replaces(Replaces) {
+        FirstIndent(FirstIndent), RootToken(RootToken),
+        Whitespaces(Whitespaces) {
     Parameters.PenaltyIndentLevel = 15;
     Parameters.PenaltyLevelDecrease = 30;
     Parameters.PenaltyExcessCharacter = 1000000;
@@ -269,13 +350,15 @@ public:
 
     // Start iterating at 1 as we have correctly formatted of Token #0 above.
     while (State.NextToken != NULL) {
-      if (State.NextToken->Type == TT_ImplicitStringLiteral)
-        // We will not touch the rest of the white space in this
-        // \c UnwrappedLine. The returned value can also not matter, as we
-        // cannot continue an top-level implicit string literal on the next
-        // line.
-        return 0;
-      if (Line.Last->TotalLength <= getColumnLimit() - FirstIndent) {
+      if (State.NextToken->Type == TT_ImplicitStringLiteral) {
+        // Calculating the column is important for aligning trailing comments.
+        // FIXME: This does not seem to happen in conjunction with escaped
+        // newlines. If it does, fix!
+        State.Column += State.NextToken->FormatTok.WhiteSpaceLength +
+                        State.NextToken->FormatTok.TokenLength;
+        State.NextToken = State.NextToken->Children.empty() ? NULL :
+                          &State.NextToken->Children[0];
+      } else if (Line.Last->TotalLength <= getColumnLimit() - FirstIndent) {
         addTokenToState(false, false, State);
       } else {
         unsigned NoBreak = calcPenalty(State, false, UINT_MAX);
@@ -464,12 +547,11 @@ private:
 
       if (!DryRun) {
         if (!Line.InPPDirective)
-          replaceWhitespace(Current.FormatTok, 1, State.Column, Style,
-                            SourceMgr, Replaces);
+          Whitespaces.replaceWhitespace(Current, 1, State.Column,
+                                        WhitespaceStartColumn, Style);
         else
-          replacePPWhitespace(Current.FormatTok, 1, State.Column,
-                              WhitespaceStartColumn, Style, SourceMgr,
-                              Replaces);
+          Whitespaces.replacePPWhitespace(Current, 1, State.Column,
+                                          WhitespaceStartColumn, Style);
       }
 
       State.Stack[ParenLevel].LastSpace = State.Column;
@@ -485,7 +567,7 @@ private:
         Spaces = Style.SpacesBeforeTrailingComments;
 
       if (!DryRun)
-        replaceWhitespace(Current, 0, Spaces, Style, SourceMgr, Replaces);
+        Whitespaces.replaceWhitespace(Current, 0, Spaces, State.Column, Style);
 
       // FIXME: Do we need to do this for assignments nested in other
       // expressions?
@@ -719,7 +801,7 @@ private:
   const AnnotatedLine &Line;
   const unsigned FirstIndent;
   const AnnotatedToken &RootToken;
-  tooling::Replacements &Replaces;
+  WhitespaceManager &Whitespaces;
 
   // A map from an indent state to a pair (Result, Used-StopAt).
   typedef std::map<LineState, std::pair<unsigned, unsigned> > StateMap;
@@ -746,6 +828,25 @@ public:
     AnnotatingParser(AnnotatedToken &RootToken)
         : CurrentToken(&RootToken), KeywordVirtualFound(false),
           ColonIsObjCMethodExpr(false) {}
+
+    /// \brief A helper class to manage AnnotatingParser::ColonIsObjCMethodExpr.
+    struct ObjCSelectorRAII {
+      AnnotatingParser &P;
+      bool ColonWasObjCMethodExpr;
+
+      ObjCSelectorRAII(AnnotatingParser &P)
+          : P(P), ColonWasObjCMethodExpr(P.ColonIsObjCMethodExpr) {}
+
+      ~ObjCSelectorRAII() { P.ColonIsObjCMethodExpr = ColonWasObjCMethodExpr; }
+
+      void markStart(AnnotatedToken &Left) {
+        P.ColonIsObjCMethodExpr = true;
+        Left.Type = TT_ObjCMethodExpr;
+      }
+
+      void markEnd(AnnotatedToken &Right) { Right.Type = TT_ObjCMethodExpr; }
+    };
+
 
     bool parseAngle() {
       if (CurrentToken == NULL)
@@ -774,9 +875,23 @@ public:
     bool parseParens(bool LookForDecls = false) {
       if (CurrentToken == NULL)
         return false;
+      bool StartsObjCMethodExpr = false;
       AnnotatedToken *Left = CurrentToken->Parent;
-      if (CurrentToken->is(tok::caret))
+      if (CurrentToken->is(tok::caret)) {
+        // ^( starts a block.
         Left->Type = TT_ObjCBlockLParen;
+      } else if (AnnotatedToken *MaybeSel = Left->Parent) {
+        // @selector( starts a selector.
+        if (MaybeSel->isObjCAtKeyword(tok::objc_selector) && MaybeSel->Parent &&
+            MaybeSel->Parent->is(tok::at)) {
+          StartsObjCMethodExpr = true;
+        }
+      }
+
+      ObjCSelectorRAII objCSelector(*this);
+      if (StartsObjCMethodExpr)
+        objCSelector.markStart(*Left);
+
       while (CurrentToken != NULL) {
         // LookForDecls is set when "if (" has been seen. Check for
         // 'identifier' '*' 'identifier' followed by not '=' -- this
@@ -796,6 +911,10 @@ public:
         if (CurrentToken->is(tok::r_paren)) {
           Left->MatchingParen = CurrentToken;
           CurrentToken->MatchingParen = Left;
+
+          if (StartsObjCMethodExpr)
+            objCSelector.markEnd(*CurrentToken);
+
           next();
           return true;
         }
@@ -824,18 +943,14 @@ public:
           getBinOpPrecedence(LSquare->Parent->FormatTok.Tok.getKind(),
                              true, true) > prec::Unknown;
 
-      bool ColonWasObjCMethodExpr = ColonIsObjCMethodExpr;
-      if (StartsObjCMethodExpr) {
-        ColonIsObjCMethodExpr = true;
-        LSquare->Type = TT_ObjCMethodExpr;
-      }
+      ObjCSelectorRAII objCSelector(*this);
+      if (StartsObjCMethodExpr)
+        objCSelector.markStart(*LSquare);
 
       while (CurrentToken != NULL) {
         if (CurrentToken->is(tok::r_square)) {
-          if (StartsObjCMethodExpr) {
-            ColonIsObjCMethodExpr = ColonWasObjCMethodExpr;
-            CurrentToken->Type = TT_ObjCMethodExpr;
-          }
+          if (StartsObjCMethodExpr)
+            objCSelector.markEnd(*CurrentToken);
           next();
           return true;
         }
@@ -919,10 +1034,10 @@ public:
             return false;
         }
         break;
-      case tok::l_paren: {
+      case tok::l_paren:
         if (!parseParens())
           return false;
-      } break;
+        break;
       case tok::l_square:
         if (!parseSquare())
           return false;
@@ -983,7 +1098,9 @@ public:
       if (CurrentToken != NULL && CurrentToken->is(tok::less)) {
         next();
         while (CurrentToken != NULL) {
-          CurrentToken->Type = TT_ImplicitStringLiteral;
+          if (CurrentToken->isNot(tok::comment) ||
+              !CurrentToken->Children.empty())
+            CurrentToken->Type = TT_ImplicitStringLiteral;
           next();
         }
       } else {
@@ -1531,7 +1648,7 @@ public:
             SourceManager &SourceMgr,
             const std::vector<CharSourceRange> &Ranges)
       : Diag(Diag), Style(Style), Lex(Lex), SourceMgr(SourceMgr),
-        Ranges(Ranges) {}
+        Whitespaces(SourceMgr), Ranges(Ranges) {}
 
   virtual ~Formatter() {}
 
@@ -1554,7 +1671,7 @@ public:
                                            PreviousEndOfLineColumn);
         tryFitMultipleLinesInOne(Indent, I, E);
         UnwrappedLineFormatter Formatter(Style, SourceMgr, TheLine, Indent,
-                                         TheLine.First, Replaces,
+                                         TheLine.First, Whitespaces,
                                          StructuralError);
         PreviousEndOfLineColumn = Formatter.format();
       } else {
@@ -1569,7 +1686,7 @@ public:
             1;
       }
     }
-    return Replaces;
+    return Whitespaces.generateReplacements();
   }
 
 private:
@@ -1756,10 +1873,10 @@ private:
         static_cast<int>(Indent) + Style.AccessModifierOffset >= 0)
       Indent += Style.AccessModifierOffset;
     if (!InPPDirective || Tok.HasUnescapedNewline) {
-      replaceWhitespace(Tok, Newlines, Indent, Style, SourceMgr, Replaces);
+      Whitespaces.replaceWhitespace(RootToken, Newlines, Indent, 0, Style);
     } else {
-      replacePPWhitespace(Tok, Newlines, Indent, PreviousEndOfLineColumn, Style,
-                          SourceMgr, Replaces);
+      Whitespaces.replacePPWhitespace(RootToken, Newlines, Indent,
+                                      PreviousEndOfLineColumn, Style);
     }
     return Indent;
   }
@@ -1768,7 +1885,7 @@ private:
   FormatStyle Style;
   Lexer &Lex;
   SourceManager &SourceMgr;
-  tooling::Replacements Replaces;
+  WhitespaceManager Whitespaces;
   std::vector<CharSourceRange> Ranges;
   std::vector<AnnotatedLine> AnnotatedLines;
   bool StructuralError;

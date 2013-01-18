@@ -274,6 +274,32 @@ TEST_F(FormatTest, FormatsSwitchStatement) {
                "  break;\n"
                "}\n"
                "}");
+  verifyFormat("switch (x) {\n"
+               "case 1: {\n"
+               "  f();\n"
+               "  {\n"
+               "    g();\n"
+               "    h();\n"
+               "  }\n"
+               "  break;\n"
+               "}\n"
+               "}");
+  verifyFormat("switch (x) {\n"
+               "case 1: {\n"
+               "  f();\n"
+               "  if (foo) {\n"
+               "    g();\n"
+               "    h();\n"
+               "  }\n"
+               "  break;\n"
+               "}\n"
+               "}");
+  verifyFormat("switch (x) {\n"
+               "case 1: {\n"
+               "  f();\n"
+               "  g();\n"
+               "} break;\n"
+               "}");
   verifyFormat("switch (test)\n"
                "  ;");
   verifyGoogleFormat("switch (x) {\n"
@@ -326,8 +352,8 @@ TEST_F(FormatTest, UnderstandsSingleLineComments) {
   verifyFormat("void f() {\n"
                "  // Doesn't do anything\n"
                "}");
-  verifyFormat("void f(int i, // some comment (probably for i)\n"
-               "       int j, // some comment (probably for j)\n"
+  verifyFormat("void f(int i,  // some comment (probably for i)\n"
+               "       int j,  // some comment (probably for j)\n"
                "       int k); // some comment (probably for k)");
   verifyFormat("void f(int i,\n"
                "       // some comment (probably for j)\n"
@@ -335,8 +361,35 @@ TEST_F(FormatTest, UnderstandsSingleLineComments) {
                "       // some comment (probably for k)\n"
                "       int k);");
 
-  verifyFormat("int i // This is a fancy variable\n"
-               "    = 5;");
+  verifyFormat("int i    // This is a fancy variable\n"
+               "    = 5; // with nicely aligned comment.");
+
+  verifyFormat("// Leading comment.\n"
+               "int a; // Trailing comment.");
+  verifyFormat("int a; // Trailing comment\n"
+               "       // on 2\n"
+               "       // or 3 lines.\n"
+               "int b;");
+  verifyFormat("int a; // Trailing comment\n"
+               "\n"
+               "// Leading comment.\n"
+               "int b;");
+  verifyFormat("int a;    // Comment.\n"
+               "          // More details.\n"
+               "int bbbb; // Another comment.");
+  verifyFormat(
+      "int aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; // comment\n"
+      "int bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;   // comment\n"
+      "int cccccccccccccccccccccccccccccc;       // comment\n"
+      "int ddd;                     // looooooooooooooooooooooooong comment\n"
+      "int aaaaaaaaaaaaaaaaaaaaaaa; // comment\n"
+      "int bbbbbbbbbbbbbbbbbbbbb;   // comment\n"
+      "int ccccccccccccccccccc;     // comment");
+
+  verifyFormat("#include \"a\"     // comment\n"
+               "#include \"a/b/c\" // comment");
+  verifyFormat("#include <a>     // comment\n"
+               "#include <a/b/c> // comment");
 
   verifyFormat("enum E {\n"
                "  // comment\n"
@@ -533,7 +586,7 @@ TEST_F(FormatTest, NestedStaticInitializers) {
       "static A x = { { { init1, init2, init3, init4 },\n"
       "                 { init1, init2, init3, init4 } } };");
 
-  // FIXME: Fix this in general an verify that it works in LLVM style again.
+  // FIXME: Fix this in general and verify that it works in LLVM style again.
   verifyGoogleFormat(
       "somes Status::global_reps[3] = {\n"
       "  { kGlobalRef, OK_CODE, NULL, NULL, NULL },\n"
@@ -545,7 +598,7 @@ TEST_F(FormatTest, NestedStaticInitializers) {
       "                   { rect.fRight - rect.fLeft, rect.fBottom - rect.fTop"
       " } };");
 
-  // FIXME: We might at some point want to handle this similar to parameters
+  // FIXME: We might at some point want to handle this similar to parameter
   // lists, where we have an option to put each on a single line.
   verifyFormat("struct {\n"
                "  unsigned bit;\n"
@@ -809,7 +862,7 @@ TEST_F(FormatTest, ConstructorInitializers) {
                "      aaaaaaaaaaaaaaaaaaaaat(aaaaaaaaaaaaaaaaaaaaaaaaaaaa) {}");
 
   verifyGoogleFormat("MyClass::MyClass(int var)\n"
-                     "    : some_var_(var),  // 4 space indent\n"
+                     "    : some_var_(var),             // 4 space indent\n"
                      "      some_other_var_(var + 1) {  // lined up\n"
                      "}");
 
@@ -1860,16 +1913,18 @@ TEST_F(FormatTest, ObjCAt) {
 }
 
 TEST_F(FormatTest, ObjCSnippets) {
-  // FIXME: Make the uncommented lines below pass.
   verifyFormat("@autoreleasepool {\n"
                "  foo();\n"
                "}");
   verifyFormat("@class Foo, Bar;");
   verifyFormat("@compatibility_alias AliasName ExistingClass;");
   verifyFormat("@dynamic textColor;");
+  verifyFormat("char *buf1 = @encode(int *);");
+  verifyFormat("char *buf1 = @encode(typeof(4 * 5));");
+  // FIXME: Enable once PR14884 is fixed:
   //verifyFormat("char *buf1 = @encode(int **);");
   verifyFormat("Protocol *proto = @protocol(p1);");
-  //verifyFormat("SEL s = @selector(foo:);");
+  verifyFormat("SEL s = @selector(foo:);");
   verifyFormat("@synchronized(self) {\n"
                "  f();\n"
                "}");
