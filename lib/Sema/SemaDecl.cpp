@@ -2276,6 +2276,18 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, Decl *OldD, Scope *S) {
       }
     }
 
+    // C++11 [dcl.attr.noreturn]p1:
+    //   The first declaration of a function shall specify the noreturn
+    //   attribute if any declaration of that function specifies the noreturn
+    //   attribute.
+    if (New->hasAttr<CXX11NoReturnAttr>() &&
+        !Old->hasAttr<CXX11NoReturnAttr>()) {
+      Diag(New->getAttr<CXX11NoReturnAttr>()->getLocation(),
+           diag::err_noreturn_missing_on_first_decl);
+      Diag(Old->getFirstDeclaration()->getLocation(),
+           diag::note_noreturn_missing_first_decl);
+    }
+
     // (C++98 8.3.5p3):
     //   All declarations for a function shall agree exactly in both the
     //   return type and the parameter-type-list.
@@ -4085,6 +4097,10 @@ void Sema::DiagnoseFunctionSpecifiers(Declarator& D) {
   if (D.getDeclSpec().isExplicitSpecified())
     Diag(D.getDeclSpec().getExplicitSpecLoc(),
          diag::err_explicit_non_function);
+
+  if (D.getDeclSpec().isNoreturnSpecified())
+    Diag(D.getDeclSpec().getNoreturnSpecLoc(),
+         diag::err_noreturn_non_function);
 }
 
 NamedDecl*
@@ -6397,12 +6413,30 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   return Redeclaration;
 }
 
+static SourceRange getResultSourceRange(const FunctionDecl *FD) {
+  const TypeSourceInfo *TSI = FD->getTypeSourceInfo();
+  if (!TSI)
+    return SourceRange();
+
+  TypeLoc TL = TSI->getTypeLoc();
+  FunctionTypeLoc *FunctionTL = dyn_cast<FunctionTypeLoc>(&TL);
+  if (!FunctionTL)
+    return SourceRange();
+
+  TypeLoc ResultTL = FunctionTL->getResultLoc();
+  if (isa<BuiltinTypeLoc>(ResultTL.getUnqualifiedLoc()))
+    return ResultTL.getSourceRange();
+
+  return SourceRange();
+}
+
 void Sema::CheckMain(FunctionDecl* FD, const DeclSpec& DS) {
   // C++11 [basic.start.main]p3:  A program that declares main to be inline,
   //   static or constexpr is ill-formed.
-  // C99 6.7.4p4:  In a hosted environment, the inline function specifier
-  //   shall not appear in a declaration of main.
+  // C11 6.7.4p4:  In a hosted environment, no function specifier(s) shall
+  //   appear in a declaration of main.
   // static main is not an error under C99, but we should warn about it.
+  // We accept _Noreturn main as an extension.
   if (FD->getStorageClass() == SC_Static)
     Diag(DS.getStorageClassSpecLoc(), getLangOpts().CPlusPlus 
          ? diag::err_static_main : diag::warn_static_main) 
@@ -6410,6 +6444,8 @@ void Sema::CheckMain(FunctionDecl* FD, const DeclSpec& DS) {
   if (FD->isInlineSpecified())
     Diag(DS.getInlineSpecLoc(), diag::err_inline_main) 
       << FixItHint::CreateRemoval(DS.getInlineSpecLoc());
+  if (DS.isNoreturnSpecified())
+    Diag(DS.getNoreturnSpecLoc(), diag::ext_noreturn_main);
   if (FD->isConstexpr()) {
     Diag(DS.getConstexprSpecLoc(), diag::err_constexpr_main)
       << FixItHint::CreateRemoval(DS.getConstexprSpecLoc());
@@ -6433,9 +6469,20 @@ void Sema::CheckMain(FunctionDecl* FD, const DeclSpec& DS) {
   } else if (getLangOpts().GNUMode && !getLangOpts().CPlusPlus) {
     Diag(FD->getTypeSpecStartLoc(), diag::ext_main_returns_nonint);
 
+    SourceRange ResultRange = getResultSourceRange(FD);
+    if (ResultRange.isValid())
+      Diag(ResultRange.getBegin(), diag::note_main_change_return_type)
+          << FixItHint::CreateReplacement(ResultRange, "int");
+
   // Otherwise, this is just a flat-out error.
   } else {
-    Diag(FD->getTypeSpecStartLoc(), diag::err_main_returns_nonint);
+    SourceRange ResultRange = getResultSourceRange(FD);
+    if (ResultRange.isValid())
+      Diag(FD->getTypeSpecStartLoc(), diag::err_main_returns_nonint)
+          << FixItHint::CreateReplacement(ResultRange, "int");
+    else
+      Diag(FD->getTypeSpecStartLoc(), diag::err_main_returns_nonint);
+
     FD->setInvalidDecl(true);
   }
 
@@ -9829,6 +9876,12 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
         InvalidDecl = true;
       }
     }
+  }
+
+  // OpenCL v1.2 s6.9.c: bitfields are not supported.
+  if (BitWidth && getLangOpts().OpenCL) {
+    Diag(Loc, diag::err_opencl_bitfields);
+    InvalidDecl = true;
   }
 
   // C99 6.7.2.1p8: A member of a structure or union may have any type other

@@ -902,6 +902,8 @@ void Parser::ParseLexedAttribute(LateParsedAttribute &LA,
   ConsumeAnyToken();
 
   if (OnDefinition && !IsThreadSafetyAttribute(LA.AttrName.getName())) {
+    // FIXME: Do not warn on C++11 attributes, once we start supporting
+    // them here.
     Diag(Tok, diag::warn_attribute_on_function_definition)
       << LA.AttrName.getName();
   }
@@ -2617,6 +2619,11 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     case tok::kw_explicit:
       isInvalid = DS.setFunctionSpecExplicit(Loc);
       break;
+    case tok::kw__Noreturn:
+      if (!getLangOpts().C11)
+        Diag(Loc, diag::ext_c11_noreturn);
+      isInvalid = DS.setFunctionSpecNoreturn(Loc);
+      break;
 
     // alignment-specifier
     case tok::kw__Alignas:
@@ -3876,6 +3883,7 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw_inline:
   case tok::kw_virtual:
   case tok::kw_explicit:
+  case tok::kw__Noreturn:
 
     // friend keyword.
   case tok::kw_friend:

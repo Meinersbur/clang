@@ -12,6 +12,7 @@
 #include "SanitizerArgs.h"
 #include "ToolChains.h"
 #include "clang/Basic/ObjCRuntime.h"
+#include "clang/Basic/Version.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Arg.h"
 #include "clang/Driver/ArgList.h"
@@ -3341,6 +3342,11 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
 
     // Add the -fdebug-compilation-dir flag if needed.
     addDebugCompDirArg(Args, CmdArgs);
+
+    // Set the AT_producer to the clang version when using the integrated
+    // assembler on assembly source files.
+    CmdArgs.push_back("-dwarf-debug-producer");
+    CmdArgs.push_back(Args.MakeArgString(getClangFullVersion()));
   }
 
   // Optionally embed the -cc1as level arguments into the debug info, for build
@@ -5506,7 +5512,7 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
   if (!D.SysRoot.empty())
     CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
 
-  if (Args.hasArg(options::OPT_pie))
+  if (Args.hasArg(options::OPT_pie) && !Args.hasArg(options::OPT_shared))
     CmdArgs.push_back("-pie");
 
   if (Args.hasArg(options::OPT_rdynamic))
@@ -5705,10 +5711,19 @@ void linuxtools::Link::ConstructJob(Compilation &C, const JobAction &JA,
       if (Args.hasArg(options::OPT_static))
         CmdArgs.push_back("--start-group");
 
+      bool OpenMP = Args.hasArg(options::OPT_fopenmp);
+      if (OpenMP) {
+        CmdArgs.push_back("-lgomp");
+
+        // FIXME: Exclude this for platforms whith libgomp that doesn't require
+        // librt. Most modern Linux platfroms require it, but some may not.
+        CmdArgs.push_back("-lrt");
+      }
+
       AddLibgcc(ToolChain.getTriple(), D, CmdArgs, Args);
 
       if (Args.hasArg(options::OPT_pthread) ||
-          Args.hasArg(options::OPT_pthreads))
+          Args.hasArg(options::OPT_pthreads) || OpenMP)
         CmdArgs.push_back("-lpthread");
 
       CmdArgs.push_back("-lc");

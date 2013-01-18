@@ -46,7 +46,6 @@ enum TokenType {
   TT_ObjCDecl,
   TT_ObjCMethodSpecifier,
   TT_ObjCMethodExpr,
-  TT_ObjCSelectorStart,
   TT_ObjCProperty,
   TT_OverloadedOperator,
   TT_PointerOrReference,
@@ -99,6 +98,13 @@ public:
 
   std::vector<AnnotatedToken> Children;
   AnnotatedToken *Parent;
+
+  const AnnotatedToken *getPreviousNoneComment() const {
+    AnnotatedToken *Tok = Parent;
+    while (Tok != NULL && Tok->is(tok::comment))
+      Tok = Tok->Parent;
+    return Tok;
+  }
 };
 
 class AnnotatedLine {
@@ -152,7 +158,6 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = false;
   LLVMStyle.AllowShortIfStatementsOnASingleLine = false;
   LLVMStyle.ObjCSpaceBeforeProtocolList = true;
-  LLVMStyle.ObjCSpaceBeforeReturnType = true;
   return LLVMStyle;
 }
 
@@ -169,7 +174,6 @@ FormatStyle getGoogleStyle() {
   GoogleStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
   GoogleStyle.AllowShortIfStatementsOnASingleLine = false;
   GoogleStyle.ObjCSpaceBeforeProtocolList = false;
-  GoogleStyle.ObjCSpaceBeforeReturnType = false;
   return GoogleStyle;
 }
 
@@ -492,7 +496,8 @@ private:
       if (Previous.is(tok::l_paren) || Previous.is(tok::l_brace) ||
           State.NextToken->Parent->Type == TT_TemplateOpener)
         State.Stack[ParenLevel].Indent = State.Column + Spaces;
-      if (Previous.is(tok::comma) && Current.Type != TT_LineComment)
+      if (Current.getPreviousNoneComment()->is(tok::comma) &&
+          Current.isNot(tok::comment))
         State.Stack[ParenLevel].HasMultiParameterLine = true;
 
 
@@ -651,7 +656,7 @@ private:
         State.LineContainsContinuedForLoopSection)
       return UINT_MAX;
     if (!NewLine && State.NextToken->Parent->is(tok::comma) &&
-        State.NextToken->Type != TT_LineComment &&
+        State.NextToken->isNot(tok::comment) &&
         State.Stack.back().BreakAfterComma)
       return UINT_MAX;
     // Trying to insert a parameter on a new line if there are already more than
@@ -766,13 +771,28 @@ public:
       return false;
     }
 
-    bool parseParens() {
+    bool parseParens(bool LookForDecls = false) {
       if (CurrentToken == NULL)
         return false;
       AnnotatedToken *Left = CurrentToken->Parent;
       if (CurrentToken->is(tok::caret))
         Left->Type = TT_ObjCBlockLParen;
       while (CurrentToken != NULL) {
+        // LookForDecls is set when "if (" has been seen. Check for
+        // 'identifier' '*' 'identifier' followed by not '=' -- this
+        // '*' has to be a binary operator but determineStarAmpUsage() will
+        // categorize it as an unary operator, so set the right type here.
+        if (LookForDecls && !CurrentToken->Children.empty()) {
+          AnnotatedToken &Prev = *CurrentToken->Parent;
+          AnnotatedToken &Next = CurrentToken->Children[0];
+          if (Prev.Parent->is(tok::identifier) &&
+              (Prev.is(tok::star) || Prev.is(tok::amp)) &&
+              CurrentToken->is(tok::identifier) && Next.isNot(tok::equal)) {
+            Prev.Type = TT_BinaryOperator;
+            LookForDecls = false;
+          }
+        }
+
         if (CurrentToken->is(tok::r_paren)) {
           Left->MatchingParen = CurrentToken;
           CurrentToken->MatchingParen = Left;
@@ -891,15 +911,17 @@ public:
         if (ColonIsObjCMethodExpr)
           Tok->Type = TT_ObjCMethodExpr;
         break;
+      case tok::kw_if:
+      case tok::kw_while:
+        if (CurrentToken->is(tok::l_paren)) {
+          next();
+          if (!parseParens(/*LookForDecls=*/true))
+            return false;
+        }
+        break;
       case tok::l_paren: {
-        bool ParensWereObjCReturnType = Tok->Parent && Tok->Parent->Type ==
-                                        TT_ObjCMethodSpecifier;
         if (!parseParens())
           return false;
-        if (CurrentToken != NULL && ParensWereObjCReturnType) {
-          CurrentToken->Type = TT_ObjCSelectorStart;
-          next();
-        }
       } break;
       case tok::l_square:
         if (!parseSquare())
@@ -1042,7 +1064,8 @@ public:
     } else {
       if (Current.Type == TT_LineComment) {
         Current.MustBreakBefore = Current.FormatTok.NewlinesBefore > 0;
-      } else if (Current.Parent->Type == TT_LineComment ||
+      } else if ((Current.Parent->is(tok::comment) &&
+                  Current.FormatTok.NewlinesBefore > 0) ||
                  (Current.is(tok::string_literal) &&
                   Current.Parent->is(tok::string_literal))) {
         Current.MustBreakBefore = true;
@@ -1308,9 +1331,7 @@ private:
       if (Tok.is(tok::colon))
         return false;
       if (Tok.Parent->Type == TT_ObjCMethodSpecifier)
-        return Style.ObjCSpaceBeforeReturnType || Tok.isNot(tok::l_paren);
-      if (Tok.Type == TT_ObjCSelectorStart)
-        return !Style.ObjCSpaceBeforeReturnType;
+        return true;
       if (Tok.Parent->is(tok::r_paren) && Tok.is(tok::identifier))
         // Don't space between ')' and <id>
         return false;
@@ -1387,10 +1408,17 @@ private:
     if (Left.is(tok::equal) && Line.Type == LT_VirtualFunctionDecl)
       return false;
 
-    if (Right.is(tok::comment))
+    if (Right.Type == TT_LineComment)
       // We rely on MustBreakBefore being set correctly here as we should not
       // change the "binding" behavior of a comment.
       return false;
+
+    // Allow breaking after a trailing 'const', e.g. after a method declaration,
+    // unless it is follow by ';', '{' or '='.
+    if (Left.is(tok::kw_const) && Left.Parent != NULL &&
+        Left.Parent->is(tok::r_paren))
+      return Right.isNot(tok::l_brace) && Right.isNot(tok::semi) &&
+             Right.isNot(tok::equal);
 
     // We only break before r_brace if there was a corresponding break before
     // the l_brace, which is tracked by BreakBeforeClosingBrace.
