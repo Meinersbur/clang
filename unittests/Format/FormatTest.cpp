@@ -10,10 +10,10 @@
 #define DEBUG_TYPE "format-test"
 
 #include "clang/Format/Format.h"
-#include "clang/Lex/Lexer.h"
-#include "gtest/gtest.h"
-#include "llvm/Support/Debug.h"
 #include "../Tooling/RewriterTestContext.h"
+#include "clang/Lex/Lexer.h"
+#include "llvm/Support/Debug.h"
+#include "gtest/gtest.h"
 
 // Uncomment to get debug output from tests:
 // #define DEBUG_WITH_TYPE(T, X) do { X; } while(0)
@@ -1537,14 +1537,27 @@ TEST_F(FormatTest, DoNotInterfereWithErrorAndWarning) {
   EXPECT_EQ("#warning 1", format("  #  warning 1"));
 }
 
-// FIXME: This breaks the order of the unwrapped lines:
-// TEST_F(FormatTest, OrderUnwrappedLines) {
-//   verifyFormat("{\n"
-//                "  bool a; //\n"
-//                "#error {\n"
-//                "  int a;\n"
-//                "}");
-// }
+TEST_F(FormatTest, MergeHandlingInTheFaceOfPreprocessorDirectives) {
+  FormatStyle AllowsMergedIf = getGoogleStyle();
+  AllowsMergedIf.AllowShortIfStatementsOnASingleLine = true;
+  verifyFormat("void f() { f(); }\n#error E", AllowsMergedIf);
+  verifyFormat("if (true) return 42;\n#error E", AllowsMergedIf);
+  verifyFormat("if (true)\n#error E\n  return 42;", AllowsMergedIf);
+  EXPECT_EQ("if (true) return 42;",
+            format("if (true)\nreturn 42;", AllowsMergedIf));
+  FormatStyle ShortMergedIf = AllowsMergedIf;
+  ShortMergedIf.ColumnLimit = 25;
+  verifyFormat("#define A               \\\n"
+               "  if (true) return 42;", ShortMergedIf);
+  verifyFormat("#define A               \\\n"
+               "  f();                  \\\n"
+               "  if (true)\n"
+               "#define B", ShortMergedIf);
+  verifyFormat("#define A               \\\n"
+               "  f();                  \\\n"
+               "  if (true)\n"
+               "g();", ShortMergedIf);
+}
 
 //===----------------------------------------------------------------------===//
 // Objective-C tests.

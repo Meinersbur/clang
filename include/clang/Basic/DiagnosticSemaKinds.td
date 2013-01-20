@@ -1292,6 +1292,9 @@ def warn_field_is_uninit : Warning<"field %0 is uninitialized when used here">,
 def warn_reference_field_is_uninit : Warning<
   "reference %0 is not yet bound to a value when used here">,
   InGroup<Uninitialized>;
+def warn_static_self_reference_in_init : Warning<
+  "static variable %0 is suspiciously used within its own initialization">,
+  InGroup<UninitializedStaticSelfInit>;
 def warn_uninit_self_reference_in_init : Warning<
   "variable %0 is uninitialized when used within its own initialization">,
   InGroup<Uninitialized>;
@@ -6078,6 +6081,14 @@ def err_opencl_bitfields : Error<
   "bitfields are not supported in OpenCL">;
 def err_opencl_vla : Error<
   "variable length arrays are not supported in OpenCL">;
+def err_event_t_kernel_arg : Error<
+  "the event_t type cannot be used to declare a kernel function argument">;
+def err_event_t_global_var : Error<
+  "the event_t type cannot be used to declare a program scope variable">;
+def err_event_t_struct_field : Error<
+  "the event_t type cannot be used to declare a structure or union field">;
+def err_event_t_addr_space_qual : Error<
+  "the event_t type can only be used with __private address space qualifier">;
 
 } // end of sema category
 
