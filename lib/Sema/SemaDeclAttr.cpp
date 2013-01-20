@@ -3869,6 +3869,30 @@ static void handleTypeTagForDatatypeAttr(Sema &S, Decl *D,
                                   Attr.getMustBeNull()));
 }
 
+
+//===----------------------------------------------------------------------===//
+// Molly
+//===----------------------------------------------------------------------===//
+
+static void handleMollyFieldDimensionsAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+	StringRef AttrName = Attr.getName()->getName();
+
+	if (Attr.getNumArgs() != 1) {
+		S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments)  << /* required args = */ 1;
+		return;
+	}
+
+	Expr *arg0 = Attr.getArg(0);
+	llvm::APSInt arg0int;
+	if (!arg0->isIntegerConstantExpr(arg0int, S.Context)) {
+		S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_not_int) << AttrName << Attr.getNumArgs() << arg0->getSourceRange();
+		return;
+	}
+
+	uint64_t n = arg0int.getLimitedValue();
+	D->addAttr(::new (S.Context) MollyFieldDimensionsAttr(Attr.getRange(), S.Context, n));
+}
+
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
 //===----------------------------------------------------------------------===//
@@ -4546,6 +4570,10 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_TypeTagForDatatype:
     handleTypeTagForDatatypeAttr(S, D, Attr);
     break;
+
+  // Molly
+  case AttributeList::AT_MollyFieldDimensions:
+	  handleMollyFieldDimensionsAttr(S, D, Attr); break;
 
   default:
     // Ask target about the attribute.
