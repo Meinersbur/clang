@@ -1474,6 +1474,10 @@ TEST_F(FormatTest, LayoutCallsInsideBraceInitializers) {
       "};", getLLVMStyleWithColumns(25));
 }
 
+TEST_F(FormatTest, LayoutBraceInitializersInReturnStatement) {
+  verifyFormat("return (a)(b) { 1, 2, 3 };");
+}
+
 TEST_F(FormatTest, LayoutTokensFollowingBlockInParentheses) {
   verifyFormat(
       "Aaa({\n"
@@ -1515,12 +1519,16 @@ TEST_F(FormatTest, UnderstandContextOfRecordTypeKeywords) {
 
   // Actual definitions...
   verifyFormat("struct {} n;");
-  verifyFormat("template <template <class T, class Y>, class Z > class X {} n;");
+  verifyFormat(
+      "template <template <class T, class Y>, class Z > class X {} n;");
   verifyFormat("union Z {\n  int n;\n} x;");
   verifyFormat("class MACRO Z {} n;");
   verifyFormat("class MACRO(X) Z {} n;");
   verifyFormat("class __attribute__(X) Z {} n;");
   verifyFormat("class __declspec(X) Z {} n;");
+
+  // Redefinition from nested context:
+  verifyFormat("class A::B::C {} n;");
 
   // Elaborate types where incorrectly parsing the structural element would
   // break the indent.
