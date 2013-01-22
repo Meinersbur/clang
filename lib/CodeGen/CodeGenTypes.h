@@ -15,6 +15,7 @@
 #define CLANG_CODEGEN_CODEGENTYPES_H
 
 #include "CGCall.h"
+#include "CGMolly.h"
 #include "clang/AST/GlobalDecl.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Module.h"
@@ -68,6 +69,9 @@ public:
   CGCXXABI &TheCXXABI;
   const CodeGenOptions &CodeGenOpts;
   CodeGenModule &CGM;
+
+private:
+  CodeGenMolly MollyGen;
 
 private:
   /// The opaque type map for Objective-C interfaces. All direct

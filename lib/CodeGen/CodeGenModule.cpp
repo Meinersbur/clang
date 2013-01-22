@@ -2763,6 +2763,8 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     return;
 
   switch (D->getKind()) {
+  //case Decl::CXXRecord:
+  //  break;
   case Decl::CXXConversion:
   case Decl::CXXMethod:
   case Decl::Function:

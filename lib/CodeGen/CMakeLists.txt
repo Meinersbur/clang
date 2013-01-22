@@ -48,6 +48,7 @@ add_clang_library(clangCodeGen
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
   TargetInfo.cpp
+  CGMolly.cpp
   )
 
 add_dependencies(clangCodeGen

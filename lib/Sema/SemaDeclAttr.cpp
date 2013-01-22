@@ -3874,23 +3874,26 @@ static void handleTypeTagForDatatypeAttr(Sema &S, Decl *D,
 // Molly
 //===----------------------------------------------------------------------===//
 
-static void handleMollyFieldDimensionsAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-	StringRef AttrName = Attr.getName()->getName();
+static void handleMollyFieldLengths(Sema &S, Decl *D, const AttributeList &Attr) {
+  StringRef AttrName = Attr.getName()->getName();
+  const auto attrs = Attr.getNumArgs();
 
-	if (Attr.getNumArgs() != 1) {
-		S.Diag(Attr.getLoc(), diag::err_attribute_wrong_number_arguments)  << /* required args = */ 1;
-		return;
-	}
+  SmallVector<Expr*, 4> lengths;
+  for (unsigned i = 0; i < attrs; i+=1) {
+    auto arg = Attr.getArg(i);
+    lengths.push_back(arg);
+    /*
+    llvm::APSInt argInt;
+    if (!arg->isIntegerConstantExpr(argInt, S.Context)) {
+      S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_not_int) << AttrName << Attr.getNumArgs() << arg->getSourceRange();
+      return;
+    }
+    lengths.push_back(argInt.getLimitedValue());
+    */
+  }
 
-	Expr *arg0 = Attr.getArg(0);
-	llvm::APSInt arg0int;
-	if (!arg0->isIntegerConstantExpr(arg0int, S.Context)) {
-		S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_not_int) << AttrName << Attr.getNumArgs() << arg0->getSourceRange();
-		return;
-	}
-
-	uint64_t n = arg0int.getLimitedValue();
-	D->addAttr(::new (S.Context) MollyFieldDimensionsAttr(Attr.getRange(), S.Context, n));
+  D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, lengths.data(), lengths.size()));
+  //D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, Attr.getArgsBuffer(), Attr.getNumArgs()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -4572,8 +4575,9 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
     break;
 
   // Molly
-  case AttributeList::AT_MollyFieldDimensions:
-	  handleMollyFieldDimensionsAttr(S, D, Attr); break;
+  case AttributeList::AT_MollyFieldLengths:
+      handleMollyFieldLengths(S, D, Attr);
+      break;
 
   default:
     // Ask target about the attribute.

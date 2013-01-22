@@ -1235,9 +1235,6 @@ CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
                               Parent->getLocation());
   }
 
-  llvm::ArrayRef<llvm::Value*> val(llvm::MDString::get(This->getContext(), "MollyD"));
-  llvm::MDNode::get(This->getContext(), val);
-
   if (D->isTrivial()) {
     if (ArgBeg == ArgEnd) {
       // Trivial default constructor, no codegen required.

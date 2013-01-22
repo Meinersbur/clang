@@ -1277,7 +1277,7 @@ CollectVTableInfo(const CXXRecordDecl *RD, llvm::DIFile Unit,
                                 getOrCreateVTablePtrType(Unit));
   EltTys.push_back(VPTR);
 }
-//MOLLY: Wherever this is called seems to be the right place to emit optimizer metadata for types too (But unconditially of -g)
+
 /// getOrCreateRecordType - Emit record type's standalone debug info. 
 llvm::DIType CGDebugInfo::getOrCreateRecordType(QualType RTy, 
                                                 SourceLocation Loc) {

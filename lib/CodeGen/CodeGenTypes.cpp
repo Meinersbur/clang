@@ -33,7 +33,7 @@ CodeGenTypes::CodeGenTypes(CodeGenModule &CGM)
     TheModule(CGM.getModule()), TheDataLayout(CGM.getDataLayout()),
     TheABIInfo(CGM.getTargetCodeGenInfo().getABIInfo()),
     TheCXXABI(CGM.getCXXABI()),
-    CodeGenOpts(CGM.getCodeGenOpts()), CGM(CGM) {
+    CodeGenOpts(CGM.getCodeGenOpts()), CGM(CGM), MollyGen(&CGM) {
   SkippedLayout = false;
 }
 
@@ -648,6 +648,10 @@ llvm::StructType *CodeGenTypes::ConvertRecordDeclType(const RecordDecl *RD) {
   if (RecordsBeingLaidOut.empty())
     while (!DeferredRecords.empty())
       ConvertRecordDeclType(DeferredRecords.pop_back_val());
+
+  // BEGIN Molly
+  MollyGen.annotateFieldType(RD, Ty);
+  // END Moly
 
   return Ty;
 }

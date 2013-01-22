@@ -921,14 +921,10 @@ def VirtualInheritance : InheritableAttr {
   let Spellings = [Declspec<"__virtual_inheritance">];
 }
 
-def Annotateme : InheritableParamAttr {
-  let Spellings = [GNU<"annotateme">];
-  let Args = [StringArgument<"Annotation">];
-}
-
-def MollyFieldDimensions : InheritableParamAttr {
-  let Spellings = [CXX11<"molly", "dims">, GNU<"molly_dims">];
-//  let Subjects = [CXXRecord];
-  let Args = [IntArgument<"n">]; 
-  let LateParsed = 1; // Parse after template instantiation
+def MollyFieldLengths : InheritableParamAttr {
+  let Spellings = [GNU<"molly_lengths">]; // [CXX11<"molly","lengths">]
+  //  let Subjects = [CXXRecord];
+  let Args = [VariadicExprArgument<"lengths">];
+  let LateParsed = 1;
+  let TemplateDependent = 1;
 }
