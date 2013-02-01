@@ -95,6 +95,8 @@ def warn_cxx98_compat_enum_fixed_underlying_type : Warning<
 def warn_cxx98_compat_alignof : Warning<
   "alignof expressions are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
+def ext_alignof_expr : ExtWarn<
+  "%0 applied to an expression is a GNU extension">, InGroup<GNU>;
 
 def warn_microsoft_dependent_exists : Warning<
   "dependent %select{__if_not_exists|__if_exists}0 declarations are ignored">, 
@@ -422,6 +424,8 @@ def err_declaration_does_not_declare_param : Error<
 def err_no_matching_param : Error<"parameter named %0 is missing">;
 
 /// C++ parser diagnostics
+def err_invalid_operator_on_type : Error<
+  "cannot use %select{dot|arrow}0 operator on a type">;
 def err_expected_unqualified_id : Error<
   "expected %select{identifier|unqualified-id}0">;
 def err_func_def_no_params : Error<

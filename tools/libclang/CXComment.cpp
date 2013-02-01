@@ -411,6 +411,7 @@ struct FullCommentParts {
                    const CommandTraits &Traits);
 
   const BlockContentComment *Brief;
+  const BlockContentComment *Headerfile;
   const ParagraphComment *FirstParagraph;
   const BlockCommandComment *Returns;
   SmallVector<const ParamCommandComment *, 8> Params;
@@ -420,7 +421,7 @@ struct FullCommentParts {
 
 FullCommentParts::FullCommentParts(const FullComment *C,
                                    const CommandTraits &Traits) :
-    Brief(NULL), FirstParagraph(NULL), Returns(NULL) {
+    Brief(NULL), Headerfile(NULL), FirstParagraph(NULL), Returns(NULL) {
   for (Comment::child_iterator I = C->child_begin(), E = C->child_end();
        I != E; ++I) {
     const Comment *Child = *I;
@@ -446,6 +447,10 @@ FullCommentParts::FullCommentParts(const FullComment *C,
       const CommandInfo *Info = Traits.getCommandInfo(BCC->getCommandID());
       if (!Brief && Info->IsBriefCommand) {
         Brief = BCC;
+        break;
+      }
+      if (!Headerfile && Info->IsHeaderfileCommand) {
+        Headerfile = BCC;
         break;
       }
       if (!Returns && Info->IsReturnsCommand) {
@@ -750,6 +755,8 @@ void CommentASTToHTMLConverter::visitFullComment(const FullComment *C) {
   FullCommentParts Parts(C, Traits);
 
   bool FirstParagraphIsBrief = false;
+  if (Parts.Headerfile)
+    visit(Parts.Headerfile);
   if (Parts.Brief)
     visit(Parts.Brief);
   else if (Parts.FirstParagraph) {
@@ -1202,6 +1209,12 @@ void CommentASTToXMLConverter::visitFullComment(const FullComment *C) {
     RootEndTag = "</Other>";
     Result << "<Other><Name>unknown</Name>";
   }
+  
+  if (Parts.Headerfile) {
+    Result << "<Headerfile>";
+    visit(Parts.Headerfile);
+    Result << "</Headerfile>";
+  }
 
   {
     // Pretty-print the declaration.
@@ -1225,7 +1238,7 @@ void CommentASTToXMLConverter::visitFullComment(const FullComment *C) {
     Result << "</Abstract>";
     FirstParagraphIsBrief = true;
   }
-
+  
   if (Parts.TParams.size() != 0) {
     Result << "<TemplateParameters>";
     for (unsigned i = 0, e = Parts.TParams.size(); i != e; ++i)
@@ -1367,24 +1380,21 @@ CXString clang_FullComment_getAsXML(CXComment CXC) {
     return createCXString((const char *) 0);
   ASTContext &Context = FC->getDeclInfo()->CurrentDecl->getASTContext();
   CXTranslationUnit TU = CXC.TranslationUnit;
-  SourceManager &SM = static_cast<ASTUnit *>(TU->TUData)->getSourceManager();
-  
-  SimpleFormatContext *SFC =
-    static_cast<SimpleFormatContext*>(TU->FormatContext);
-  if (!SFC) {
-    SFC = new SimpleFormatContext(Context.getLangOpts());
-    TU->FormatContext = SFC;
+  SourceManager &SM = cxtu::getASTUnit(TU)->getSourceManager();
+
+  if (!TU->FormatContext) {
+    TU->FormatContext = new SimpleFormatContext(Context.getLangOpts());
   } else if ((TU->FormatInMemoryUniqueId % 1000) == 0) {
     // Delete after some number of iterators, so the buffers don't grow
     // too large.
-    delete SFC;
-    SFC = new SimpleFormatContext(Context.getLangOpts());
-    TU->FormatContext = SFC;
+    delete TU->FormatContext;
+    TU->FormatContext = new SimpleFormatContext(Context.getLangOpts());
   }
 
   SmallString<1024> XML;
   CommentASTToXMLConverter Converter(FC, XML, getCommandTraits(CXC), SM,
-                                     *SFC, TU->FormatInMemoryUniqueId++);
+                                     *TU->FormatContext,
+                                     TU->FormatInMemoryUniqueId++);
   Converter.visit(FC);
   return createCXString(XML.str(), /* DupString = */ true);
 }

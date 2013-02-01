@@ -10,7 +10,7 @@ int fallthrough(int n) {
       } else if (n - 3) {
         n = 102;
       }
-    case -1: // expected-warning{{unannotated fall-through between switch labels}} expected-note{{insert '[[clang::fallthrough]];' to silence this warning}} expected-note{{insert 'break;' to avoid fall-through}}
+    case -1:  // no warning here, ignore fall-through from unreachable code
       ;
     case 0: {// expected-warning{{unannotated fall-through between switch labels}} expected-note{{insert '[[clang::fallthrough]];' to silence this warning}} expected-note{{insert 'break;' to avoid fall-through}}
     }
@@ -34,6 +34,19 @@ int fallthrough(int n) {
     case 6:  // expected-warning{{unannotated fall-through between switch labels}} expected-note{{insert '[[clang::fallthrough]];' to silence this warning}} expected-note{{insert 'break;' to avoid fall-through}}
       n += 300;
     case 66:  // expected-warning{{unannotated fall-through between switch labels}} expected-note{{insert 'break;' to avoid fall-through}}
+    case 67:
+    case 68:
+      break;
+  }
+  switch (n / 15) {
+label_default:
+    default:
+      n += 333;
+      if (n % 10)
+        goto label_default;
+      break;
+    case 70:
+      n += 335;
       break;
   }
   switch (n / 20) {
@@ -112,6 +125,22 @@ void fallthrough2(int n) {
       break;
     }
     default: // no warning here, there's no fall-through
+      break;
+  }
+}
+
+void fallthrough3(int n) {
+  switch (n) {
+    case 1:
+      do {
+        return;
+      } while (0);
+    case 2:
+      do {
+        ClassWithDtor temp;
+        return;
+      } while (0);
+    case 3:
       break;
   }
 }

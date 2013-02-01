@@ -545,9 +545,8 @@ ExprResult Sema::UsualUnaryConversions(Expr *E) {
   QualType Ty = E->getType();
   assert(!Ty.isNull() && "UsualUnaryConversions - missing type");
 
-  // Half FP is a bit different: it's a storage-only type, meaning that any
-  // "use" of it should be promoted to float.
-  if (Ty->isHalfType())
+  // Half FP have to be promoted to float unless it is natively supported
+  if (Ty->isHalfType() && !getLangOpts().NativeHalfType)
     return ImpCastExprToType(Res.take(), Context.FloatTy, CK_FloatingCast);
 
   // Try to perform integral promotions if the object has a theoretically
@@ -582,8 +581,9 @@ ExprResult Sema::UsualUnaryConversions(Expr *E) {
 }
 
 /// DefaultArgumentPromotion (C99 6.5.2.2p6). Used for function calls that
-/// do not have a prototype. Arguments that have type float are promoted to
-/// double. All other argument types are converted by UsualUnaryConversions().
+/// do not have a prototype. Arguments that have type float or __fp16
+/// are promoted to double. All other argument types are converted by
+/// UsualUnaryConversions().
 ExprResult Sema::DefaultArgumentPromotion(Expr *E) {
   QualType Ty = E->getType();
   assert(!Ty.isNull() && "DefaultArgumentPromotion - missing type");
@@ -593,8 +593,11 @@ ExprResult Sema::DefaultArgumentPromotion(Expr *E) {
     return Owned(E);
   E = Res.take();
 
-  // If this is a 'float' (CVR qualified or typedef) promote to double.
-  if (Ty->isSpecificBuiltinType(BuiltinType::Float))
+  // If this is a 'float' or '__fp16' (CVR qualified or typedef) promote to
+  // double.
+  const BuiltinType *BTy = Ty->getAs<BuiltinType>();
+  if (BTy && (BTy->getKind() == BuiltinType::Half ||
+              BTy->getKind() == BuiltinType::Float))
     E = ImpCastExprToType(E, Context.DoubleTy, CK_FloatingCast).take();
 
   // C++ performs lvalue-to-rvalue conversion as a default argument
@@ -2769,7 +2772,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
       SourceLocation TokLoc = Tok.getLocation();
       unsigned Length = Literal.getUDSuffixOffset();
       QualType StrTy = Context.getConstantArrayType(
-          Context.CharTy, llvm::APInt(32, Length + 1),
+          Context.CharTy.withConst(), llvm::APInt(32, Length + 1),
           ArrayType::Normal, 0);
       Expr *Lit = StringLiteral::Create(
           Context, StringRef(TokSpelling.data(), Length), StringLiteral::Ascii,
@@ -3469,6 +3472,13 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
       RequireCompleteType(LLoc, ResultType,
                           diag::err_subscript_incomplete_type, BaseExpr))
     return ExprError();
+
+  if (ResultType->isHalfType() && getLangOpts().OpenCL &&
+      !getOpenCLOptions().cl_khr_fp16) {
+    Diag(BaseExpr->getLocStart(), diag::err_opencl_half_subscript) << ResultType
+      << BaseExpr->getType() << BaseExpr->getSourceRange();
+    return ExprError();
+  }
 
   assert(VK == VK_RValue || LangOpts.CPlusPlus ||
          !ResultType.isCForbiddenLValueType());
@@ -6702,10 +6712,10 @@ static bool IsWithinTemplateSpecialization(Decl *D) {
 }
 
 /// If two different enums are compared, raise a warning.
-static void checkEnumComparison(Sema &S, SourceLocation Loc, ExprResult &LHS,
-                                ExprResult &RHS) {
-  QualType LHSStrippedType = LHS.get()->IgnoreParenImpCasts()->getType();
-  QualType RHSStrippedType = RHS.get()->IgnoreParenImpCasts()->getType();
+static void checkEnumComparison(Sema &S, SourceLocation Loc, Expr *LHS,
+                                Expr *RHS) {
+  QualType LHSStrippedType = LHS->IgnoreParenImpCasts()->getType();
+  QualType RHSStrippedType = RHS->IgnoreParenImpCasts()->getType();
 
   const EnumType *LHSEnumType = LHSStrippedType->getAs<EnumType>();
   if (!LHSEnumType)
@@ -6725,7 +6735,7 @@ static void checkEnumComparison(Sema &S, SourceLocation Loc, ExprResult &LHS,
 
   S.Diag(Loc, diag::warn_comparison_of_mixed_enum_types)
       << LHSStrippedType << RHSStrippedType
-      << LHS.get()->getSourceRange() << RHS.get()->getSourceRange();
+      << LHS->getSourceRange() << RHS->getSourceRange();
 }
 
 /// \brief Diagnose bad pointer comparisons.
@@ -6968,7 +6978,7 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
   Expr *LHSStripped = LHS.get()->IgnoreParenImpCasts();
   Expr *RHSStripped = RHS.get()->IgnoreParenImpCasts();
 
-  checkEnumComparison(*this, Loc, LHS, RHS);
+  checkEnumComparison(*this, Loc, LHS.get(), RHS.get());
 
   if (!LHSType->hasFloatingRepresentation() &&
       !(LHSType->isBlockPointerType() && IsRelational) &&
@@ -8210,6 +8220,13 @@ static QualType CheckIndirectionOperand(Sema &S, Expr *Op, ExprValueKind &VK,
     return QualType();
   }
 
+  if (Result->isHalfType() && S.getLangOpts().OpenCL &&
+      !S.getOpenCLOptions().cl_khr_fp16) {
+    S.Diag(OpLoc, diag::err_opencl_half_dereferencing)
+      << OpTy << Op->getSourceRange();
+    return QualType();
+  }
+
   // Dereferences are usually l-values...
   VK = VK_LValue;
 
@@ -8831,7 +8848,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
     resultType = Input.get()->getType();
 
     // Though we still have to promote half FP to float...
-    if (resultType->isHalfType()) {
+    if (resultType->isHalfType() && !Context.getLangOpts().NativeHalfType) {
       Input = ImpCastExprToType(Input.take(), Context.FloatTy, CK_FloatingCast).take();
       resultType = Context.FloatTy;
     }
@@ -10489,10 +10506,13 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func) {
   }
 
   // Keep track of used but undefined functions.
-  if (!Func->isPure() && !Func->hasBody() &&
-      Func->getLinkage() != ExternalLinkage) {
-    SourceLocation &old = UndefinedInternals[Func->getCanonicalDecl()];
-    if (old.isInvalid()) old = Loc;
+  if (!Func->isDefined()) {
+    if (Func->getLinkage() != ExternalLinkage)
+      UndefinedButUsed.insert(std::make_pair(Func->getCanonicalDecl(), Loc));
+    else if (Func->getMostRecentDecl()->isInlined() &&
+             (LangOpts.CPlusPlus || !LangOpts.GNUInline) &&
+             !Func->getMostRecentDecl()->hasAttr<GNUInlineAttr>())
+      UndefinedButUsed.insert(std::make_pair(Func->getCanonicalDecl(), Loc));
   }
 
   // Normally the must current decl is marked used while processing the use and
@@ -11005,7 +11025,7 @@ static void MarkVarDeclODRUsed(Sema &SemaRef, VarDecl *Var,
   if (Var->hasDefinition(SemaRef.Context) == VarDecl::DeclarationOnly &&
       Var->getLinkage() != ExternalLinkage &&
       !(Var->isStaticDataMember() && Var->hasInit())) {
-    SourceLocation &old = SemaRef.UndefinedInternals[Var->getCanonicalDecl()];
+    SourceLocation &old = SemaRef.UndefinedButUsed[Var->getCanonicalDecl()];
     if (old.isInvalid()) old = Loc;
   }
 
@@ -11150,6 +11170,17 @@ void Sema::MarkDeclRefReferenced(DeclRefExpr *E) {
 
 /// \brief Perform reference-marking and odr-use handling for a MemberExpr.
 void Sema::MarkMemberReferenced(MemberExpr *E) {
+  // C++11 [basic.def.odr]p2:
+  //   A non-overloaded function whose name appears as a potentially-evaluated
+  //   expression or a member of a set of candidate functions, if selected by
+  //   overload resolution when referred to from a potentially-evaluated
+  //   expression, is odr-used, unless it is a pure virtual function and its
+  //   name is not explicitly qualified.
+  if (!E->hasQualifier()) {
+    if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(E->getMemberDecl()))
+      if (Method->isPure())
+        return;
+  }
   MarkExprReferenced(*this, E->getMemberLoc(), E->getMemberDecl(), E);
 }
 
