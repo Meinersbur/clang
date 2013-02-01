@@ -25,6 +25,14 @@ namespace cxstring {
 
 struct CXStringBuf;
 
+/// \brief Create a CXString object for an empty "" string.
+CXString createEmpty();
+
+/// \brief Create a CXString object for an NULL string.
+///
+/// A NULL string should be used as an "invalid" value in case of errors.
+CXString createNull();
+
 /// \brief Create a CXString object from a C string.
 CXString createCXString(const char *String, bool DupString = false);
 

@@ -23,11 +23,36 @@
 using namespace clang;
 using namespace clang::cxstring;
 
-enum CXStringFlag { CXS_Unmanaged, CXS_Malloc, CXS_StringBuf };
+/// Describes the kind of underlying data in CXString.
+enum CXStringFlag {
+  /// CXString contains a 'const char *' that it doesn't own.
+  CXS_Unmanaged,
+
+  /// CXString contains a 'const char *' that it allocated with malloc().
+  CXS_Malloc,
+
+  /// CXString contains a CXStringBuf that needs to be returned to the
+  /// CXStringPool.
+  CXS_StringBuf
+};
 
 //===----------------------------------------------------------------------===//
 // Basic generation of CXStrings.
 //===----------------------------------------------------------------------===//
+
+CXString cxstring::createEmpty() {
+  CXString Str;
+  Str.data = "";
+  Str.private_flags = CXS_Unmanaged;
+  return Str;
+}
+
+CXString cxstring::createNull() {
+  CXString Str;
+  Str.data = 0;
+  Str.private_flags = CXS_Unmanaged;
+  return Str;
+}
 
 CXString cxstring::createCXString(const char *String, bool DupString){
   CXString Str;
