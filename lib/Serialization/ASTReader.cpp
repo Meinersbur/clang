@@ -23,8 +23,6 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLocVisitor.h"
 #include "clang/Basic/FileManager.h"
-#include "clang/Basic/FileSystemStatCache.h"
-#include "clang/Basic/OnDiskHashTable.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/SourceManagerInternals.h"
 #include "clang/Basic/TargetInfo.h"
@@ -3410,7 +3408,18 @@ bool ASTReader::ReadSubmoduleBlock(ModuleFile &F) {
         Error("too many submodules");
         return true;
       }
-      
+
+      if (const FileEntry *CurFile = CurrentModule->getASTFile()) {
+        if (CurFile != F.File) {
+          if (!Diags.isDiagnosticInFlight()) {
+            Diag(diag::err_module_file_conflict)
+              << CurrentModule->getTopLevelModuleName()
+              << CurFile->getName()
+              << F.File->getName();
+          }
+          return true;
+        }
+      }
       CurrentModule->setASTFile(F.File);
       CurrentModule->IsFromModuleFile = true;
       CurrentModule->IsSystem = IsSystem || CurrentModule->IsSystem;
@@ -4894,6 +4903,7 @@ QualType ASTReader::GetType(TypeID ID) {
     case PREDEF_TYPE_IMAGE2D_ID:    T = Context.OCLImage2dTy;       break;
     case PREDEF_TYPE_IMAGE2D_ARR_ID: T = Context.OCLImage2dArrayTy; break;
     case PREDEF_TYPE_IMAGE3D_ID:    T = Context.OCLImage3dTy;       break;
+    case PREDEF_TYPE_SAMPLER_ID:    T = Context.OCLSamplerTy;       break;
     case PREDEF_TYPE_EVENT_ID:      T = Context.OCLEventTy;         break;
     case PREDEF_TYPE_AUTO_DEDUCT:   T = Context.getAutoDeductType(); break;
         
@@ -5415,14 +5425,13 @@ static ModuleFile *getDefinitiveModuleFileFor(const DeclContext *DC,
   return 0;
 }
 
-DeclContext::lookup_result
+bool
 ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
                                           DeclarationName Name) {
   assert(DC->hasExternalVisibleStorage() &&
          "DeclContext has no visible decls in storage");
   if (!Name)
-    return DeclContext::lookup_result(DeclContext::lookup_iterator(0),
-                                      DeclContext::lookup_iterator(0));
+    return false;
 
   SmallVector<NamedDecl *, 64> Decls;
   
@@ -5455,7 +5464,7 @@ ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
   }
   ++NumVisibleDeclContextsRead;
   SetExternalVisibleDeclsForName(DC, Name, Decls);
-  return const_cast<DeclContext*>(DC)->lookup(Name);
+  return !Decls.empty();
 }
 
 namespace {
