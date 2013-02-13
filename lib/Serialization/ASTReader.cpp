@@ -457,6 +457,16 @@ ASTIdentifierLookupTraitBase::ReadKey(const unsigned char* d, unsigned n) {
   return StringRef((const char*) d, n-1);
 }
 
+/// \brief Whether the given identifier is "interesting".
+static bool isInterestingIdentifier(IdentifierInfo &II) {
+  return II.isPoisoned() ||
+         II.isExtensionToken() ||
+         II.getObjCOrBuiltinID() ||
+         II.hasRevertedTokenIDToIdentifier() ||
+         II.hadMacroDefinition() ||
+         II.getFETokenInfo<void>();
+}
+
 IdentifierInfo *ASTIdentifierLookupTrait::ReadData(const internal_key_type& k,
                                                    const unsigned char* d,
                                                    unsigned DataLen) {
@@ -477,8 +487,13 @@ IdentifierInfo *ASTIdentifierLookupTrait::ReadData(const internal_key_type& k,
       KnownII = II;
     }
     Reader.SetIdentifierInfo(ID, II);
-    II->setIsFromAST();
-    Reader.markIdentifierUpToDate(II);    
+    if (!II->isFromAST()) {
+      bool WasInteresting = isInterestingIdentifier(*II);
+      II->setIsFromAST();
+      if (WasInteresting)
+        II->setChangedSinceDeserialization();
+    }
+    Reader.markIdentifierUpToDate(II);
     return II;
   }
 
@@ -506,7 +521,12 @@ IdentifierInfo *ASTIdentifierLookupTrait::ReadData(const internal_key_type& k,
     KnownII = II;
   }
   Reader.markIdentifierUpToDate(II);
-  II->setIsFromAST();
+  if (!II->isFromAST()) {
+    bool WasInteresting = isInterestingIdentifier(*II);
+    II->setIsFromAST();
+    if (WasInteresting)
+      II->setChangedSinceDeserialization();
+  }
 
   // Set or check the various bits in the IdentifierInfo structure.
   // Token IDs are read-only.
@@ -2574,13 +2594,50 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
   }
 }
 
+/// \brief Move the given method to the back of the global list of methods.
+static void moveMethodToBackOfGlobalList(Sema &S, ObjCMethodDecl *Method) {
+  // Find the entry for this selector in the method pool.
+  Sema::GlobalMethodPool::iterator Known
+    = S.MethodPool.find(Method->getSelector());
+  if (Known == S.MethodPool.end())
+    return;
+
+  // Retrieve the appropriate method list.
+  ObjCMethodList &Start = Method->isInstanceMethod()? Known->second.first
+                                                    : Known->second.second;
+  bool Found = false;
+  for (ObjCMethodList *List = &Start; List; List = List->Next) {
+    if (!Found) {
+      if (List->Method == Method) {
+        Found = true;
+      } else {
+        // Keep searching.
+        continue;
+      }
+    }
+
+    if (List->Next)
+      List->Method = List->Next->Method;
+    else
+      List->Method = Method;
+  }
+}
+
 void ASTReader::makeNamesVisible(const HiddenNames &Names) {
   for (unsigned I = 0, N = Names.size(); I != N; ++I) {
     switch (Names[I].getKind()) {
-    case HiddenName::Declaration:
-      Names[I].getDecl()->Hidden = false;
-      break;
+    case HiddenName::Declaration: {
+      Decl *D = Names[I].getDecl();
+      bool wasHidden = D->Hidden;
+      D->Hidden = false;
 
+      if (wasHidden && SemaObj) {
+        if (ObjCMethodDecl *Method = dyn_cast<ObjCMethodDecl>(D)) {
+          moveMethodToBackOfGlobalList(*SemaObj, Method);
+        }
+      }
+      break;
+    }
     case HiddenName::MacroVisibility: {
       std::pair<IdentifierInfo *, MacroInfo *> Macro = Names[I].getMacro();
       Macro.second->setHidden(!Macro.second->isPublic());

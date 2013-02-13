@@ -142,7 +142,7 @@ inline internal::PolymorphicMatcherWithParam0<internal::TrueMatcher> anything() 
 ///     friend X;
 ///   };
 /// \endcode
-const internal::VariadicDynCastAllOfMatcher<Decl, Decl> decl;
+const internal::VariadicAllOfMatcher<Decl> decl;
 
 /// \brief Matches a declaration of anything that could have a name.
 ///
@@ -453,7 +453,7 @@ const internal::VariadicDynCastAllOfMatcher<
 /// \endcode
 /// stmt()
 ///   matches both the compound statement '{ ++a; }' and '++a'.
-const internal::VariadicDynCastAllOfMatcher<Stmt, Stmt> stmt;
+const internal::VariadicAllOfMatcher<Stmt> stmt;
 
 /// \brief Matches declaration statements.
 ///
@@ -1100,10 +1100,10 @@ const internal::VariadicDynCastAllOfMatcher<
 const internal::VariadicAllOfMatcher<QualType> qualType;
 
 /// \brief Matches \c Types in the clang AST.
-const internal::VariadicDynCastAllOfMatcher<Type, Type> type;
+const internal::VariadicAllOfMatcher<Type> type;
 
 /// \brief Matches \c TypeLocs in the clang AST.
-const internal::VariadicDynCastAllOfMatcher<TypeLoc, TypeLoc> typeLoc;
+const internal::VariadicAllOfMatcher<TypeLoc> typeLoc;
 
 /// \brief Matches if any of the given matchers matches.
 ///
@@ -1175,17 +1175,39 @@ anyOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4, const M5 &P5) {
 /// \brief Matches if all given matchers match.
 ///
 /// Usable as: Any Matcher
-template<typename M1, typename M2>
+template <typename M1, typename M2>
 internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M1, M2>
 allOf(const M1 &P1, const M2 &P2) {
-  return internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher,
-                                                M1, M2>(P1, P2);
+  return internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M1, M2>(
+      P1, P2);
 }
-template<typename M1, typename M2, typename M3>
-internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M1,
+template <typename M1, typename M2, typename M3>
+internal::PolymorphicMatcherWithParam2<
+    internal::AllOfMatcher, M1,
     internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M2, M3> >
 allOf(const M1 &P1, const M2 &P2, const M3 &P3) {
   return allOf(P1, allOf(P2, P3));
+}
+template <typename M1, typename M2, typename M3, typename M4>
+internal::PolymorphicMatcherWithParam2<
+    internal::AllOfMatcher, M1,
+    internal::PolymorphicMatcherWithParam2<
+        internal::AllOfMatcher, M2, internal::PolymorphicMatcherWithParam2<
+                                        internal::AllOfMatcher, M3, M4> > >
+allOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4) {
+  return allOf(P1, allOf(P2, P3, P4));
+}
+template <typename M1, typename M2, typename M3, typename M4, typename M5>
+internal::PolymorphicMatcherWithParam2<
+    internal::AllOfMatcher, M1,
+    internal::PolymorphicMatcherWithParam2<
+        internal::AllOfMatcher, M2,
+        internal::PolymorphicMatcherWithParam2<
+            internal::AllOfMatcher, M3,
+            internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M4,
+                                                   M5> > > >
+allOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4, const M5 &P5) {
+  return allOf(P1, allOf(P2, P3, P4, P5));
 }
 
 /// @}
