@@ -88,7 +88,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
     BlockDescriptorType(0), GenericBlockLiteralType(0),
     SanitizerBlacklist(CGO.SanitizerBlacklistFile),
     SanOpts(SanitizerBlacklist.isIn(M) ?
-            SanitizerOptions::Disabled : LangOpts.Sanitize) {
+    SanitizerOptions::Disabled : LangOpts.Sanitize), MollyGen(this) {
 
   // Initialize the type cache.
   llvm::LLVMContext &LLVMContext = M.getContext();
@@ -697,6 +697,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
 
   if (const SectionAttr *SA = FD->getAttr<SectionAttr>())
     F->setSection(SA->getName());
+
+  MollyGen.annotateFunction(FD, F);
 }
 
 void CodeGenModule::AddUsedGlobal(llvm::GlobalValue *GV) {
@@ -1278,7 +1280,18 @@ CodeGenModule::GetOrCreateLLVMFunction(StringRef MangledName,
                      llvm::AttributeSet::get(VMContext,
                                              llvm::AttributeSet::FunctionIndex,
                                              B));
+
+    //F->setAttributes(llvm::AttributeSet::get(getLLVMContext(), llvm::AttributeSet::FunctionIndex, ab));
+
+   // F->addAttributes
+   //  F->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(VMContext, llvm::AttributeSet::FunctionIndex,
+   //   llvm::AttributeSet PAL = F->getAttributes();
+  //    PAL = PAL.addAttribute(F->getContext(), llvm::AttributeSet::FunctionIndex, "muuuh");  //getContext(), i, attrs);
+ // F->setAttributes(PAL);
   }
+    llvm::AttrBuilder ab;
+     ab.addAttribute("muuuh", "moo");
+    F->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(VMContext, llvm::AttributeSet::FunctionIndex, ab));
 
   // This is the first use or definition of a mangled name.  If there is a
   // deferred decl with this name, remember that we need to emit it at the end

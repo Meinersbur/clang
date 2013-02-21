@@ -71,7 +71,7 @@ public:
   CodeGenModule &CGM;
 
 private:
-  CodeGenMolly MollyGen;
+  CodeGenMolly MollyGen; // TODO: Ask the parent CGM for this obj
 
 private:
   /// The opaque type map for Objective-C interfaces. All direct

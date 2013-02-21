@@ -16,6 +16,7 @@
 
 #include "CGVTables.h"
 #include "CodeGenTypes.h"
+#include "CGMolly.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -378,6 +379,9 @@ class CodeGenModule : public CodeGenTypeCache {
   const SanitizerOptions &SanOpts;
 
   /// @}
+
+  CodeGenMolly MollyGen;
+
 public:
   CodeGenModule(ASTContext &C, const CodeGenOptions &CodeGenOpts,
                 const TargetOptions &TargetOpts, llvm::Module &M,

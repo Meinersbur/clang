@@ -5,11 +5,16 @@
 
 namespace llvm {
   class StructType;
+  class Function;
 }
 
 namespace clang {
   class RecordDecl;
+  class FunctionDecl;
+}
 
+
+namespace clang {
   namespace CodeGen {
     class CodeGenModule;
 
@@ -26,10 +31,8 @@ namespace clang {
       }
 
       void annotateFieldType(const clang::RecordDecl *clangType, llvm::StructType *llvmType);
-    };
-
-  }
-}
-
-
-#endif
+      void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
+    }; // class CodeGenMolly
+  } // namespace CodeGen
+} // namespace clang
+#endif /* CLANG_CODEGEN_CGMOLLY_H */

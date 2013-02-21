@@ -49,7 +49,7 @@ void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::S
 
   // Get the metadata node
   llvm::NamedMDNode *fieldsMetadata = cgm->getModule().getOrInsertNamedMetadata("molly.fields");
- 
+
   // Create metadata info
   llvm::MDNode *lengthsNode = llvm::MDNode::get(llvmContext, lengthsAsVals);
 
@@ -59,9 +59,36 @@ void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::S
     llvm::MDString::get(llvmContext, llvmType->getName()), // LLVM type name
     llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmType->getTypeID()), // LLVM unique typeid
     lengthsNode
-   };
+  };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
 
   // Append the the metadata to the module, so this metadata does not get optimized away as unused
   fieldsMetadata->addOperand(fieldNode);
+}
+
+
+void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc) {
+  assert(clangFunc);
+  assert(llvmFunc);
+
+  auto &llvmContext = cgm->getLLVMContext();
+  auto &clangContext = cgm->getContext();
+
+  if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
+    llvm::AttrBuilder ab;
+    ab.addAttribute("molly_get");
+    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+  }
+
+  if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
+    llvm::AttrBuilder ab;
+    ab.addAttribute("molly_set");
+    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+  }
+
+  if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
+    llvm::AttrBuilder ab;
+    ab.addAttribute("molly_length");
+    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+  }
 }

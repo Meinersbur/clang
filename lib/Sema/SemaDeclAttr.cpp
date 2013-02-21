@@ -4144,6 +4144,19 @@ static void handleMollyFieldLengths(Sema &S, Decl *D, const AttributeList &Attr)
   //D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, Attr.getArgsBuffer(), Attr.getNumArgs()));
 }
 
+static void handleMollyLengthFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+  D->addAttr(::new (S.Context) MollyLengthFuncAttr(Attr.getRange(), S.Context));
+}
+
+static void handleMollyGetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+   D->addAttr(::new (S.Context) MollyGetterFuncAttr(Attr.getRange(), S.Context));
+}
+
+static void handleMollySetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollySetterFuncAttr(Attr.getRange(), S.Context));
+}
+
+
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
 //===----------------------------------------------------------------------===//
@@ -4855,6 +4868,15 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   // Molly
   case AttributeList::AT_MollyFieldLengths:
       handleMollyFieldLengths(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyLengthFunc:
+      handleMollyLengthFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyGetterFunc:
+      handleMollyGetterFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollySetterFunc:
+      handleMollySetterFunc(S, D, Attr);
       break;
 
   default:

@@ -948,10 +948,29 @@ def Unaligned : IgnoredAttr {
   let Spellings = [Keyword<"__unaligned">];
 }
 
-def MollyFieldLengths : InheritableParamAttr {
+def MollyFieldLengths : InheritableAttr {
   let Spellings = [GNU<"molly_lengths">]; // [CXX11<"molly","lengths">]
   //  let Subjects = [CXXRecord];
   let Args = [VariadicExprArgument<"lengths">];
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+
+def MollyLengthFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_lengthfunc">];
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollyGetterFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_getterfunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollySetterFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_setterfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
