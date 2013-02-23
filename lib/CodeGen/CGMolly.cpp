@@ -74,6 +74,8 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   auto &llvmContext = cgm->getLLVMContext();
   auto &clangContext = cgm->getContext();
 
+  // TODO: mark special attributes (especially readOnly, mayWriteToMemory, mayThrow)
+
   if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
     llvm::AttrBuilder ab;
     ab.addAttribute("molly_get");
@@ -89,6 +91,12 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
     llvm::AttrBuilder ab;
     ab.addAttribute("molly_length");
+    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+  }
+
+  if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
+    llvm::AttrBuilder ab;
+    ab.addAttribute("molly_ref");
     llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
   }
 }

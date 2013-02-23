@@ -4156,6 +4156,10 @@ static void handleMollySetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context) MollySetterFuncAttr(Attr.getRange(), S.Context));
 }
 
+static void handleMollyRefFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyRefFuncAttr(Attr.getRange(), S.Context));
+}
+
 
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
@@ -4877,6 +4881,9 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
       break;
   case AttributeList::AT_MollySetterFunc:
       handleMollySetterFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyRefFunc:
+      handleMollyRefFunc(S, D, Attr);
       break;
 
   default:

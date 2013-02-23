@@ -974,3 +974,9 @@ def MollySetterFunc : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
+
+def MollyRefFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_reffunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
