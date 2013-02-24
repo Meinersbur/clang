@@ -266,7 +266,7 @@ private:
     }
     return true;
   }
-  
+
   void updateParameterCount(AnnotatedToken *Left, AnnotatedToken *Current) {
     if (Current->is(tok::comma))
       ++Left->ParameterCount;
@@ -293,7 +293,8 @@ private:
       next();
       if (!parseAngle())
         return false;
-      CurrentToken->Parent->ClosesTemplateDeclaration = true;
+      if (CurrentToken != NULL)
+        CurrentToken->Parent->ClosesTemplateDeclaration = true;
       return true;
     }
     return false;
@@ -414,6 +415,10 @@ private:
       }
     } else {
       while (CurrentToken != NULL) {
+        if (CurrentToken->is(tok::string_literal))
+          // Mark these string literals as "implicit" literals, too, so that
+          // they are not split or line-wrapped.
+          CurrentToken->Type = TT_ImplicitStringLiteral;
         next();
       }
     }
@@ -516,8 +521,7 @@ private:
         : BindingStrength(BindingStrength), LongestObjCSelectorName(0),
           ColonIsForRangeExpr(false), ColonIsObjCMethodExpr(false),
           FirstObjCSelectorName(NULL), IsExpression(IsExpression),
-          LookForFunctionName(false) {
-    }
+          LookForFunctionName(false) {}
 
     unsigned BindingStrength;
     unsigned LongestObjCSelectorName;
@@ -591,13 +595,15 @@ private:
         else
           Current.Type = TT_BlockComment;
       } else if (Current.is(tok::r_paren)) {
-        bool ParensNotExpr = Current.Parent->Type == TT_PointerOrReference ||
+        bool ParensNotExpr = !Current.Parent ||
+                             Current.Parent->Type == TT_PointerOrReference ||
                              Current.Parent->Type == TT_TemplateCloser;
         bool ParensCouldEndDecl =
             !Current.Children.empty() && (Current.Children[0].is(tok::equal) ||
                                           Current.Children[0].is(tok::semi) ||
                                           Current.Children[0].is(tok::l_brace));
-        if (ParensNotExpr && !ParensCouldEndDecl)
+        if (ParensNotExpr && !ParensCouldEndDecl &&
+            Contexts.back().IsExpression)
           // FIXME: We need to get smarter and understand more cases of casts.
           Current.Type = TT_CastRParen;
       } else if (Current.is(tok::at) && Current.Children.size()) {
@@ -718,7 +724,7 @@ public:
   ExpressionParser(AnnotatedLine &Line) : Current(&Line.First) {}
 
   /// \brief Parse expressions with the given operatore precedence.
-  void parse(prec::Level Precedence = prec::Unknown) {
+  void parse(int Precedence = 0) {
     if (Precedence > prec::PointerToMember || Current == NULL)
       return;
 
@@ -734,18 +740,27 @@ public:
     AnnotatedToken *Start = Current;
     bool OperatorFound = false;
 
-    while (Current != NULL) {
+    while (Current) {
       // Consume operators with higher precedence.
       parse(prec::Level(Precedence + 1));
 
+      int CurrentPrecedence = 0;
+      if (Current) {
+        if (Current->Type == TT_ConditionalExpr)
+          CurrentPrecedence = 1 + (int) prec::Conditional;
+        else if (Current->is(tok::semi))
+          CurrentPrecedence = 1;
+        else if (Current->Type == TT_BinaryOperator || Current->is(tok::comma))
+          CurrentPrecedence = 1 + (int) getPrecedence(*Current);
+      }
+
       // At the end of the line or when an operator with higher precedence is
       // found, insert fake parenthesis and return.
-      if (Current == NULL || Current->is(tok::semi) || closesScope(*Current) ||
-          ((Current->Type == TT_BinaryOperator || Current->is(tok::comma)) &&
-           getPrecedence(*Current) < Precedence)) {
+      if (Current == NULL || closesScope(*Current) ||
+          (CurrentPrecedence != 0 && CurrentPrecedence < Precedence)) {
         if (OperatorFound) {
           ++Start->FakeLParens;
-          if (Current != NULL)
+          if (Current)
             ++Current->Parent->FakeRParens;
         }
         return;
@@ -753,14 +768,21 @@ public:
 
       // Consume scopes: (), [], <> and {}
       if (opensScope(*Current)) {
-        while (Current != NULL && !closesScope(*Current)) {
+        AnnotatedToken *Left = Current;
+        while (Current && !closesScope(*Current)) {
           next();
           parse();
+        }
+        // Remove fake parens that just duplicate the real parens.
+        if (Current && Left->Children[0].FakeLParens > 0 &&
+            Current->Parent->FakeRParens > 0) {
+          --Left->Children[0].FakeLParens;
+          --Current->Parent->FakeRParens;
         }
         next();
       } else {
         // Operator found.
-        if (getPrecedence(*Current) == Precedence)
+        if (CurrentPrecedence == Precedence)
           OperatorFound = true;
 
         next();
@@ -833,6 +855,8 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
                Current->Parent->is(tok::string_literal) &&
                Current->Children[0].is(tok::string_literal)) {
       Current->MustBreakBefore = true;
+    } else if (Current->FormatTok.NewlinesBefore > 1) {
+      Current->MustBreakBefore = true;
     } else {
       Current->MustBreakBefore = false;
     }
@@ -882,9 +906,8 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
   }
 
   // In for-loops, prefer breaking at ',' and ';'.
-  if (Line.First.is(tok::kw_for) &&
-      (Left.isNot(tok::comma) && Left.isNot(tok::semi)))
-    return 20;
+  if (Line.First.is(tok::kw_for) && Left.is(tok::equal))
+    return 4;
 
   if (Left.is(tok::semi))
     return 0;
@@ -1062,6 +1085,8 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
   if (Left.Type == TT_RangeBasedForLoopColon ||
       Left.Type == TT_InheritanceColon)
     return true;
+  if (Right.Type == TT_RangeBasedForLoopColon)
+    return false;
   if (Left.Type == TT_PointerOrReference || Left.Type == TT_TemplateCloser ||
       Left.Type == TT_UnaryOperator || Left.Type == TT_ConditionalExpr ||
       Left.is(tok::question) || Left.is(tok::kw_operator))
@@ -1073,6 +1098,12 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
     // We rely on MustBreakBefore being set correctly here as we should not
     // change the "binding" behavior of a comment.
     return false;
+
+  // FIXME: We can probably remove this special case once we have implemented
+  // breaking after types in general.
+  if (Line.First.is(tok::kw_for) && !Right.Children.empty() &&
+      Right.Children[0].is(tok::equal))
+    return true;
 
   // Allow breaking after a trailing 'const', e.g. after a method declaration,
   // unless it is follow by ';', '{' or '='.
@@ -1088,6 +1119,8 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
 
   if (Right.is(tok::r_paren) || Right.is(tok::greater))
     return false;
+  if (Left.is(tok::identifier) && Right.is(tok::string_literal))
+    return true;
   return (isBinaryOperator(Left) && Left.isNot(tok::lessless)) ||
          Left.is(tok::comma) || Right.is(tok::lessless) ||
          Right.is(tok::arrow) || Right.is(tok::period) ||

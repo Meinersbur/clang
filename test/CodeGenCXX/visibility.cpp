@@ -1170,3 +1170,60 @@ namespace test63 {
   // CHECK: define linkonce_odr hidden void @_ZN6test631A3fooILNS_1EE0EEEvv()
   // CHECK: define linkonce_odr hidden void @_ZN6test631A1BILNS_1EE0EE3fooEv()
 }
+
+// Don't ignore the visibility of template arguments just because we
+// explicitly instantiated something.
+namespace test64 {
+  struct HIDDEN A {};
+  template <class P> struct B {
+    static DEFAULT void foo() {}
+  };
+
+  template class B<A>;
+  // CHECK: define weak_odr hidden void @_ZN6test641BINS_1AEE3fooEv()
+}
+
+namespace test65 {
+  class HIDDEN A {};
+  template <class T> struct B {
+    static void func();
+    template <class U> static void funcT1();
+    template <class U> static void funcT2();
+    class Inner {};
+    template <class U> class InnerT {};
+  };
+  template <template <class T> class Temp> struct C {
+    static void foo() {}
+  };
+
+  // CHECK: define void @_ZN6test651BINS_1AEE4funcEv()
+  template <> DEFAULT void B<A>::func() {}
+
+  // CHECK: define void @_ZN6test651BINS_1AEE6funcT2IS1_EEvv()
+  template <> template <> DEFAULT void B<A>::funcT2<A>() {}
+
+  // CHECK: define linkonce_odr void @_ZN6test651BINS_1AEE6funcT1IiEEvv()
+  // CHECK: define linkonce_odr hidden void @_ZN6test651BINS_1AEE6funcT1IS1_EEvv()
+  template <> template <class T> DEFAULT void B<A>::funcT1() {}
+
+  // CHECK: define linkonce_odr void @_ZN6test651BINS_1AEE5Inner3fooEv()
+  template <> struct DEFAULT B<A>::Inner {
+    static void foo() {}
+  };
+
+  // CHECK: define linkonce_odr void @_ZN6test651BINS_1AEE6InnerTIiE3fooEv()
+  // CHECK: define linkonce_odr hidden void @_ZN6test651BINS_1AEE6InnerTIS1_E3fooEv()
+  template <> template <class U> struct DEFAULT B<A>::InnerT {
+    static void foo() {}
+  };
+
+  void test() {
+    B<A>::funcT1<int>();
+    B<A>::funcT1<A>();
+    B<A>::Inner::foo();
+    B<A>::InnerT<int>::foo();
+    B<A>::InnerT<A>::foo();
+  }
+
+  template class C<B<A>::InnerT>;
+}

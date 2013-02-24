@@ -969,7 +969,8 @@ llvm::Type *CodeGenTypes::GetFunctionTypeForVTable(GlobalDecl GD) {
 void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
                                            const Decl *TargetDecl,
                                            AttributeListType &PAL,
-                                           unsigned &CallingConv) {
+                                           unsigned &CallingConv,
+                                           bool AttrOnCallSite) {
   llvm::AttrBuilder FuncAttrs;
   llvm::AttrBuilder RetAttrs;
 
@@ -1016,16 +1017,23 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
   if (CodeGenOpts.NoImplicitFloat)
     FuncAttrs.addAttribute(llvm::Attribute::NoImplicitFloat);
 
-  if (!TargetOpts.CPU.empty())
-    FuncAttrs.addAttribute("target-cpu", TargetOpts.CPU);
+  if (AttrOnCallSite) {
+    // Attributes that should go on the call site only.
+    if (!CodeGenOpts.SimplifyLibCalls)
+      FuncAttrs.addAttribute(llvm::Attribute::NoBuiltin);
+  } else {
+    // Attributes that should go on the function, but not the call site.
+    if (!TargetOpts.CPU.empty())
+      FuncAttrs.addAttribute("target-cpu", TargetOpts.CPU);
 
-  if (TargetOpts.Features.size()) {
-    llvm::SubtargetFeatures Features;
-    for (std::vector<std::string>::const_iterator
-           it = TargetOpts.Features.begin(),
-           ie = TargetOpts.Features.end(); it != ie; ++it)
-      Features.AddFeature(*it);
-    FuncAttrs.addAttribute("target-features", Features.getString());
+    if (TargetOpts.Features.size()) {
+      llvm::SubtargetFeatures Features;
+      for (std::vector<std::string>::const_iterator
+             it = TargetOpts.Features.begin(),
+             ie = TargetOpts.Features.end(); it != ie; ++it)
+        Features.AddFeature(*it);
+      FuncAttrs.addAttribute("target-features", Features.getString());
+    }
   }
 
   QualType RetTy = FI.getReturnType();
@@ -2238,9 +2246,10 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   unsigned CallingConv;
   CodeGen::AttributeListType AttributeList;
-  CGM.ConstructAttributeList(CallInfo, TargetDecl, AttributeList, CallingConv);
+  CGM.ConstructAttributeList(CallInfo, TargetDecl, AttributeList,
+                             CallingConv, true);
   llvm::AttributeSet Attrs = llvm::AttributeSet::get(getLLVMContext(),
-                                                   AttributeList);
+                                                     AttributeList);
 
   llvm::BasicBlock *InvokeDest = 0;
   if (!Attrs.hasAttribute(llvm::AttributeSet::FunctionIndex,
