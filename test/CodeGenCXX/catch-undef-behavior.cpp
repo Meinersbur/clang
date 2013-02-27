@@ -130,7 +130,12 @@ int lsh_overflow(int a, int b) {
   // CHECK-NEXT: %[[SHIFTED_OUT_NOT_SIGN:.*]] = lshr i32 %[[SHIFTED_OUT]], 1
 
   // CHECK-NEXT: %[[NO_OVERFLOW:.*]] = icmp eq i32 %[[SHIFTED_OUT_NOT_SIGN]], 0
-  // CHECK-NEXT: br i1 %[[NO_OVERFLOW]]
+
+  // CHECK: %[[VALID:.*]] = phi i1 [ %[[INBOUNDS]], {{.*}} ], [ %[[NO_OVERFLOW]], {{.*}} ]
+  // CHECK-NEXT: br i1 %[[VALID]]
+
+  // CHECK: call void @__ubsan_handle_shift_out_of_bounds
+  // CHECK-NOT: call void @__ubsan_handle_shift_out_of_bounds
 
   // CHECK: %[[RET:.*]] = shl i32 %[[LHS]], %[[RHS]]
   // CHECK-NEXT: ret i32 %[[RET]]
@@ -290,6 +295,13 @@ int struct_array_index(ArrayMembers *p, int n) {
 int flex_array_index(ArrayMembers *p, int n) {
   // CHECK-NOT: call void @__ubsan_handle_out_of_bounds(
   return p->a2[n];
+}
+
+extern int incomplete[];
+// CHECK: @_Z22incomplete_array_index
+int incomplete_array_index(int n) {
+  // CHECK-NOT: call void @__ubsan_handle_out_of_bounds(
+  return incomplete[n];
 }
 
 typedef __attribute__((ext_vector_type(4))) int V4I;
