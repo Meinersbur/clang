@@ -4204,6 +4204,15 @@ static void handleMollyRefFunc(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context) MollyRefFuncAttr(Attr.getRange(), S.Context));
 }
 
+static void handleMollyFieldmember(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyFieldmemberAttr(Attr.getRange(), S.Context));
+}
+
+static void handleMollyIsLocalFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyIsLocalFuncAttr(Attr.getRange(), S.Context));
+}
+
+
 
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
@@ -4933,6 +4942,12 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
       break;
   case AttributeList::AT_MollyRefFunc:
       handleMollyRefFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyFieldmember:
+      handleMollyFieldmember(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyIsLocalFunc:
+      handleMollyIsLocalFunc(S, D, Attr);
       break;
 
   default:

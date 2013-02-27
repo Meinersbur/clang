@@ -16,6 +16,42 @@ using namespace llvm;
 using llvm::Value;
 
 
+static Function *findMethod(CodeGenModule *cgm, const clang::CXXRecordDecl *cxxRecord, const char *funcname) {
+  auto astContext = &cgm->getContext();
+  auto ident = &astContext->Idents.get(funcname);
+  auto &declname = astContext->DeclarationNames.getIdentifier(ident);
+  auto lures = cxxRecord->lookup(declname); // Does this also lookup in base classes?
+  assert(lures.size() == 1);
+  auto named = lures[0];
+  auto clangreffunc = cast<CXXMethodDecl>(named);
+
+  // This part is actually more complicated to get a function type for methods; for our special case, this should be enough
+  auto FInfo = &cgm->getTypes().arrangeCXXMethodDeclaration(clangreffunc);
+  auto Ty = cgm->getTypes().GetFunctionType(*FInfo);
+
+  auto refFunc = cgm->GetAddrOfFunction(clangreffunc, Ty);
+  return cast<Function>(refFunc);
+
+#if 0
+  //  CXXBasePaths paths; paths.setOrigin(cxxRecord);
+  bool success = cxxRecord->lookupInBases(&CXXRecordDecl::FindOrdinaryMember, "ref", paths);
+  assert(std::count_if(paths.begin(), paths.end(), [](const CXXBasePath &)->bool{return true;}) == 1);
+  auto reffuncdecls = paths.front();
+  assert(std::count_if(reffuncdecls.Decls.begin(), reffuncdecls.Decls.end(), []( NamedDecl *)->bool{return true;}) == 1);
+  auto clangreffunc = cast<FunctionDecl>(reffuncdecls.Decls.front());
+  // cgm->GetOrCreateLLVMFunction(cgm->ma
+  auto refFunc = cgm->GetAddrOfFunction(clangreffunc);
+#endif
+}
+
+
+static void addAddtribute(LLVMContext *llvmContext, Function *func, StringRef attr) {
+  llvm::AttrBuilder ab;
+  ab.addAttribute(attr);
+  func->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(*llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+}
+
+
 void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::StructType *llvmType) {
   assert(clangType);
   assert(llvmType);
@@ -53,12 +89,31 @@ void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::S
   // Create metadata info
   llvm::MDNode *lengthsNode = llvm::MDNode::get(llvmContext, lengthsAsVals);
 
+  //CXXBasePaths paths;
+  //paths.setOrigin(cxxRecord);
+
+
+  auto refFunc = findMethod(cgm, cxxRecord, "ref"); 
+  if (refFunc) 
+    addAddtribute(&llvmContext, refFunc, "molly_ref");
+  assert(refFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
+
+
+  //refFunc->hasExternalLinkage();
+  //refFunc->setLinkage(GlobalValue::ExternalLinkage); // Avoid not being emitted
+  auto islocalFunc = findMethod(cgm, cxxRecord, "isLocal"); 
+  //islocalFunc->setLinkage(GlobalValue::ExternalLinkage);
+  if (islocalFunc) 
+    addAddtribute(&llvmContext, refFunc, "molly_islocal");
+
   llvm::Value* metadata[] = {
     llvm::MDString::get(llvmContext, "field"), // Just for testing
     llvm::MDString::get(llvmContext, clangType->getNameAsString()), // Clang type name
     llvm::MDString::get(llvmContext, llvmType->getName()), // LLVM type name
     llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmType->getTypeID()), // LLVM unique typeid
-    lengthsNode
+    lengthsNode,
+    refFunc,
+    islocalFunc
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
 
@@ -75,28 +130,31 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   auto &clangContext = cgm->getContext();
 
   // TODO: mark special attributes (especially readOnly, mayWriteToMemory, mayThrow)
+  llvm::AttrBuilder ab;
 
   if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
-    llvm::AttrBuilder ab;
     ab.addAttribute("molly_get");
-    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
-  }
-
-  if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
-    llvm::AttrBuilder ab;
-    ab.addAttribute("molly_set");
-    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
-  }
-
-  if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
-    llvm::AttrBuilder ab;
-    ab.addAttribute("molly_length");
-    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
   }
 
   if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-    llvm::AttrBuilder ab;
     ab.addAttribute("molly_ref");
-    llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+  }
+
+  if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
+    ab.addAttribute("molly_set");
+  }
+
+  if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
+    ab.addAttribute("molly_length");
+  }
+
+  if (clangFunc->hasAttr<MollyFieldmemberAttr>()) {
+    ab.addAttribute("molly_fieldmember");
+  }
+
+  llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+
+  if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
+    assert(llvmFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
   }
 }

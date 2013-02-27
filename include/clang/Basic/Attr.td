@@ -988,3 +988,15 @@ def MollyRefFunc : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
+
+def MollyFieldmember : InheritableAttr {
+  let Spellings = [GNU<"molly_fieldmember">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollyIsLocalFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_islocalfunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
