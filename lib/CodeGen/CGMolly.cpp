@@ -19,7 +19,7 @@ using llvm::Value;
 static Function *findMethod(CodeGenModule *cgm, const clang::CXXRecordDecl *cxxRecord, const char *funcname) {
   auto astContext = &cgm->getContext();
   auto ident = &astContext->Idents.get(funcname);
-  auto &declname = astContext->DeclarationNames.getIdentifier(ident);
+  auto declname = astContext->DeclarationNames.getIdentifier(ident);
   auto lures = cxxRecord->lookup(declname); // Does this also lookup in base classes?
   assert(lures.size() == 1);
   auto named = lures[0];
