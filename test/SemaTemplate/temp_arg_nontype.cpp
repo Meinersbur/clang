@@ -323,3 +323,17 @@ namespace PR10579 {
 
 template <int& I> struct PR10766 { static int *ip; };
 template <int& I> int* PR10766<I>::ip = &I;
+
+namespace rdar13000548 {
+  template<typename R, typename U, R F>
+  U f() { return &F; } // expected-error{{cannot take the address of an rvalue of type 'int (*)(int)'}} expected-error{{cannot take the address of an rvalue of type 'int *'}}
+
+  int g(int);
+  int y[3];
+  void test()
+  {
+    f<int(int), int (*)(int), g>(); // expected-note{{in instantiation of}}
+    f<int[3], int*, y>(); // expected-note{{in instantiation of}}
+  }
+
+}

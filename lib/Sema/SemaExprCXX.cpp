@@ -18,6 +18,7 @@
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/TypeLoc.h"
@@ -1375,10 +1376,14 @@ Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
   }
 
   // Mark the new and delete operators as referenced.
-  if (OperatorNew)
+  if (OperatorNew) {
+    DiagnoseUseOfDecl(OperatorNew, StartLoc);
     MarkFunctionReferenced(StartLoc, OperatorNew);
-  if (OperatorDelete)
+  }
+  if (OperatorDelete) {
+    DiagnoseUseOfDecl(OperatorDelete, StartLoc);
     MarkFunctionReferenced(StartLoc, OperatorDelete);
+  }
 
   // C++0x [expr.new]p17:
   //   If the new expression creates an array of objects of class type,
@@ -1590,8 +1595,7 @@ bool Sema::FindAllocationFunctions(SourceLocation StartLoc, SourceRange Range,
       EPI.Variadic = Proto->isVariadic();
 
       ExpectedFunctionType
-        = Context.getFunctionType(Context.VoidTy, ArgTypes.data(),
-                                  ArgTypes.size(), EPI);
+        = Context.getFunctionType(Context.VoidTy, ArgTypes, EPI);
     }
 
     for (LookupResult::iterator D = FoundDelete.begin(),
@@ -1893,7 +1897,7 @@ void Sema::DeclareGlobalAllocationFunction(DeclarationName Name,
                                 EST_BasicNoexcept : EST_DynamicNone;
   }
 
-  QualType FnType = Context.getFunctionType(Return, &Argument, 1, EPI);
+  QualType FnType = Context.getFunctionType(Return, Argument, EPI);
   FunctionDecl *Alloc =
     FunctionDecl::Create(Context, GlobalCtx, SourceLocation(),
                          SourceLocation(), Name,
@@ -2782,6 +2786,12 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
     break;
   }
 
+  case ICK_Zero_Event_Conversion:
+    From = ImpCastExprToType(From, ToType,
+                             CK_ZeroToOCLEvent,
+                             From->getValueKind()).take();
+    break;
+
   case ICK_Lvalue_To_Rvalue:
   case ICK_Array_To_Pointer:
   case ICK_Function_To_Pointer:
@@ -3365,8 +3375,8 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
     if (SawVoid)
       return false;
     
-    llvm::SmallVector<OpaqueValueExpr, 2> OpaqueArgExprs;
-    llvm::SmallVector<Expr *, 2> ArgExprs;
+    SmallVector<OpaqueValueExpr, 2> OpaqueArgExprs;
+    SmallVector<Expr *, 2> ArgExprs;
     ArgExprs.reserve(Args.size() - 1);
     for (unsigned I = 1, N = Args.size(); I != N; ++I) {
       QualType T = Args[I]->getType();
@@ -3433,7 +3443,7 @@ ExprResult Sema::BuildTypeTrait(TypeTrait Kind, SourceLocation KWLoc,
 ExprResult Sema::ActOnTypeTrait(TypeTrait Kind, SourceLocation KWLoc, 
                                 ArrayRef<ParsedType> Args, 
                                 SourceLocation RParenLoc) {
-  llvm::SmallVector<TypeSourceInfo *, 4> ConvertedArgs;
+  SmallVector<TypeSourceInfo *, 4> ConvertedArgs;
   ConvertedArgs.reserve(Args.size());
   
   for (unsigned I = 0, N = Args.size(); I != N; ++I) {
@@ -5328,12 +5338,12 @@ ExprResult Sema::BuildCXXMemberCallExpr(Expr *E, NamedDecl *FoundDecl,
                                VK_RValue, OK_Ordinary);
   if (HadMultipleCandidates)
     ME->setHadMultipleCandidates(true);
+  MarkMemberReferenced(ME);
 
   QualType ResultType = Method->getResultType();
   ExprValueKind VK = Expr::getValueKindForType(ResultType);
   ResultType = ResultType.getNonLValueExprType(Context);
 
-  MarkFunctionReferenced(Exp.get()->getLocStart(), Method);
   CXXMemberCallExpr *CE =
     new (Context) CXXMemberCallExpr(Context, ME, MultiExprArg(), ResultType, VK,
                                     Exp.get()->getLocEnd());
@@ -5467,7 +5477,9 @@ ExprResult Sema::IgnoredValueConversions(Expr *E) {
   return Owned(E);
 }
 
-ExprResult Sema::ActOnFinishFullExpr(Expr *FE, SourceLocation CC) {
+ExprResult Sema::ActOnFinishFullExpr(Expr *FE, SourceLocation CC,
+                                     bool DiscardedValue,
+                                     bool IsConstexpr) {
   ExprResult FullExpr = Owned(FE);
 
   if (!FullExpr.get())
@@ -5476,24 +5488,25 @@ ExprResult Sema::ActOnFinishFullExpr(Expr *FE, SourceLocation CC) {
   if (DiagnoseUnexpandedParameterPack(FullExpr.get()))
     return ExprError();
 
-  // Top-level message sends default to 'id' when we're in a debugger.
-  if (getLangOpts().DebuggerCastResultToId &&
-      FullExpr.get()->getType() == Context.UnknownAnyTy &&
-      isa<ObjCMessageExpr>(FullExpr.get())) {
+  // Top-level expressions default to 'id' when we're in a debugger.
+  if (DiscardedValue && getLangOpts().DebuggerCastResultToId &&
+      FullExpr.get()->getType() == Context.UnknownAnyTy) {
     FullExpr = forceUnknownAnyToType(FullExpr.take(), Context.getObjCIdType());
     if (FullExpr.isInvalid())
       return ExprError();
   }
-  
-  FullExpr = CheckPlaceholderExpr(FullExpr.take());
-  if (FullExpr.isInvalid())
-    return ExprError();
 
-  FullExpr = IgnoredValueConversions(FullExpr.take());
-  if (FullExpr.isInvalid())
-    return ExprError();
+  if (DiscardedValue) {
+    FullExpr = CheckPlaceholderExpr(FullExpr.take());
+    if (FullExpr.isInvalid())
+      return ExprError();
 
-  CheckImplicitConversions(FullExpr.get(), CC);
+    FullExpr = IgnoredValueConversions(FullExpr.take());
+    if (FullExpr.isInvalid())
+      return ExprError();
+  }
+
+  CheckCompletedExpr(FullExpr.get(), CC, IsConstexpr);
   return MaybeCreateExprWithCleanups(FullExpr);
 }
 

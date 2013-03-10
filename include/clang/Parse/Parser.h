@@ -233,10 +233,6 @@ public:
 
   // Parsing methods.
 
-  /// ParseTranslationUnit - All in one method that initializes parses, and
-  /// shuts down the parser.
-  void ParseTranslationUnit();
-
   /// Initialize - Warm up the parser.
   ///
   void Initialize();
@@ -283,11 +279,7 @@ private:
   /// isTokenStringLiteral - True if this token is a string-literal.
   ///
   bool isTokenStringLiteral() const {
-    return Tok.getKind() == tok::string_literal ||
-           Tok.getKind() == tok::wide_string_literal ||
-           Tok.getKind() == tok::utf8_string_literal ||
-           Tok.getKind() == tok::utf16_string_literal ||
-           Tok.getKind() == tok::utf32_string_literal;
+    return tok::isStringLiteral(Tok.getKind());
   }
 
   /// \brief Returns true if the current token is '=' or is a type of '='.
@@ -808,7 +800,7 @@ private:
   };
 
   // A list of late-parsed attributes.  Used by ParseGNUAttributes.
-  class LateParsedAttrList: public llvm::SmallVector<LateParsedAttribute*, 2> {
+  class LateParsedAttrList: public SmallVector<LateParsedAttribute *, 2> {
   public:
     LateParsedAttrList(bool PSoon = false) : ParseSoon(PSoon) { }
 
@@ -1056,7 +1048,8 @@ private:
   void DeallocateParsedClasses(ParsingClass *Class);
   void PopParsingClass(Sema::ParsingClassState);
 
-  Decl *ParseCXXInlineMethodDef(AccessSpecifier AS, AttributeList *AccessAttrs,
+  NamedDecl *ParseCXXInlineMethodDef(AccessSpecifier AS,
+                                AttributeList *AccessAttrs,
                                 ParsingDeclarator &D,
                                 const ParsedTemplateInfo &TemplateInfo,
                                 const VirtSpecifiers& VS,
@@ -1248,7 +1241,7 @@ private:
                            SmallVectorImpl<SourceLocation> &CommaLocs,
                            void (Sema::*Completer)(Scope *S,
                                                    Expr *Data,
-                                             llvm::ArrayRef<Expr *> Args) = 0,
+                                                   ArrayRef<Expr *> Args) = 0,
                            Expr *Data = 0);
 
   /// ParenParseOption - Control what ParseParenExpression will parse.
@@ -1301,7 +1294,7 @@ private:
   // [...] () -> type {...}
   ExprResult ParseLambdaExpression();
   ExprResult TryParseLambdaExpression();
-  llvm::Optional<unsigned> ParseLambdaIntroducer(LambdaIntroducer &Intro);
+  Optional<unsigned> ParseLambdaIntroducer(LambdaIntroducer &Intro);
   bool TryParseLambdaIntroducer(LambdaIntroducer &Intro);
   ExprResult ParseLambdaExpressionAfterIntroducer(
                LambdaIntroducer &Intro);
@@ -1803,7 +1796,8 @@ public:
                            Declarator::TheContext Context
                              = Declarator::TypeNameContext,
                            AccessSpecifier AS = AS_none,
-                           Decl **OwnedType = 0);
+                           Decl **OwnedType = 0,
+                           ParsedAttributes *Attrs = 0);
 
 private:
   void ParseBlockId(SourceLocation CaretLoc);
@@ -1817,6 +1811,17 @@ private:
     return DiagnoseProhibitedCXX11Attribute();
   }
   bool DiagnoseProhibitedCXX11Attribute();
+  void CheckMisplacedCXX11Attribute(ParsedAttributesWithRange &Attrs,
+                                    SourceLocation CorrectLocation) {
+    if (!getLangOpts().CPlusPlus11)
+      return;
+    if ((Tok.isNot(tok::l_square) || NextToken().isNot(tok::l_square)) &&
+        Tok.isNot(tok::kw_alignas))
+      return;
+    DiagnoseMisplacedCXX11Attribute(Attrs, CorrectLocation);
+  }
+  void DiagnoseMisplacedCXX11Attribute(ParsedAttributesWithRange &Attrs,
+                                       SourceLocation CorrectLocation);
 
   void ProhibitAttributes(ParsedAttributesWithRange &attrs) {
     if (!attrs.Range.isValid()) return;
@@ -1914,7 +1919,7 @@ private:
                                   ParsedAttributes &attrs,
                                   SourceLocation *endLoc);
 
-  bool IsThreadSafetyAttribute(llvm::StringRef AttrName);
+  bool IsThreadSafetyAttribute(StringRef AttrName);
   void ParseThreadSafetyAttribute(IdentifierInfo &AttrName,
                                   SourceLocation AttrNameLoc,
                                   ParsedAttributes &Attrs,
@@ -2060,7 +2065,10 @@ private:
                            AccessSpecifier AS, bool EnteringContext,
                            DeclSpecContext DSC, 
                            ParsedAttributesWithRange &Attributes);
-  void ParseCXXMemberSpecification(SourceLocation StartLoc, unsigned TagType,
+  void ParseCXXMemberSpecification(SourceLocation StartLoc,
+                                   SourceLocation AttrFixitLoc,
+                                   ParsedAttributesWithRange &Attrs,
+                                   unsigned TagType,
                                    Decl *TagDecl);
   ExprResult ParseCXXMemberInitializer(Decl *D, bool IsFunction,
                                        SourceLocation &EqualLoc);

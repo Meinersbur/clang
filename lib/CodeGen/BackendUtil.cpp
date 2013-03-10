@@ -31,10 +31,10 @@
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/TargetTransformInfo.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Scalar.h"
 using namespace clang;
 using namespace llvm;
@@ -59,11 +59,8 @@ private:
     if (!CodeGenPasses) {
       CodeGenPasses = new PassManager();
       CodeGenPasses->add(new DataLayout(TheModule));
-      // Add TargetTransformInfo.
-      if (TM) {
-        CodeGenPasses->add(createNoTTIPass(TM->getScalarTargetTransformInfo(),
-                                           TM->getVectorTargetTransformInfo()));
-      }
+      if (TM)
+        TM->addAnalysisPasses(*CodeGenPasses);
     }
     return CodeGenPasses;
   }
@@ -72,11 +69,8 @@ private:
     if (!PerModulePasses) {
       PerModulePasses = new PassManager();
       PerModulePasses->add(new DataLayout(TheModule));
-      if (TM) {
-        PerModulePasses->add(
-            createNoTTIPass(TM->getScalarTargetTransformInfo(),
-                            TM->getVectorTargetTransformInfo()));
-      }
+      if (TM)
+        TM->addAnalysisPasses(*PerModulePasses);
     }
     return PerModulePasses;
   }
@@ -85,11 +79,8 @@ private:
     if (!PerFunctionPasses) {
       PerFunctionPasses = new FunctionPassManager(TheModule);
       PerFunctionPasses->add(new DataLayout(TheModule));
-      if (TM) {
-        PerFunctionPasses->add(
-            createNoTTIPass(TM->getScalarTargetTransformInfo(),
-                            TM->getVectorTargetTransformInfo()));
-      }
+      if (TM)
+        TM->addAnalysisPasses(*PerFunctionPasses);
     }
     return PerFunctionPasses;
   }
@@ -174,12 +165,16 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
       static_cast<const PassManagerBuilderWrapper&>(Builder);
   const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
   const LangOptions &LangOpts = BuilderWrapper.getLangOpts();
-  PM.add(createAddressSanitizerFunctionPass(LangOpts.SanitizeInitOrder,
-                                            LangOpts.SanitizeUseAfterReturn,
-                                            LangOpts.SanitizeUseAfterScope,
-                                            CGOpts.SanitizerBlacklistFile));
-  PM.add(createAddressSanitizerModulePass(LangOpts.SanitizeInitOrder,
-                                          CGOpts.SanitizerBlacklistFile));
+  PM.add(createAddressSanitizerFunctionPass(
+      LangOpts.Sanitize.InitOrder,
+      LangOpts.Sanitize.UseAfterReturn,
+      LangOpts.Sanitize.UseAfterScope,
+      CGOpts.SanitizerBlacklistFile,
+      CGOpts.SanitizeAddressZeroBaseShadow));
+  PM.add(createAddressSanitizerModulePass(
+      LangOpts.Sanitize.InitOrder,
+      CGOpts.SanitizerBlacklistFile,
+      CGOpts.SanitizeAddressZeroBaseShadow));
 }
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
@@ -187,8 +182,20 @@ static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
   const PassManagerBuilderWrapper &BuilderWrapper =
       static_cast<const PassManagerBuilderWrapper&>(Builder);
   const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
-  PM.add(createMemorySanitizerPass(CGOpts.MemorySanitizerTrackOrigins,
+  PM.add(createMemorySanitizerPass(CGOpts.SanitizeMemoryTrackOrigins,
                                    CGOpts.SanitizerBlacklistFile));
+
+  // MemorySanitizer inserts complex instrumentation that mostly follows
+  // the logic of the original code, but operates on "shadow" values.
+  // It can benefit from re-running some general purpose optimization passes.
+  if (Builder.OptLevel > 0) {
+    PM.add(createEarlyCSEPass());
+    PM.add(createReassociatePass());
+    PM.add(createLICMPass());
+    PM.add(createGVNPass());
+    PM.add(createInstructionCombiningPass());
+    PM.add(createDeadStoreEliminationPass());
+  }
 }
 
 static void addThreadSanitizerPass(const PassManagerBuilder &Builder,
@@ -228,28 +235,28 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
                            addObjCARCOptPass);
   }
 
-  if (LangOpts.SanitizeBounds) {
+  if (LangOpts.Sanitize.Bounds) {
     PMBuilder.addExtension(PassManagerBuilder::EP_ScalarOptimizerLate,
                            addBoundsCheckingPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addBoundsCheckingPass);
   }
 
-  if (LangOpts.SanitizeAddress) {
+  if (LangOpts.Sanitize.Address) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addAddressSanitizerPasses);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addAddressSanitizerPasses);
   }
 
-  if (LangOpts.SanitizeMemory) {
+  if (LangOpts.Sanitize.Memory) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addMemorySanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
                            addMemorySanitizerPass);
   }
 
-  if (LangOpts.SanitizeThread) {
+  if (LangOpts.Sanitize.Thread) {
     PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
                            addThreadSanitizerPass);
     PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
@@ -298,9 +305,10 @@ void EmitAssemblyHelper::CreatePasses(TargetMachine *TM) {
   if (CodeGenOpts.EmitGcovArcs || CodeGenOpts.EmitGcovNotes) {
     MPM->add(createGCOVProfilerPass(CodeGenOpts.EmitGcovNotes,
                                     CodeGenOpts.EmitGcovArcs,
-                                    TargetTriple.isMacOSX(),
-                                    false,
-                                    CodeGenOpts.DisableRedZone));
+                                    CodeGenOpts.CoverageVersion,
+                                    CodeGenOpts.CoverageExtraChecksum,
+                                    CodeGenOpts.DisableRedZone,
+                                    CodeGenOpts.CoverageFunctionNamesInData));
 
     if (CodeGenOpts.getDebugInfo() == CodeGenOptions::NoDebugInfo)
       MPM->add(createStripSymbolsPass(true));
@@ -477,9 +485,8 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
     TLI->disableAllFunctions();
   PM->add(TLI);
 
-  // Add TargetTransformInfo.
-  PM->add(createNoTTIPass(TM->getScalarTargetTransformInfo(),
-                          TM->getVectorTargetTransformInfo()));
+  // Add Target specific analysis passes.
+  TM->addAnalysisPasses(*PM);
 
   // Normal mode, emit a .s or .o file by running the code generator. Note,
   // this also adds codegenerator level optimization passes.
