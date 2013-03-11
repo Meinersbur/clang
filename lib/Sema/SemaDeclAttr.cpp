@@ -4247,6 +4247,13 @@ static void handleMollyIsLocalFunc(Sema &S, Decl *D, const AttributeList &Attr) 
     D->addAttr(::new (S.Context) MollyIsLocalFuncAttr(Attr.getRange(), S.Context));
 }
 
+static void handleMollyGetRankOfFunc(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyGetRankOfFuncAttr(Attr.getRange(), S.Context));
+}
+
+static void handleMollyInline(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyInlineAttr(Attr.getRange(), S.Context));
+}
 
 
 //===----------------------------------------------------------------------===//
@@ -4989,6 +4996,12 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
       break;
   case AttributeList::AT_MollyIsLocalFunc:
       handleMollyIsLocalFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyGetRankOfFunc:
+      handleMollyGetRankOfFunc(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyInline:
+      handleMollyInline(S, D, Attr);
       break;
 
   default:

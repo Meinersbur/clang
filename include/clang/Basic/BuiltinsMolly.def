@@ -1,0 +1,4 @@
+
+BUILTIN(__builtin_molly_ptr, "v*."  , "nt")
+BUILTIN(__builtin_molly_islocal, "b."  , "nt")
+BUILTIN(__builtin_molly_rankof, "i."  , "nt")

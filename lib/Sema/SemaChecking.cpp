@@ -102,7 +102,7 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   // Find out if any arguments are required to be integer constant expressions.
   unsigned ICEArguments = 0;
   ASTContext::GetBuiltinTypeError Error;
-  Context.GetBuiltinType(BuiltinID, Error, &ICEArguments);
+  auto builtinType = Context.GetBuiltinType(BuiltinID, Error, &ICEArguments);
   if (Error != ASTContext::GE_None)
     ICEArguments = 0;  // Don't diagnose previously diagnosed errors.
   
@@ -274,6 +274,15 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case Builtin::BI__builtin_annotation:
     if (SemaBuiltinAnnotation(*this, TheCall))
       return ExprError();
+    break;
+  case Builtin::BI__builtin_molly_ptr:
+  case Builtin::BI__builtin_molly_islocal:
+  case Builtin::BI__builtin_molly_rankof:
+    // TODO: Check arguments for molly funcs
+    // For now, accept everything, but set the correct return type
+    assert(TheCall->getDirectCallee());
+    //TheCall->setType(TheCall->getDirectCallee()->getCallResultType());
+    TheCall->setType(cast<FunctionType>(builtinType.getTypePtr())->getCallResultType(Context));
     break;
   }
   

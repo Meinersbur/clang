@@ -1011,3 +1011,15 @@ def MollyIsLocalFunc : InheritableAttr {
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
+
+def MollyGetRankOfFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_getrankoffunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollyInline : InheritableAttr {
+  let Spellings = [GNU<"molly_inline">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}

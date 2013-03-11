@@ -2,6 +2,7 @@
 #define CLANG_CODEGEN_CGMOLLY_H
 
 #include "llvm/Support/Compiler.h"
+//#include "CGBuilder.h" // typedef CGBuilderTy
 
 namespace llvm {
   class StructType;
@@ -11,6 +12,12 @@ namespace llvm {
 namespace clang {
   class RecordDecl;
   class FunctionDecl;
+  class CallExpr;
+  namespace CodeGen {
+    class CodeGenModule;
+    class CodeGenFunction;
+    class RValue;
+  }
 }
 
 
@@ -32,6 +39,8 @@ namespace clang {
 
       void annotateFieldType(const clang::RecordDecl *clangType, llvm::StructType *llvmType);
       void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
+
+      static bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
     }; // class CodeGenMolly
   } // namespace CodeGen
 } // namespace clang

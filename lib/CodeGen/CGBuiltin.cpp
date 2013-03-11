@@ -21,6 +21,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Intrinsics.h"
+#include "CGMolly.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -1492,6 +1493,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   // See if we have a target specific builtin that needs to be lowered.
   if (Value *V = EmitTargetBuiltinExpr(BuiltinID, E))
     return RValue::get(V);
+
+  // BEGIN Molly
+  RValue result;
+  if (CodeGenMolly::EmitMollyBuiltin(result, &CGM, this, FD, BuiltinID, E))
+    return result;
+  // END Molly
 
   ErrorUnsupported(E, "builtin function");
 

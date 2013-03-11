@@ -8,12 +8,16 @@
 #include "CodeGenModule.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Type.h"
+#include "CGValue.h"
+#include "clang/Basic/Builtins.h"
+#include "llvm/IR/Intrinsics.h"
+#include "CodeGenModule.h"
+#include "llvm/ADT/SmallVector.h"
+#include "CodeGenFunction.h"
 
 using namespace clang;
-using namespace CodeGen;
+using namespace clang::CodeGen;
 using namespace llvm;
-
-using llvm::Value;
 
 
 static Function *findMethod(CodeGenModule *cgm, const clang::CXXRecordDecl *cxxRecord, const char *funcname) {
@@ -21,6 +25,8 @@ static Function *findMethod(CodeGenModule *cgm, const clang::CXXRecordDecl *cxxR
   auto ident = &astContext->Idents.get(funcname);
   auto declname = astContext->DeclarationNames.getIdentifier(ident);
   auto lures = cxxRecord->lookup(declname); // Does this also lookup in base classes?
+  if (lures.empty())
+    return NULL;
   assert(lures.size() == 1);
   auto named = lures[0];
   auto clangreffunc = cast<CXXMethodDecl>(named);
@@ -94,9 +100,15 @@ void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::S
 
 
   auto refFunc = findMethod(cgm, cxxRecord, "ref"); 
-  if (refFunc) 
+  if (refFunc) { 
     addAddtribute(&llvmContext, refFunc, "molly_ref");
-  assert(refFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
+    assert(refFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
+  }
+
+  auto ptrFunc = findMethod(cgm, cxxRecord, "ptr"); 
+  if (ptrFunc) { 
+    addAddtribute(&llvmContext, ptrFunc, "molly_ptr");
+  }
 
 
   //refFunc->hasExternalLinkage();
@@ -104,7 +116,11 @@ void CodeGenMolly::annotateFieldType(const clang::RecordDecl *clangType, llvm::S
   auto islocalFunc = findMethod(cgm, cxxRecord, "isLocal"); 
   //islocalFunc->setLinkage(GlobalValue::ExternalLinkage);
   if (islocalFunc) 
-    addAddtribute(&llvmContext, refFunc, "molly_islocal");
+    addAddtribute(&llvmContext, islocalFunc, "molly_islocal");
+
+  auto getrankofFunc = findMethod(cgm, cxxRecord, "getRankOf"); 
+  if (getrankofFunc) 
+    addAddtribute(&llvmContext, getrankofFunc, "molly_getrankof");
 
   llvm::Value* metadata[] = {
     llvm::MDString::get(llvmContext, "field"), // Just for testing
@@ -152,9 +168,64 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
     ab.addAttribute("molly_fieldmember");
   }
 
+  if (clangFunc->hasAttr<MollyGetRankOfFuncAttr>()) {
+    ab.addAttribute("molly_getrankof");
+  }
+
+  if (clangFunc->hasAttr<MollyInlineAttr>()) {
+    ab.addAttribute("molly_inline");
+  }
+
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
 
   if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
     assert(llvmFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
   }
+}
+
+
+bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E) {
+  static Intrinsic::ID intrinsicPtr[] = { Intrinsic::not_intrinsic, Intrinsic::molly_1d_ptr };
+  static Intrinsic::ID intrinsicIslocal[] = { Intrinsic::not_intrinsic, Intrinsic::molly_1d_islocal };
+  static Intrinsic::ID intrinsicRankof[] = { Intrinsic::not_intrinsic, Intrinsic::molly_1d_rankof };
+
+  Intrinsic::ID *intrinsicIds;
+  switch (BuiltinID) {
+  case Builtin::BI__builtin_molly_ptr:
+    intrinsicIds = intrinsicPtr;
+    break;
+  case Builtin::BI__builtin_molly_islocal:
+    intrinsicIds = intrinsicIslocal;
+    break;
+  case Builtin::BI__builtin_molly_rankof:
+    intrinsicIds = intrinsicRankof;
+    break;
+  default:
+    return false;
+  }
+
+  auto nArgs = E->getNumArgs();
+  auto builder = &cgf->Builder;
+  auto nDims = (nArgs - 1) / 2;
+  assert(nDims == 1); // Currently just 1 dim supported
+  Intrinsic::ID intrincId = intrinsicIds[nDims];
+  assert(intrincId);
+
+  Function *func = cgm->getIntrinsic(intrincId);
+  SmallVector<Value*, 4> args;
+
+  Value *thisArg = cgf->EmitScalarExpr(E->getArg(0));
+  thisArg = builder->CreateCast(Instruction::BitCast, thisArg, func->getArgumentList().front().getType(), "thiscasttoany"); //TODO: Make intrinsics accept llvm_anyptr_ty
+  args.push_back(thisArg);
+
+  for (auto d = nDims-nDims; d < nDims; d+=1) {
+    Value *dimLengthArg = cgf->EmitScalarExpr(E->getArg(1+2*d));
+    args.push_back(dimLengthArg);
+    Value *dimCoordArg = cgf->EmitScalarExpr(E->getArg(1+2*d+1));
+    args.push_back(dimCoordArg);
+  }
+
+  auto callInstr = builder->CreateCall(func, args, "mollyptrcall");
+  result = RValue::get(callInstr);
+  return true;
 }

@@ -936,5 +936,7 @@ BUILTIN(__builtin_subc, "UiUiCUiCUiCUi*", "n")
 BUILTIN(__builtin_subcl, "ULiULiCULiCULiCULi*", "n")
 BUILTIN(__builtin_subcll, "ULLiULLiCULLiCULLiCULLi*", "n")
 
+#include "BuiltinsMolly.def"
+
 #undef BUILTIN
 #undef LIBBUILTIN
