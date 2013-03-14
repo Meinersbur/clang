@@ -470,6 +470,11 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
         IsParam = true;
       }
     }
+
+    // If this is a CXXTempObjectRegion, the Expr responsible for its creation
+    // is wrapped inside of it.
+    if (const CXXTempObjectRegion *TmpR = dyn_cast<CXXTempObjectRegion>(R))
+      InitE = TmpR->getExpr();
   }
 
   if (!StoreSite)
@@ -695,30 +700,19 @@ TrackConstraintBRVisitor::VisitNode(const ExplodedNode *N,
 
 SuppressInlineDefensiveChecksVisitor::
 SuppressInlineDefensiveChecksVisitor(DefinedSVal Value, const ExplodedNode *N)
-  : V(Value), IsSatisfied(false), StartN(N) {
-
-  assert(N->getState()->isNull(V).isConstrainedTrue() &&
-         "The visitor only tracks the cases where V is constrained to 0");
+  : V(Value), IsSatisfied(false), IsTrackingTurnedOn(false) {
+    assert(N->getState()->isNull(V).isConstrainedTrue() &&
+           "The visitor only tracks the cases where V is constrained to 0");
 }
 
 void SuppressInlineDefensiveChecksVisitor::Profile(FoldingSetNodeID &ID) const {
   static int id = 0;
   ID.AddPointer(&id);
-  ID.AddPointer(StartN);
   ID.Add(V);
 }
 
 const char *SuppressInlineDefensiveChecksVisitor::getTag() {
   return "IDCVisitor";
-}
-
-PathDiagnosticPiece *
-SuppressInlineDefensiveChecksVisitor::getEndPath(BugReporterContext &BRC,
-                                                 const ExplodedNode *N,
-                                                 BugReport &BR) {
-  if (StartN == BR.getErrorNode())
-    StartN = 0;
-  return 0;
 }
 
 PathDiagnosticPiece *
@@ -728,17 +722,18 @@ SuppressInlineDefensiveChecksVisitor::VisitNode(const ExplodedNode *Succ,
                                                 BugReport &BR) {
   if (IsSatisfied)
     return 0;
-
-  // Start tracking after we see node StartN.
-  if (StartN == Succ)
-    StartN = 0;
-  if (StartN)
-    return 0;
-
   AnalyzerOptions &Options =
-    BRC.getBugReporter().getEngine().getAnalysisManager().options;
+  BRC.getBugReporter().getEngine().getAnalysisManager().options;
   if (!Options.shouldSuppressInlinedDefensiveChecks())
     return 0;
+
+  // Start tracking after we see the first state in which the value is null.
+  if (!IsTrackingTurnedOn)
+    if (Succ->getState()->isNull(V).isConstrainedTrue())
+      IsTrackingTurnedOn = true;
+  if (!IsTrackingTurnedOn)
+    return 0;
+
 
   // Check if in the previous state it was feasible for this value
   // to *not* be null.
@@ -756,6 +751,27 @@ SuppressInlineDefensiveChecksVisitor::VisitNode(const ExplodedNode *Succ,
   return 0;
 }
 
+static const MemRegion *getLocationRegionIfReference(const Expr *E,
+                                                     const ExplodedNode *N) {
+  if (const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(E)) {
+    if (const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl())) {
+      if (!VD->getType()->isReferenceType())
+        return 0;
+      ProgramStateManager &StateMgr = N->getState()->getStateManager();
+      MemRegionManager &MRMgr = StateMgr.getRegionManager();
+      return MRMgr.getVarRegion(VD, N->getLocationContext());
+    }
+  }
+
+  // FIXME: This does not handle other kinds of null references,
+  // for example, references from FieldRegions:
+  //   struct Wrapper { int &ref; };
+  //   Wrapper w = { *(int *)0 };
+  //   w.ref = 1;
+
+  return 0;
+}
+
 bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
                                         const Stmt *S,
                                         BugReport &report, bool IsArg) {
@@ -767,11 +783,11 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
 
   const ExplodedNode *N = ErrorNode;
 
-  const Expr *LValue = 0;
+  const Expr *Inner = 0;
   if (const Expr *Ex = dyn_cast<Expr>(S)) {
     Ex = Ex->IgnoreParenCasts();
-    if (ExplodedGraph::isInterestingLValueExpr(Ex))
-      LValue = Ex;
+    if (ExplodedGraph::isInterestingLValueExpr(Ex) || CallEvent::isCallStmt(Ex))
+      Inner = Ex;
   }
 
   if (IsArg) {
@@ -783,10 +799,11 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
     do {
       const ProgramPoint &pp = N->getLocation();
       if (Optional<PostStmt> ps = pp.getAs<PostStmt>()) {
-        if (ps->getStmt() == S || ps->getStmt() == LValue)
+        if (ps->getStmt() == S || ps->getStmt() == Inner)
           break;
       } else if (Optional<CallExitEnd> CEE = pp.getAs<CallExitEnd>()) {
-        if (CEE->getCalleeContext()->getCallSite() == S)
+        if (CEE->getCalleeContext()->getCallSite() == S ||
+            CEE->getCalleeContext()->getCallSite() == Inner)
           break;
       }
       N = N->getFirstPred();
@@ -800,36 +817,40 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
 
   // See if the expression we're interested refers to a variable. 
   // If so, we can track both its contents and constraints on its value.
-  if (LValue) {
+  if (Inner && ExplodedGraph::isInterestingLValueExpr(Inner)) {
     const MemRegion *R = 0;
 
-    // First check if this is a DeclRefExpr for a C++ reference type.
-    // For those, we want the location of the reference.
-    if (const DeclRefExpr *DR = dyn_cast<DeclRefExpr>(LValue)) {
-      if (const VarDecl *VD = dyn_cast<VarDecl>(DR->getDecl())) {
-        if (VD->getType()->isReferenceType()) {
-          ProgramStateManager &StateMgr = state->getStateManager();
-          MemRegionManager &MRMgr = StateMgr.getRegionManager();
-          R = MRMgr.getVarRegion(VD, N->getLocationContext());
-        }
+    // Find the ExplodedNode where the lvalue (the value of 'Ex')
+    // was computed.  We need this for getting the location value.
+    const ExplodedNode *LVNode = N;
+    while (LVNode) {
+      if (Optional<PostStmt> P = LVNode->getLocation().getAs<PostStmt>()) {
+        if (P->getStmt() == Inner)
+          break;
       }
+      LVNode = LVNode->getFirstPred();
     }
+    assert(LVNode && "Unable to find the lvalue node.");
+    ProgramStateRef LVState = LVNode->getState();
+    SVal LVal = LVState->getSVal(Inner, LVNode->getLocationContext());
+    
+    if (LVState->isNull(LVal).isConstrainedTrue()) {
+      // In case of C++ references, we want to differentiate between a null
+      // reference and reference to null pointer.
+      // If the LVal is null, check if we are dealing with null reference.
+      // For those, we want to track the location of the reference.
+      if (const MemRegion *RR = getLocationRegionIfReference(Inner, N))
+        R = RR;
+    } else {
+      R = LVState->getSVal(Inner, LVNode->getLocationContext()).getAsRegion();
 
-    // For all other cases, find the location by scouring the ExplodedGraph.
-    if (!R) {
-      // Find the ExplodedNode where the lvalue (the value of 'Ex')
-      // was computed.  We need this for getting the location value.
-      const ExplodedNode *LVNode = N;
-      while (LVNode) {
-        if (Optional<PostStmt> P = LVNode->getLocation().getAs<PostStmt>()) {
-          if (P->getStmt() == LValue)
-            break;
-        }
-        LVNode = LVNode->getFirstPred();
+      // If this is a C++ reference to a null pointer, we are tracking the
+      // pointer. In additon, we should find the store at which the reference
+      // got initialized.
+      if (const MemRegion *RR = getLocationRegionIfReference(Inner, N)) {
+        if (Optional<KnownSVal> KV = LVal.getAs<KnownSVal>())
+          report.addVisitor(new FindLastStoreBRVisitor(*KV, RR));
       }
-      assert(LVNode && "Unable to find the lvalue node.");
-      ProgramStateRef LVState = LVNode->getState();
-      R = LVState->getSVal(LValue, LVNode->getLocationContext()).getAsRegion();
     }
 
     if (R) {
@@ -868,10 +889,10 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
         report.addVisitor(ConstraintTracker);
 
         // Add visitor, which will suppress inline defensive checks.
-        if (ErrorNode->getState()->isNull(V).isConstrainedTrue()) {
+        if (N->getState()->isNull(V).isConstrainedTrue()) {
           BugReporterVisitor *IDCSuppressor =
             new SuppressInlineDefensiveChecksVisitor(V.castAs<DefinedSVal>(),
-                                                     ErrorNode);
+                                                     N);
           report.addVisitor(IDCSuppressor);
         }
       }
