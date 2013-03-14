@@ -153,7 +153,7 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   }
 
   if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-    ab.addAttribute("molly_ref");
+    ab.addAttribute("molly_ptr");
   }
 
   if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
@@ -179,7 +179,7 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
 
   if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-    assert(llvmFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
+    assert(llvmFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr"));
   }
 }
 
