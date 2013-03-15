@@ -722,10 +722,6 @@ SuppressInlineDefensiveChecksVisitor::VisitNode(const ExplodedNode *Succ,
                                                 BugReport &BR) {
   if (IsSatisfied)
     return 0;
-  AnalyzerOptions &Options =
-  BRC.getBugReporter().getEngine().getAnalysisManager().options;
-  if (!Options.shouldSuppressInlinedDefensiveChecks())
-    return 0;
 
   // Start tracking after we see the first state in which the value is null.
   if (!IsTrackingTurnedOn)
@@ -734,13 +730,17 @@ SuppressInlineDefensiveChecksVisitor::VisitNode(const ExplodedNode *Succ,
   if (!IsTrackingTurnedOn)
     return 0;
 
+  AnalyzerOptions &Options =
+  BRC.getBugReporter().getEngine().getAnalysisManager().options;
+  if (!Options.shouldSuppressInlinedDefensiveChecks())
+    return 0;
 
   // Check if in the previous state it was feasible for this value
   // to *not* be null.
-  if (Pred->getState()->assume(V, true)) {
+  if (!Pred->getState()->isNull(V).isConstrainedTrue()) {
     IsSatisfied = true;
 
-    assert(!Succ->getState()->assume(V, true));
+    assert(Succ->getState()->isNull(V).isConstrainedTrue());
 
     // Check if this is inlined defensive checks.
     const LocationContext *CurLC =Succ->getLocationContext();
@@ -772,16 +772,27 @@ static const MemRegion *getLocationRegionIfReference(const Expr *E,
   return 0;
 }
 
-bool bugreporter::trackNullOrUndefValue(const ExplodedNode *ErrorNode,
+bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N,
                                         const Stmt *S,
                                         BugReport &report, bool IsArg) {
-  if (!S || !ErrorNode)
+  if (!S || !N)
     return false;
 
+  // Peel off OpaqueValueExpr.
   if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(S))
     S = OVE->getSourceExpr();
 
-  const ExplodedNode *N = ErrorNode;
+  // Peel off the ternary operator.
+  if (const ConditionalOperator *CO = dyn_cast<ConditionalOperator>(S)) {
+    ProgramStateRef State = N->getState();
+    SVal CondVal = State->getSVal(CO->getCond(), N->getLocationContext());
+    if (State->isNull(CondVal).isConstrainedTrue()) {
+      S = CO->getTrueExpr();
+    } else {
+      assert(State->isNull(CondVal).isConstrainedFalse());
+      S =  CO->getFalseExpr();
+    }
+  }
 
   const Expr *Inner = 0;
   if (const Expr *Ex = dyn_cast<Expr>(S)) {
