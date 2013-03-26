@@ -387,6 +387,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   /// @}
 
+public:
   CodeGenMolly MollyGen;
 
 public:

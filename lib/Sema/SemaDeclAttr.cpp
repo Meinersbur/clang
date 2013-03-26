@@ -4294,6 +4294,10 @@ static void handleMollyInline(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context) MollyInlineAttr(Attr.getRange(), S.Context));
 }
 
+template<typename MollyAttr>
+static void handleSimpleAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+    D->addAttr(::new (S.Context) MollyAttr(Attr.getRange(), S.Context));
+}
 
 //===----------------------------------------------------------------------===//
 // Checker-specific attribute handlers.
@@ -5049,6 +5053,18 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_MollyInline:
       handleMollyInline(S, D, Attr);
       break;
+  case AttributeList::AT_MollyGetBroadcast:
+    handleSimpleAttr<MollyGetBroadcastAttr>(S, D, Attr);
+    break;
+  case AttributeList::AT_MollyGetMaster:
+    handleSimpleAttr<MollyGetMasterAttr>(S, D, Attr);
+    break;
+  case AttributeList::AT_MollySetBroadcast:
+    handleSimpleAttr<MollySetBroadcastAttr>(S, D, Attr);
+    break;
+ case AttributeList::AT_MollySetMaster:
+    handleSimpleAttr<MollySetMasterAttr>(S, D, Attr);
+    break;
 
   default:
     // Ask target about the attribute.

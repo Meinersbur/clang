@@ -201,6 +201,10 @@ void CodeGenModule::Release() {
 
   if (DebugInfo)
     DebugInfo->finalize();
+
+  // BEGIN Molly
+  MollyGen.EmitMetadata();
+  // END Molly
 }
 
 void CodeGenModule::UpdateCompletedType(const TagDecl *TD) {

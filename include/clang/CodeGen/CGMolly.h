@@ -30,18 +30,10 @@ namespace clang {
 
 namespace clang {
   namespace CodeGen {
-
-    //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
-    class FieldTypeMetadata {
+      class FieldTypeMetadata {
     public:
       FieldTypeMetadata() {
         this->clangDecl = NULL;
-        this->llvmType = NULL;
-
-        this->funcGetBroadcast = NULL;
-        this->funcSetBroadcast = NULL;
-        this->funcGetMaster = NULL;
-        this->funcSetMaster = NULL;
       }
 
       FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims) {
@@ -50,11 +42,6 @@ namespace clang {
         this->clangDecl = clangDecl;
         this->llvmType = llvmType;
         dimLengths.append(dims.begin(), dims.end());
-
-        this->funcGetBroadcast = NULL;
-        this->funcSetBroadcast = NULL;
-        this->funcGetMaster = NULL;
-        this->funcSetMaster = NULL;
       }
 
       const clang::CXXRecordDecl *clangDecl;
@@ -66,7 +53,8 @@ namespace clang {
       llvm::Function *funcGetMaster;
       llvm::Function *funcSetMaster;
 
-      llvm::MDNode *buildMetadata();
+      llvm::MDNode *buildMetadata() ;
+
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
     }; // class FieldTypeMetadata
 
@@ -90,8 +78,8 @@ namespace clang {
       void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
 
       static bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
-
-      void EmitMetadata();
+    
+    void EmitMetadata();
     }; // class CodeGenMolly
   } // namespace CodeGen
 } // namespace clang

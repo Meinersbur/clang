@@ -28,12 +28,16 @@
 using namespace clang;
 using namespace CodeGen;
 
+ CodeGenMolly &CodeGenTypes::getMollyGen() {
+   return CGM.MollyGen;
+ }
+
 CodeGenTypes::CodeGenTypes(CodeGenModule &CGM)
   : Context(CGM.getContext()), Target(Context.getTargetInfo()),
     TheModule(CGM.getModule()), TheDataLayout(CGM.getDataLayout()),
     TheABIInfo(CGM.getTargetCodeGenInfo().getABIInfo()),
     TheCXXABI(CGM.getCXXABI()),
-    CodeGenOpts(CGM.getCodeGenOpts()), CGM(CGM), MollyGen(&CGM) {
+    CodeGenOpts(CGM.getCodeGenOpts()), CGM(CGM) {
   SkippedLayout = false;
 }
 
@@ -677,7 +681,9 @@ llvm::StructType *CodeGenTypes::ConvertRecordDeclType(const RecordDecl *RD) {
       ConvertRecordDeclType(DeferredRecords.pop_back_val());
 
   // BEGIN Molly
-  MollyGen.annotateFieldType(RD, Ty);
+  if (auto cxxRecord = dyn_cast<CXXRecordDecl>(RD)) {
+    getMollyGen().annotateFieldType(cxxRecord, Ty);
+  }
   // END Moly
 
   return Ty;
