@@ -1,4 +1,6 @@
+#define DEBUG_TYPE "cgmolly"
 #include "CGMolly.h"
+#include "clang/CodeGen/MollyFieldMetadata.h"
 
 #include "llvm/IR/Value.h"
 #include "llvm\IR/DerivedTypes.h"
@@ -34,15 +36,17 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
   llvm::MDNode *lengthsNode = llvm::MDNode::get(llvmContext, lengthsAsValue);
 
   llvm::Value* metadata[] = {
-    /*[0]*/llvm::MDString::get(llvmContext, "field"), // Just for testing
-    /*[1]*/llvm::MDString::get(llvmContext, clangDecl->getNameAsString()), // Clang type name
-    /*[2]*/llvm::MDString::get(llvmContext, llvmType->getName()), // LLVM type name
-    /*[3]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmType->getTypeID()), // LLVM unique typeid
-    /*[4]*/lengthsNode, // Size of each dimension
-    /*[5]*/funcGetBroadcast,
-    /*[6]*/funcSetBroadcast,
-    /*[7]*/funcGetMaster,
-    /*[8]*/funcSetMaster
+    /*[ 0]*/llvm::MDString::get(llvmContext, "field"), // Just for testing
+    /*[ 1]*/llvm::MDString::get(llvmContext, clangDecl->getNameAsString()), // Clang type name
+    /*[ 2]*/llvm::MDString::get(llvmContext, llvmType->getName()), // LLVM type name
+    /*[ 3]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmType->getTypeID()), // LLVM unique typeid
+    /*[ 4]*/lengthsNode, // Size of each dimension
+    /*[ 5]*/funcGetLocal,
+    /*[ 6]*/funcSetLocal,
+    /*[ 7]*/funcGetBroadcast,
+    /*[ 8]*/funcSetBroadcast,
+    /*[ 9]*/funcGetMaster,
+    /*[10]*/funcSetMaster
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
   return fieldNode;
@@ -71,11 +75,11 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
     auto len = lenMD->getLimitedValue();
     dimLengths.push_back(len);
   }
-
-  funcGetBroadcast = cast<llvm::Function>(metadata->getOperand(5));
-  funcSetBroadcast = cast<llvm::Function>(metadata->getOperand(6));
-  funcGetMaster = cast<llvm::Function>(metadata->getOperand(7));
-  funcSetMaster = cast<llvm::Function>(metadata->getOperand(8));
+  funcGetLocal = NULL; funcSetLocal = NULL;
+  funcGetBroadcast = cast<llvm::Function>(metadata->getOperand(7));
+  funcSetBroadcast = cast<llvm::Function>(metadata->getOperand(8));
+  funcGetMaster = cast<llvm::Function>(metadata->getOperand(9));
+  funcSetMaster = cast<llvm::Function>(metadata->getOperand(10));
 }
 
 
@@ -299,74 +303,73 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   auto &llvmContext = cgm->getLLVMContext();
   auto &clangContext = cgm->getContext();
 
-  auto clangFieldDecl = dyn_cast<CXXRecordDecl>(clangFunc->getParent());
-  if (!clangFieldDecl)
-    return;
-
-  if (fieldsFound.find(clangFieldDecl)==fieldsFound.end())
-    return; // Not a registered field; because annotateFieldType has been called before any of the classes members are created, annotateFieldType abviously decided that the class is not a field
-  auto field = fieldsFound[clangFieldDecl];
-
   // TODO: mark special attributes (especially readOnly, mayWriteToMemory, mayThrow)
   llvm::AttrBuilder ab;
 
-  if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
-    ab.addAttribute("molly_get");
-  }
-
-  if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-    ab.addAttribute("molly_ptr");
-  }
-
-  if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
-    ab.addAttribute("molly_set");
-  }
-
-  if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
-    ab.addAttribute("molly_length");
-  }
-
-  if (clangFunc->hasAttr<MollyFieldmemberAttr>()) {
-    ab.addAttribute("molly_fieldmember");
-  }
-
-  if (clangFunc->hasAttr<MollyGetRankOfFuncAttr>()) {
-    ab.addAttribute("molly_getrankof");
-  }
-
   if (clangFunc->hasAttr<MollyInlineAttr>()) {
     ab.addAttribute("molly_inline");
+    DEBUG(dbgs() << "    Inlinable Func:" << clangFunc->getNameAsString() << "\n");
+  } else {
+    DEBUG(dbgs() << "NOT Inlinable Func:" << clangFunc->getNameAsString() << "\n");
   }
 
-  if (clangFunc->hasAttr<MollyGetBroadcastAttr>()) {
-    ab.addAttribute("molly_get_broadcast");
-    assert(!field->funcGetBroadcast && "Just one function implementation for Molly specials"); 
-    field->funcGetBroadcast = llvmFunc; //TODO: Check function signature
-  }
+  auto clangFieldDecl = dyn_cast<CXXRecordDecl>(clangFunc->getParent());
+  if (clangFieldDecl) {
 
-  if (clangFunc->hasAttr<MollySetMasterAttr>()) {
-    ab.addAttribute("molly_set_broadcast");
-    assert(!field->funcSetBroadcast && "Just one function implementation for Molly specials"); 
-    field->funcSetBroadcast = llvmFunc; //TODO: Check function signature
-  }
+    if (fieldsFound.find(clangFieldDecl)==fieldsFound.end())
+      return; // Not a registered field; because annotateFieldType has been called before any of the classes members are created, annotateFieldType abviously decided that the class is not a field
+    auto field = fieldsFound[clangFieldDecl];
 
-  if (clangFunc->hasAttr<MollyGetMasterAttr>()) {
-    ab.addAttribute("molly_get_master");
-    assert(!field->funcGetMaster && "Just one function implementation for Molly specials"); 
-    field->funcGetMaster = llvmFunc; //TODO: Check function signature
-  }
+    if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
+      ab.addAttribute("molly_get");
+    }
 
-  if (clangFunc->hasAttr<MollySetMasterAttr>()) {
-    ab.addAttribute("molly_set_master");
-    assert(!field->funcSetMaster && "Just one function implementation for Molly specials"); 
-    field->funcSetMaster = llvmFunc; //TODO: Check function signature
+    if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
+      ab.addAttribute("molly_ptr");
+    }
+
+    if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
+      ab.addAttribute("molly_set");
+    }
+
+    if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
+      ab.addAttribute("molly_length");
+    }
+
+    if (clangFunc->hasAttr<MollyFieldmemberAttr>()) {
+      ab.addAttribute("molly_fieldmember");
+    }
+
+    if (clangFunc->hasAttr<MollyGetRankOfFuncAttr>()) {
+      ab.addAttribute("molly_getrankof");
+    }
+
+    if (clangFunc->hasAttr<MollyGetBroadcastAttr>()) {
+      ab.addAttribute("molly_get_broadcast");
+      assert(!field->funcGetBroadcast && "Just one function implementation for Molly specials"); 
+      field->funcGetBroadcast = llvmFunc; //TODO: Check function signature
+    }
+
+    if (clangFunc->hasAttr<MollySetBroadcastAttr>()) {
+      ab.addAttribute("molly_set_broadcast");
+      assert(!field->funcSetBroadcast && "Just one function implementation for Molly specials"); 
+      field->funcSetBroadcast = llvmFunc; //TODO: Check function signature
+    }
+
+    if (clangFunc->hasAttr<MollyGetMasterAttr>()) {
+      ab.addAttribute("molly_get_master");
+      assert(!field->funcGetMaster && "Just one function implementation for Molly specials"); 
+      field->funcGetMaster = llvmFunc; //TODO: Check function signature
+    }
+
+    if (clangFunc->hasAttr<MollySetMasterAttr>()) {
+      ab.addAttribute("molly_set_master");
+      assert(!field->funcSetMaster && "Just one function implementation for Molly specials"); 
+      field->funcSetMaster = llvmFunc; //TODO: Check function signature
+    }
   }
 
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
-
-  if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-    assert(llvmFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ptr"));
-  }
 }
 
 

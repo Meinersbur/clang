@@ -1,8 +1,8 @@
-#ifndef CLANG_CODEGEN_CGMOLLY_H
-#define CLANG_CODEGEN_CGMOLLY_H
+#ifndef CLANG_CODEGEN_MOLLYFIELDMETADATA_H
+#define CLANG_CODEGEN_MOLLYFIELDMETADATA_H
 
-#include "llvm/Support/Compiler.h"
-#include "llvm/ADT/DenseMap.h"
+//#include "llvm/Support/Compiler.h"
+//#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ArrayRef.h"
 //#include "CGBuilder.h" // typedef CGBuilderTy
@@ -30,10 +30,20 @@ namespace clang {
 
 namespace clang {
   namespace CodeGen {
-      class FieldTypeMetadata {
+
+    //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
+    class FieldTypeMetadata {
     public:
       FieldTypeMetadata() {
         this->clangDecl = NULL;
+        this->llvmType = NULL;
+
+        this->funcGetLocal = NULL;
+        this->funcSetLocal = NULL;
+        this->funcGetBroadcast = NULL;
+        this->funcSetBroadcast = NULL;
+        this->funcGetMaster = NULL;
+        this->funcSetMaster = NULL;
       }
 
       FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims) {
@@ -42,45 +52,31 @@ namespace clang {
         this->clangDecl = clangDecl;
         this->llvmType = llvmType;
         dimLengths.append(dims.begin(), dims.end());
+
+        this->funcGetLocal = NULL;
+        this->funcSetLocal = NULL;
+        this->funcGetBroadcast = NULL;
+        this->funcSetBroadcast = NULL;
+        this->funcGetMaster = NULL;
+        this->funcSetMaster = NULL;
       }
 
       const clang::CXXRecordDecl *clangDecl;
       llvm::StructType *llvmType;
       llvm::SmallVector<int, 4> dimLengths;
 
+      llvm::Function *funcGetLocal;
+      llvm::Function *funcSetLocal;
       llvm::Function *funcGetBroadcast;
       llvm::Function *funcSetBroadcast;
       llvm::Function *funcGetMaster;
       llvm::Function *funcSetMaster;
 
-      llvm::MDNode *buildMetadata() ;
-
+      llvm::MDNode *buildMetadata();
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
     }; // class FieldTypeMetadata
 
 
-    class CodeGenMolly {
-    private:
-      CodeGenMolly(const CodeGenMolly &) LLVM_DELETED_FUNCTION;
-      void operator=(const CodeGenMolly &) LLVM_DELETED_FUNCTION;
-
-      CodeGenModule *cgm;
-      //llvm::DenseMap<const clang::RecordDecl*, llvm::MDNode*> fieldDeclToMetadata;
-      llvm::DenseMap<const clang::CXXRecordDecl*, FieldTypeMetadata*> fieldsFound;
-
-    public:
-      CodeGenMolly(CodeGenModule *cgm) {
-        this->cgm = cgm;
-      }
-      ~CodeGenMolly();
-
-      void annotateFieldType(const clang::CXXRecordDecl *clangType, llvm::StructType *llvmType);
-      void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
-
-      static bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
-    
-    void EmitMetadata();
-    }; // class CodeGenMolly
   } // namespace CodeGen
 } // namespace clang
-#endif /* CLANG_CODEGEN_CGMOLLY_H */
+#endif /* CLANG_CODEGEN_MOLLYFIELDMETADATA_H */
