@@ -1,6 +1,8 @@
 
 def MollyField : InheritableAttr {
   let Spellings = [GNU<"molly_field">, CXX11<"molly","field">];
+  let LateParsed = 1;
+  let TemplateDependent = 1;
 }
 
 def MollyDimensions : InheritableAttr {
@@ -43,6 +45,13 @@ def MollyRefFunc : InheritableAttr {
   let TemplateDependent = 1;
 }
 
+def MollyPtrFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_ptrfunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+
 def MollyFieldmember : InheritableAttr {
   let Spellings = [GNU<"molly_fieldmember">]; 
   let LateParsed = 1;
@@ -63,6 +72,18 @@ def MollyGetRankOfFunc : InheritableAttr {
 
 def MollyInline : InheritableAttr {
   let Spellings = [GNU<"molly_inline">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollyGetLocal : InheritableAttr {
+  let Spellings = [GNU<"molly_get_local">, CXX11<"molly","get_local">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollySetLocal : InheritableAttr {
+  let Spellings = [GNU<"molly_set_local">, CXX11<"molly","set_local">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }

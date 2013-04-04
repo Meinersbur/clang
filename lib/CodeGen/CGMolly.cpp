@@ -389,24 +389,41 @@ void CodeGenMolly::EmitMetadata() {
 
 bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E) {
   Intrinsic::ID intrincId;
+  bool hasSelfArg = true;
+  bool hasDimArg = false;
+  bool hasValArg = false;
+  bool hasCoordArgs = false;
   switch (BuiltinID) {
   case Builtin::BI__builtin_molly_ptr:
     intrincId = Intrinsic::molly_ptr;
+    hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_get:
     intrincId = Intrinsic::molly_get;
+    hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_set:
     intrincId = Intrinsic::molly_set;
+    hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_islocal:
     intrincId = Intrinsic::molly_islocal;
+    hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_rankof:
     intrincId = Intrinsic::molly_rankof;
+    hasCoordArgs = true;
+    break;
+  case Builtin::BI__builtin_molly_localoffset:
+    intrincId = Intrinsic::molly_localoffset;
+    hasDimArg = true;
+    break;
+  case Builtin::BI__builtin_molly_locallength:
+    intrincId = Intrinsic::molly_locallength;
+    hasDimArg = true;
     break;
   default:
-    return false;
+    return false; // Not a Molly intrinsic
   }
 
   auto &llvmContext = cgm->getLLVMContext();
@@ -416,8 +433,12 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   auto builder = &cgf->Builder;
   auto nDims = (nArgs - 1);
 
+  int curArg = 0;
+    SmallVector<llvm::Type*, 6> argtypes;
+  SmallVector<Value*, 4> args;
+
   // Query element type
-  auto ptrToSelf = E->getArg(0);
+  auto ptrToSelf = E->getArg(curArg);curArg+=1;
   auto ptrToSelfType = ptrToSelf->getType();
   auto structTy = cast<CXXRecordDecl>(ptrToSelfType->getPointeeType()->getAsCXXRecordDecl());
   auto eltTypedef = cast<TypedefDecl>(findMember(cgm, structTy, "ElementType"));
@@ -425,10 +446,15 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   auto llvmEltType = cgf->ConvertType(eltTypedef);
   auto llvmPtrToEltType = cgf->ConvertType(clangContext.getPointerType(eltType));
 
-  Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
-  SmallVector<llvm::Type*, 6> argtypes;
-  SmallVector<Value*, 4> args;
+    Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
   args.push_back(thisArg);
+
+   if (hasDimArg) {
+      auto argDimExpr = E->getArg(curArg); curArg+1;
+      auto argDim = cgf->EmitScalarExpr(argDimExpr); // Must be constant?
+      args.push_back(argDim);
+  }
+
   switch (BuiltinID) {
   case Builtin::BI__builtin_molly_ptr:
     argtypes.push_back(llvmPtrToEltType);
@@ -465,7 +491,7 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     //args.push_back(thisArg);
     break;
   default:
-    return false;
+    break;
   }
 
   //argtypes.push_back(llvm::Type::getVoidTy(llvmContext)); // Return type
