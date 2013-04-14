@@ -168,14 +168,14 @@ function(clang_tablegen)
   # executing the custom command depending on output-file. It is
   # possible to list more files to depend after DEPENDS.
 
-  parse_arguments( CTG "SOURCE;TARGET;DEPENDS" "" ${ARGN} )
+  parse_arguments( CTG "SOURCE;TARGET;DEPENDS;TDDEPENDS" "" ${ARGN} )
 
   if( NOT CTG_SOURCE )
     message(FATAL_ERROR "SOURCE source-file required by clang_tablegen")
   endif()
 
   set( LLVM_TARGET_DEFINITIONS ${CTG_SOURCE} )
-  tablegen( CLANG ${CTG_DEFAULT_ARGS} )
+  tablegen( CLANG ${CTG_DEFAULT_ARGS} DEPENDS ${CTG_TDDEPENDS} )
 
   list( GET CTG_DEFAULT_ARGS 0 output_file )
   if( CTG_TARGET )

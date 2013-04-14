@@ -34,32 +34,8 @@ namespace clang {
     //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
     class FieldTypeMetadata {
     public:
-      FieldTypeMetadata() {
-        this->clangDecl = NULL;
-        this->llvmType = NULL;
-
-        this->funcGetLocal = NULL;
-        this->funcSetLocal = NULL;
-        this->funcGetBroadcast = NULL;
-        this->funcSetBroadcast = NULL;
-        this->funcGetMaster = NULL;
-        this->funcSetMaster = NULL;
-      }
-
-      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims) {
-        assert(clangDecl);
-        assert(llvmType);
-        this->clangDecl = clangDecl;
-        this->llvmType = llvmType;
-        dimLengths.append(dims.begin(), dims.end());
-
-        this->funcGetLocal = NULL;
-        this->funcSetLocal = NULL;
-        this->funcGetBroadcast = NULL;
-        this->funcSetBroadcast = NULL;
-        this->funcGetMaster = NULL;
-        this->funcSetMaster = NULL;
-      }
+      FieldTypeMetadata();
+      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims);
 
       const clang::CXXRecordDecl *clangDecl;
       llvm::StructType *llvmType;
@@ -71,6 +47,7 @@ namespace clang {
       llvm::Function *funcSetBroadcast;
       llvm::Function *funcGetMaster;
       llvm::Function *funcSetMaster;
+      llvm::Function *funcIslocal;
 
       llvm::MDNode *buildMetadata();
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);

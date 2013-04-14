@@ -4290,10 +4290,6 @@ static void handleMollySetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context) MollySetterFuncAttr(Attr.getRange(), S.Context));
 }
 
-static void handleMollyRefFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyRefFuncAttr(Attr.getRange(), S.Context));
-}
-
 static void handleMollyFieldmember(Sema &S, Decl *D, const AttributeList &Attr) {
     D->addAttr(::new (S.Context) MollyFieldmemberAttr(Attr.getRange(), S.Context));
 }
@@ -5057,7 +5053,13 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
       handleMollySetterFunc(S, D, Attr);
       break;
   case AttributeList::AT_MollyRefFunc:
-      handleMollyRefFunc(S, D, Attr);
+      handleSimpleAttr<MollyRefFuncAttr>(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyPtrFunc:
+      handleSimpleAttr<MollyPtrFuncAttr>(S, D, Attr);
+      break;
+  case AttributeList::AT_MollyPtrLocal:
+      handleSimpleAttr<MollyPtrLocalAttr>(S, D, Attr);
       break;
   case AttributeList::AT_MollyFieldmember:
       handleMollyFieldmember(S, D, Attr);
@@ -5071,11 +5073,17 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_MollyInline:
       handleMollyInline(S, D, Attr);
       break;
+  case AttributeList::AT_MollyGetLocal:
+    handleSimpleAttr<MollyGetLocalAttr>(S, D, Attr);
+    break;
   case AttributeList::AT_MollyGetBroadcast:
     handleSimpleAttr<MollyGetBroadcastAttr>(S, D, Attr);
     break;
   case AttributeList::AT_MollyGetMaster:
     handleSimpleAttr<MollyGetMasterAttr>(S, D, Attr);
+    break;
+  case AttributeList::AT_MollySetLocal:
+    handleSimpleAttr<MollySetLocalAttr>(S, D, Attr);
     break;
   case AttributeList::AT_MollySetBroadcast:
     handleSimpleAttr<MollySetBroadcastAttr>(S, D, Attr);

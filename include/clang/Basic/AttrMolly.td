@@ -39,27 +39,26 @@ def MollySetterFunc : InheritableAttr {
   let TemplateDependent = 1;
 }
 
-def MollyRefFunc : InheritableAttr {
-  let Spellings = [GNU<"molly_reffunc">]; 
-  let LateParsed = 1;
-  let TemplateDependent = 1;
-}
-
 def MollyPtrFunc : InheritableAttr {
   let Spellings = [GNU<"molly_ptrfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
 
+def MollyRefFunc : InheritableAttr {
+  let Spellings = [GNU<"molly_reffunc">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
 
 def MollyFieldmember : InheritableAttr {
-  let Spellings = [GNU<"molly_fieldmember">]; 
+  let Spellings = [GNU<"molly_fieldmember">, GNU<"molly_member">, CXX11<"molly","member">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
 
 def MollyIsLocalFunc : InheritableAttr {
-  let Spellings = [GNU<"molly_islocalfunc">]; 
+  let Spellings = [GNU<"molly_islocalfunc">, CXX11<"molly","islocalfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }
@@ -84,6 +83,12 @@ def MollyGetLocal : InheritableAttr {
 
 def MollySetLocal : InheritableAttr {
   let Spellings = [GNU<"molly_set_local">, CXX11<"molly","set_local">]; 
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+}
+
+def MollyPtrLocal : InheritableAttr {
+  let Spellings = [GNU<"molly_ptr_local">, CXX11<"molly","ptr_local">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
 }

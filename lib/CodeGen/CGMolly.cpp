@@ -23,6 +23,36 @@ using namespace clang::CodeGen;
 using namespace llvm;
 
 
+FieldTypeMetadata::FieldTypeMetadata() {
+  this->clangDecl = NULL;
+  this->llvmType = NULL;
+
+  this->funcGetLocal = NULL;
+  this->funcSetLocal = NULL;
+  this->funcGetBroadcast = NULL;
+  this->funcSetBroadcast = NULL;
+  this->funcGetMaster = NULL;
+  this->funcSetMaster = NULL;
+  this->funcIslocal = NULL;
+}
+
+FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims) {
+  assert(clangDecl);
+  assert(llvmType);
+  this->clangDecl = clangDecl;
+  this->llvmType = llvmType;
+  dimLengths.append(dims.begin(), dims.end());
+
+  this->funcGetLocal = NULL;
+  this->funcSetLocal = NULL;
+  this->funcGetBroadcast = NULL;
+  this->funcSetBroadcast = NULL;
+  this->funcGetMaster = NULL;
+  this->funcSetMaster = NULL;
+  this->funcIslocal = NULL;
+}
+
+
 llvm::MDNode *FieldTypeMetadata::buildMetadata() {
   auto &llvmContext = llvmType->getContext();
 
@@ -46,7 +76,8 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
     /*[ 7]*/funcGetBroadcast,
     /*[ 8]*/funcSetBroadcast,
     /*[ 9]*/funcGetMaster,
-    /*[10]*/funcSetMaster
+    /*[10]*/funcSetMaster,
+    /*[11]*/funcIslocal
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
   return fieldNode;
@@ -80,8 +111,8 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   funcSetBroadcast = cast<llvm::Function>(metadata->getOperand(8));
   funcGetMaster = cast<llvm::Function>(metadata->getOperand(9));
   funcSetMaster = cast<llvm::Function>(metadata->getOperand(10));
+  funcIslocal = cast<llvm::Function>(metadata->getOperand(11));
 }
-
 
 
 CodeGenMolly::~CodeGenMolly() {
@@ -367,6 +398,12 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
       assert(!field->funcSetMaster && "Just one function implementation for Molly specials"); 
       field->funcSetMaster = llvmFunc; //TODO: Check function signature
     }
+
+    if (clangFunc->hasAttr<MollyIsLocalFuncAttr>()) {
+      ab.addAttribute("molly_islocalfunc");
+      assert(!field->funcIslocal && "Just one function implementation for Molly specials"); 
+      field->funcIslocal = llvmFunc; //TODO: Check function signature
+    }
   }
 
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
@@ -400,10 +437,12 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     break;
   case Builtin::BI__builtin_molly_get:
     intrincId = Intrinsic::molly_get;
+    hasValArg = true;
     hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_set:
     intrincId = Intrinsic::molly_set;
+    hasValArg = true;
     hasCoordArgs = true;
     break;
   case Builtin::BI__builtin_molly_islocal:
@@ -428,17 +467,20 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
 
   auto &llvmContext = cgm->getLLVMContext();
   auto &clangContext = cgm->getContext();
-
-  auto nArgs = E->getNumArgs();
   auto builder = &cgf->Builder;
-  auto nDims = (nArgs - 1);
+  auto nArgs = E->getNumArgs();
+  //auto nDims = (nArgs - 1);
 
   int curArg = 0;
-    SmallVector<llvm::Type*, 6> argtypes;
+  SmallVector<llvm::Type*, 6> argtypes;
   SmallVector<Value*, 4> args;
 
-  // Query element type
-  auto ptrToSelf = E->getArg(curArg);curArg+=1;
+  // Query element type 
+  // Pointer to field is always first argument
+  assert(hasSelfArg);
+  auto ptrToSelf = E->getArg(curArg);
+  curArg += 1;
+  ptrToSelf = ptrToSelf->IgnoreParenImpCasts();
   auto ptrToSelfType = ptrToSelf->getType();
   auto structTy = cast<CXXRecordDecl>(ptrToSelfType->getPointeeType()->getAsCXXRecordDecl());
   auto eltTypedef = cast<TypedefDecl>(findMember(cgm, structTy, "ElementType"));
@@ -446,71 +488,63 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   auto llvmEltType = cgf->ConvertType(eltTypedef);
   auto llvmPtrToEltType = cgf->ConvertType(clangContext.getPointerType(eltType));
 
-    Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
-  args.push_back(thisArg);
-
-   if (hasDimArg) {
-      auto argDimExpr = E->getArg(curArg); curArg+1;
-      auto argDim = cgf->EmitScalarExpr(argDimExpr); // Must be constant?
-      args.push_back(argDim);
-  }
-
-  switch (BuiltinID) {
+  // Return type
+  switch (BuiltinID) {  
   case Builtin::BI__builtin_molly_ptr:
+    // Pointer to buffer
     argtypes.push_back(llvmPtrToEltType);
-    argtypes.push_back(thisArg->getType()); 
-    //args.push_back(thisArg);
     break;
-  case Builtin::BI__builtin_molly_get:
-    argtypes.push_back(llvmEltType);
-    argtypes.push_back(thisArg->getType()); 
-    //args.push_back(thisArg);
-    break;
-  case Builtin::BI__builtin_molly_set:  {
-    // Return type
-    argtypes.push_back(llvm::Type::getVoidTy(llvmContext)); 
-
-    // Type of "this"
-    argtypes.push_back(thisArg->getType()); 
-    //args.push_back(thisArg);
-
-    // Value argument
-    nDims = (nArgs - 2);
-    auto valArg = cgf->EmitScalarExpr(E->getArg(nArgs-1));
-    argtypes.push_back(llvmEltType); 
-    args.push_back(valArg);
-                                        } break;
   case Builtin::BI__builtin_molly_islocal:
-    argtypes.push_back(llvm::Type::getInt1Ty(llvmContext));
-    argtypes.push_back(thisArg->getType()); 
-    //args.push_back(thisArg);
+    // bool
+    //argtypes.push_back(llvm::Type::getInt1Ty(llvmContext)); //FIXME: This is fixed, isn't it?
     break;
   case Builtin::BI__builtin_molly_rankof:
-    argtypes.push_back(llvm::Type::getInt32Ty(llvmContext));
-    argtypes.push_back(thisArg->getType()); 
-    //args.push_back(thisArg);
+    // int
+    //argtypes.push_back(llvm::Type::getInt32Ty(llvmContext));  //FIXME: This is fixed, isn't it?
     break;
   default:
+    // No return or fixed
+    //argtypes.push_back(llvm::Type::getVoidTy(llvmContext)); 
     break;
   }
 
-  //argtypes.push_back(llvm::Type::getVoidTy(llvmContext)); // Return type
-  //llvm::Type *&rtnTy = argtypes[0];
-  //argtypes.push_back(thisArg->getType()); // type of "this"
+  // Ptr to field is always first argument
+  Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
+  args.push_back(thisArg);
+  argtypes.push_back(thisArg->getType()); 
 
-  // Coordinates
-  for (auto d = nArgs-nDims;d<nArgs;d+=1) {
-    argtypes.push_back(IntegerType::getInt32Ty(llvmContext)); // Coordinates
-
-    Value *dimCoordArg = cgf->EmitScalarExpr(E->getArg(d));
-    args.push_back(dimCoordArg);
+  // Dimension arg
+  if (hasDimArg) {
+    auto argDimExpr = E->getArg(curArg); 
+    curArg+=1;
+    auto argDim = cgf->EmitScalarExpr(argDimExpr); 
+    args.push_back(argDim);
   }
 
-  Function *func = cgm->getIntrinsic(intrincId, argtypes);
+  // val arg
+  if (hasValArg) {
+    auto argValExpr = E->getArg(curArg); 
+    curArg+=1;
+    auto argVar = cgf->EmitScalarExpr(argValExpr); // Pointer to buffer the value is read/written to
+    args.push_back(argVar);
+  }
 
+  // Coordinate arguments, must be last
+  if (hasCoordArgs) {
+    auto nDims = nArgs - curArg; //TODO: Check if matches field type
+    for (auto d = nArgs-nDims;d<nArgs;d+=1) {
+      argtypes.push_back(IntegerType::getInt32Ty(llvmContext)); // Type of a coordinate 
+
+      auto coordArgExpr = E->getArg(d);
+      curArg += 1;
+      Value *coordArg = cgf->EmitScalarExpr(coordArgExpr);
+      args.push_back(coordArg);
+    }
+  }
+  assert(curArg == nArgs && "Unexpected number of arguments");
+
+  Function *func = cgm->getIntrinsic(intrincId, argtypes);
   auto callInstr = builder->CreateCall(func, args, "mollycall");
   result = RValue::get(callInstr);
   return true;
 }
-
-

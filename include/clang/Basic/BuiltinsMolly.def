@@ -5,5 +5,5 @@ BUILTIN(__builtin_molly_set, "v."  , "nt")
 
 BUILTIN(__builtin_molly_islocal, "b."  , "nt")
 BUILTIN(__builtin_molly_rankof, "i."  , "nt")
-BUILTIN(__builtin_molly_localoffset, "iv*i"  , "n")
-BUILTIN(__builtin_molly_locallength, "iv*i"  , "n")
+BUILTIN(__builtin_molly_localoffset, "ivC*i"  , "n")
+BUILTIN(__builtin_molly_locallength, "ivC*i"  , "n")
