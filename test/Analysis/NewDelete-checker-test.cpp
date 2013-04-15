@@ -1,10 +1,9 @@
-// RUN: %clang_cc1 -analyze -analyzer-checker=core,cplusplus.NewDelete -analyzer-store region -std=c++11 -fblocks -verify %s
+// RUN: %clang_cc1 -analyze -analyzer-checker=core,cplusplus.NewDelete -std=c++11 -fblocks -verify %s
+// RUN: %clang_cc1 -analyze -analyzer-checker=core,alpha.cplusplus.NewDeleteLeaks -DLEAKS -std=c++11 -fblocks -verify %s
 #include "Inputs/system-header-simulator-cxx.h"
-#include "Inputs/system-header-simulator-objc.h"
 
 typedef __typeof__(sizeof(int)) size_t;
 extern "C" void *malloc(size_t);
-extern "C" void free(void *);
 int *global;
 
 //------------------
@@ -14,29 +13,46 @@ int *global;
 //----- Standard non-placement operators
 void testGlobalOpNew() {
   void *p = operator new(0);
-} // expected-warning{{Memory is never released; potential leak}}
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 void testGlobalOpNewArray() {
   void *p = operator new[](0);
-} // expected-warning{{Memory is never released; potential leak}}
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 void testGlobalNewExpr() {
   int *p = new int;
-} // expected-warning{{Memory is never released; potential leak}}
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 void testGlobalNewExprArray() {
   int *p = new int[0];
-} // expected-warning{{Memory is never released; potential leak}}
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 //----- Standard nothrow placement operators
 void testGlobalNoThrowPlacementOpNewBeforeOverload() {
   void *p = operator new(0, std::nothrow);
-} // expected-warning{{Memory is never released; potential leak}}
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 void testGlobalNoThrowPlacementExprNewBeforeOverload() {
   int *p = new(std::nothrow) int;
-} // expected-warning{{Memory is never released; potential leak}}
-
+}
+#ifdef LEAKS
+// expected-warning@-2{{Potential leak of memory pointed to by 'p'}}
+#endif
 
 //----- Standard pointer placement operators
 void testGlobalPointerPlacementNew() {
@@ -74,12 +90,57 @@ void testNewInvalidationPlacement(PtrWrapper *w) {
 // other checks
 //---------------
 
-void f(int *);
+class SomeClass {
+public:
+  void f(int *p);
+};
 
-void testUseAfterDelete() {
+void f(int *p1, int *p2 = 0, int *p3 = 0);
+void g(SomeClass &c, ...);
+
+void testUseFirstArgAfterDelete() {
   int *p = new int;
   delete p;
   f(p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseMiddleArgAfterDelete(int *p) {
+  delete p;
+  f(0, p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseLastArgAfterDelete(int *p) {
+  delete p;
+  f(0, 0, p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseSeveralArgsAfterDelete(int *p) {
+  delete p;
+  f(p, p, p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseRefArgAfterDelete(SomeClass &c) {
+  delete &c;
+  g(c); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testVariadicArgAfterDelete() {
+  SomeClass c;
+  int *p = new int;
+  delete p;
+  g(c, 0, p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseMethodArgAfterDelete(int *p) {
+  SomeClass *c = new SomeClass;
+  delete p;
+  c->f(p); // expected-warning{{Use of memory after it is freed}}
+}
+
+void testUseThisAfterDelete() {
+  SomeClass *c = new SomeClass;
+  delete c;
+  c->f(0); // expected-warning{{Use of memory after it is freed}}
 }
 
 void testDeleteAlloca() {
@@ -106,57 +167,6 @@ void testExprDeleteArrArg() {
 void testAllocDeallocNames() {
   int *p = new(std::nothrow) int[1];
   delete[] (++p); // expected-warning{{Argument to 'delete[]' is offset by 4 bytes from the start of memory allocated by 'new[]'}}
-}
-
-//----------------------------------------------------------------------------
-// Check for intersections with unix.Malloc and unix.MallocWithAnnotations 
-// checkers bounded with cplusplus.NewDelete.
-//----------------------------------------------------------------------------
-
-// malloc()/free() are subjects of unix.Malloc and unix.MallocWithAnnotations
-void testMallocFreeNoWarn() {
-  int i;
-  free(&i); // no warn
-
-  int *p1 = (int *)malloc(sizeof(int));
-  free(++p1); // no warn
-
-  int *p2 = (int *)malloc(sizeof(int));
-  free(p2);
-  free(p2); // no warn
-
-  int *p3 = (int *)malloc(sizeof(int)); // no warn
-}
-
-//----- Test free standard new
-void testFreeOpNew() {
-  void *p = operator new(0);
-  free(p);
-} // expected-warning{{Memory is never released; potential leak}}
-// FIXME: Pointer should escape
-
-void testFreeNewExpr() {
-  int *p = new int;
-  free(p);
-} // expected-warning{{Memory is never released; potential leak}}
-// FIXME: Pointer should escape
-
-void testObjcFreeNewed() {
-  int *p = new int;
-  NSData *nsdata = [NSData dataWithBytesNoCopy:p length:sizeof(int) freeWhenDone:1]; // expected-warning{{Memory is never released; potential leak}}
-}
-// FIXME: Pointer should escape
-
-void testFreeAfterDelete() {
-  int *p = new int;  
-  delete p;
-  free(p); // expected-warning{{Use of memory after it is freed}}
-}
-
-void testStandardPlacementNewAfterDelete() {
-  int *p = new int;  
-  delete p;
-  p = new(p) int; // expected-warning{{Use of memory after it is freed}}
 }
 
 //--------------------------------
@@ -196,5 +206,3 @@ void testConstEscapePlacementNew() {
   void *y = new (x) int;
   escapeVoidPtr(y);
 } // no-warning
-
-

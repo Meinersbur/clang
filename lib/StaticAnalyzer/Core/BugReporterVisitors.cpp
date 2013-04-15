@@ -307,9 +307,9 @@ public:
     if (LValue) {
       if (const MemRegion *MR = LValue->getAsRegion()) {
         if (MR->canPrintPretty()) {
-          Out << " (reference to '";
+          Out << " (reference to ";
           MR->printPretty(Out);
-          Out << "')";
+          Out << ")";
         }
       }
     } else {
@@ -435,6 +435,16 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     }
   }
 
+  // If this is a post initializer expression, initializing the region, we
+  // should track the initializer expression.
+  if (Optional<PostInitializer> PIP = Pred->getLocationAs<PostInitializer>()) {
+    const MemRegion *FieldReg = (const MemRegion *)PIP->getLocationValue();
+    if (FieldReg && FieldReg == R) {
+      StoreSite = Pred;
+      InitE = PIP->getInitializer()->getInit();
+    }
+  }
+  
   // Otherwise, see if this is the store site:
   // (1) Succ has this binding and Pred does not, i.e. this is
   //     where the binding first occurred.
@@ -501,9 +511,6 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     }
   }
 
-  if (!R->canPrintPretty())
-    return 0;
-
   // Okay, we've found the binding. Emit an appropriate message.
   SmallString<256> sbuf;
   llvm::raw_svector_ostream os(sbuf);
@@ -515,9 +522,11 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     const VarRegion *VR = dyn_cast<VarRegion>(R);
 
     if (DS) {
-      action = "initialized to ";
+      action = R->canPrintPretty() ? "initialized to " :
+                                     "Initializing to ";
     } else if (isa<BlockExpr>(S)) {
-      action = "captured by block as ";
+      action = R->canPrintPretty() ? "captured by block as " :
+                                     "Capturing by block as ";
       if (VR) {
         // See if we can get the BlockVarRegion.
         ProgramStateRef State = StoreSite->getState();
@@ -535,12 +544,10 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
     }
 
     if (action) {
-      if (!R)
-        return 0;
-
-      os << '\'';
-      R->printPretty(os);
-      os << "' ";
+      if (R->canPrintPretty()) {
+        R->printPretty(os);
+        os << " ";
+      }
 
       if (V.getAs<loc::ConcreteInt>()) {
         bool b = false;
@@ -563,14 +570,18 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
         if (V.isUndef()) {
           if (isa<VarRegion>(R)) {
             const VarDecl *VD = cast<VarDecl>(DS->getSingleDecl());
-            if (VD->getInit())
-              os << "initialized to a garbage value";
-            else
-              os << "declared without an initial value";
+            if (VD->getInit()) {
+              os << (R->canPrintPretty() ? "initialized" : "Initializing")
+                 << " to a garbage value";
+            } else {
+              os << (R->canPrintPretty() ? "declared" : "Declaring")
+                 << " without an initial value";
+            }
           }
         }
         else {
-          os << "initialized here";
+          os << (R->canPrintPretty() ? "initialized" : "Initializing")
+             << " here";
         }
       }
     }
@@ -596,10 +607,11 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
 
       // Printed parameter indexes are 1-based, not 0-based.
       unsigned Idx = Param->getFunctionScopeIndex() + 1;
-      os << " via " << Idx << llvm::getOrdinalSuffix(Idx) << " parameter '";
-
-      R->printPretty(os);
-      os << '\'';
+      os << " via " << Idx << llvm::getOrdinalSuffix(Idx) << " parameter";
+      if (R->canPrintPretty()) {
+        os << " ";
+        R->printPretty(os);
+      }
     }
   }
 
@@ -609,27 +621,28 @@ PathDiagnosticPiece *FindLastStoreBRVisitor::VisitNode(const ExplodedNode *Succ,
       if (R->isBoundable()) {
         if (const TypedValueRegion *TR = dyn_cast<TypedValueRegion>(R)) {
           if (TR->getValueType()->isObjCObjectPointerType()) {
-            os << "nil object reference stored to ";
+            os << "nil object reference stored";
             b = true;
           }
         }
       }
 
       if (!b)
-        os << "Null pointer value stored to ";
+        os << "Null pointer value stored";
     }
     else if (V.isUndef()) {
-      os << "Uninitialized value stored to ";
+      os << "Uninitialized value stored";
     } else if (Optional<nonloc::ConcreteInt> CV =
                    V.getAs<nonloc::ConcreteInt>()) {
-      os << "The value " << CV->getValue() << " is assigned to ";
+      os << "The value " << CV->getValue() << " is assigned";
     }
     else
-      os << "Value assigned to ";
+      os << "Value assigned";
 
-    os << '\'';
-    R->printPretty(os);
-    os << '\'';
+    if (R->canPrintPretty()) {
+      os << " to ";
+      R->printPretty(os);
+    }
   }
 
   // Construct a new PathDiagnosticPiece.
@@ -789,28 +802,37 @@ static const MemRegion *getLocationRegionIfReference(const Expr *E,
   return 0;
 }
 
-static const Expr *peelOffOuterExpr(const Stmt *S,
+static const Expr *peelOffOuterExpr(const Expr *Ex,
                                     const ExplodedNode *N) {
-  if (const Expr *Ex = dyn_cast<Expr>(S)) {
-    Ex = Ex->IgnoreParenCasts();
-    if (const ExprWithCleanups *EWC = dyn_cast<ExprWithCleanups>(Ex))
-      return EWC->getSubExpr();
-    if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(Ex))
-      return OVE->getSourceExpr();
+  Ex = Ex->IgnoreParenCasts();
+  if (const ExprWithCleanups *EWC = dyn_cast<ExprWithCleanups>(Ex))
+    return peelOffOuterExpr(EWC->getSubExpr(), N);
+  if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(Ex))
+    return peelOffOuterExpr(OVE->getSourceExpr(), N);
 
-    // Peel off the ternary operator.
-    if (const ConditionalOperator *CO = dyn_cast<ConditionalOperator>(Ex)) {
-      ProgramStateRef State = N->getState();
-      SVal CondVal = State->getSVal(CO->getCond(), N->getLocationContext());
-      if (State->isNull(CondVal).isConstrainedTrue()) {
-        return CO->getTrueExpr();
-      } else {
-        assert(State->isNull(CondVal).isConstrainedFalse());
-        return CO->getFalseExpr();
+  // Peel off the ternary operator.
+  if (const ConditionalOperator *CO = dyn_cast<ConditionalOperator>(Ex)) {
+    // Find a node where the branching occured and find out which branch
+    // we took (true/false) by looking at the ExplodedGraph.
+    const ExplodedNode *NI = N;
+    do {
+      ProgramPoint ProgPoint = NI->getLocation();
+      if (Optional<BlockEdge> BE = ProgPoint.getAs<BlockEdge>()) {
+        const CFGBlock *srcBlk = BE->getSrc();
+        if (const Stmt *term = srcBlk->getTerminator()) {
+          if (term == CO) {
+            bool TookTrueBranch = (*(srcBlk->succ_begin()) == BE->getDst());
+            if (TookTrueBranch)
+              return peelOffOuterExpr(CO->getTrueExpr(), N);
+            else
+              return peelOffOuterExpr(CO->getFalseExpr(), N);
+          }
+        }
       }
-    }
+      NI = NI->getFirstPred();
+    } while (NI);
   }
-  return 0;
+  return Ex;
 }
 
 bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N,
@@ -820,8 +842,11 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N,
   if (!S || !N)
     return false;
 
-  if (const Expr *Ex = peelOffOuterExpr(S, N)) {
-    S = Ex;
+  if (const Expr *Ex = dyn_cast<Expr>(S)) {
+    Ex = Ex->IgnoreParenCasts();
+    const Expr *PeeledEx = peelOffOuterExpr(Ex, N);
+    if (Ex != PeeledEx)
+      S = PeeledEx;
   }
 
   const Expr *Inner = 0;
@@ -904,32 +929,11 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N,
 
     if (R) {
       // Mark both the variable region and its contents as interesting.
-      SVal V = state->getRawSVal(loc::MemRegionVal(R));
-
-      // If the value matches the default for the variable region, that
-      // might mean that it's been cleared out of the state. Fall back to
-      // the full argument expression (with casts and such intact).
-      if (IsArg) {
-        bool UseArgValue = V.isUnknownOrUndef() || V.isZeroConstant();
-        if (!UseArgValue) {
-          const SymbolRegionValue *SRV =
-            dyn_cast_or_null<SymbolRegionValue>(V.getAsLocSymbol());
-          if (SRV)
-            UseArgValue = (SRV->getRegion() == R);
-        }
-        if (UseArgValue)
-          V = state->getSValAsScalarOrLoc(S, N->getLocationContext());
-      }
+      SVal V = LVState->getRawSVal(loc::MemRegionVal(R));
 
       report.markInteresting(R);
       report.markInteresting(V);
       report.addVisitor(new UndefOrNullArgVisitor(R));
-
-      if (isa<SymbolicRegion>(R)) {
-        TrackConstraintBRVisitor *VI =
-          new TrackConstraintBRVisitor(loc::MemRegionVal(R), false);
-        report.addVisitor(VI);
-      }
 
       // If the contents are symbolic, find out when they became null.
       if (V.getAsLocSymbol()) {
@@ -938,11 +942,11 @@ bool bugreporter::trackNullOrUndefValue(const ExplodedNode *N,
         report.addVisitor(ConstraintTracker);
 
         // Add visitor, which will suppress inline defensive checks.
-        if (N->getState()->isNull(V).isConstrainedTrue() &&
+        if (LVState->isNull(V).isConstrainedTrue() &&
             EnableNullFPSuppression) {
           BugReporterVisitor *IDCSuppressor =
             new SuppressInlineDefensiveChecksVisitor(V.castAs<DefinedSVal>(),
-                                                     N);
+                                                     LVNode);
           report.addVisitor(IDCSuppressor);
         }
       }
@@ -1350,7 +1354,7 @@ ConditionBRVisitor::VisitConditionVariable(StringRef LhsString,
     Out << (tookTrue ? "not nil" : "nil");
   else if (Ty->isBooleanType())
     Out << (tookTrue ? "true" : "false");
-  else if (Ty->isIntegerType())
+  else if (Ty->isIntegralOrEnumerationType())
     Out << (tookTrue ? "non-zero" : "zero");
   else
     return 0;
@@ -1421,28 +1425,53 @@ ConditionBRVisitor::VisitTrueTest(const Expr *Cond,
   return event;
 }
 
+
+// FIXME: Copied from ExprEngineCallAndReturn.cpp.
+static bool isInStdNamespace(const Decl *D) {
+  const DeclContext *DC = D->getDeclContext()->getEnclosingNamespaceContext();
+  const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(DC);
+  if (!ND)
+    return false;
+
+  while (const NamespaceDecl *Parent = dyn_cast<NamespaceDecl>(ND->getParent()))
+    ND = Parent;
+
+  return ND->getName() == "std";
+}
+
+
 PathDiagnosticPiece *
 LikelyFalsePositiveSuppressionBRVisitor::getEndPath(BugReporterContext &BRC,
                                                     const ExplodedNode *N,
                                                     BugReport &BR) {
-  const Stmt *S = BR.getStmt();
-  if (!S)
-    return 0;
-
-  // Here we suppress false positives coming from system macros. This list is
+  // Here we suppress false positives coming from system headers. This list is
   // based on known issues.
+
+  // Skip reports within the 'std' namespace. Although these can sometimes be
+  // the user's fault, we currently don't report them very well, and
+  // Note that this will not help for any other data structure libraries, like
+  // TR1, Boost, or llvm/ADT.
+  ExprEngine &Eng = BRC.getBugReporter().getEngine();
+  AnalyzerOptions &Options = Eng.getAnalysisManager().options;
+  if (Options.shouldSuppressFromCXXStandardLibrary()) {
+    const LocationContext *LCtx = N->getLocationContext();
+    if (isInStdNamespace(LCtx->getDecl())) {
+      BR.markInvalid(getTag(), 0);
+      return 0;
+    }
+  }
 
   // Skip reports within the sys/queue.h macros as we do not have the ability to
   // reason about data structure shapes.
   SourceManager &SM = BRC.getSourceManager();
-  SourceLocation Loc = S->getLocStart();
+  FullSourceLoc Loc = BR.getLocation(SM).asLocation();
   while (Loc.isMacroID()) {
     if (SM.isInSystemMacro(Loc) &&
        (SM.getFilename(SM.getSpellingLoc(Loc)).endswith("sys/queue.h"))) {
       BR.markInvalid(getTag(), 0);
       return 0;
     }
-    Loc = SM.getSpellingLoc(Loc);
+    Loc = Loc.getSpellingLoc();
   }
 
   return 0;

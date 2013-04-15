@@ -1527,14 +1527,23 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   // C++0x [stmt.iter]p1: Check if we have a for-range-declarator. If so, we
   // must parse and analyze the for-range-initializer before the declaration is
   // analyzed.
-  if (FRI && Tok.is(tok::colon)) {
-    FRI->ColonLoc = ConsumeToken();
-    if (Tok.is(tok::l_brace))
-      FRI->RangeExpr = ParseBraceInitializer();
-    else
-      FRI->RangeExpr = ParseExpression();
+  //
+  // Handle the Objective-C for-in loop variable similarly, although we
+  // don't need to parse the container in advance.
+  if (FRI && (Tok.is(tok::colon) || isTokIdentifier_in())) {
+    bool IsForRangeLoop = false;
+    if (Tok.is(tok::colon)) {
+      IsForRangeLoop = true;
+      FRI->ColonLoc = ConsumeToken();
+      if (Tok.is(tok::l_brace))
+        FRI->RangeExpr = ParseBraceInitializer();
+      else
+        FRI->RangeExpr = ParseExpression();
+    }
+
     Decl *ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
-    Actions.ActOnCXXForRangeDecl(ThisDecl);
+    if (IsForRangeLoop)
+      Actions.ActOnCXXForRangeDecl(ThisDecl);
     Actions.FinalizeDeclaration(ThisDecl);
     D.complete(ThisDecl);
     return Actions.FinalizeDeclaratorGroup(getCurScope(), DS, &ThisDecl, 1);
@@ -1839,7 +1848,8 @@ void Parser::ParseSpecifierQualifierList(DeclSpec &DS, AccessSpecifier AS,
     if (DS.getStorageClassSpecLoc().isValid())
       Diag(DS.getStorageClassSpecLoc(),diag::err_typename_invalid_storageclass);
     else
-      Diag(DS.getThreadSpecLoc(), diag::err_typename_invalid_storageclass);
+      Diag(DS.getThreadStorageClassSpecLoc(),
+           diag::err_typename_invalid_storageclass);
     DS.ClearStorageClassSpecs();
   }
 
@@ -2172,6 +2182,8 @@ void Parser::ParseAlignmentSpecifier(ParsedAttributes &Attrs,
 ///         'auto'
 ///         'register'
 /// [C++]   'mutable'
+/// [C++11] 'thread_local'
+/// [C11]   '_Thread_local'
 /// [GNU]   '__thread'
 ///       function-specifier: [C99 6.7.4]
 /// [C99]   'inline'
@@ -2608,7 +2620,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                          PrevSpec, DiagID);
       break;
     case tok::kw_extern:
-      if (DS.isThreadSpecified())
+      if (DS.getThreadStorageClassSpec() == DeclSpec::TSCS___thread)
         Diag(Tok, diag::ext_thread_before) << "extern";
       isInvalid = DS.SetStorageClassSpec(Actions, DeclSpec::SCS_extern, Loc,
                                          PrevSpec, DiagID);
@@ -2618,7 +2630,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                          Loc, PrevSpec, DiagID);
       break;
     case tok::kw_static:
-      if (DS.isThreadSpecified())
+      if (DS.getThreadStorageClassSpec() == DeclSpec::TSCS___thread)
         Diag(Tok, diag::ext_thread_before) << "static";
       isInvalid = DS.SetStorageClassSpec(Actions, DeclSpec::SCS_static, Loc,
                                          PrevSpec, DiagID);
@@ -2647,7 +2659,16 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
                                          PrevSpec, DiagID);
       break;
     case tok::kw___thread:
-      isInvalid = DS.SetStorageClassSpecThread(Loc, PrevSpec, DiagID);
+      isInvalid = DS.SetStorageClassSpecThread(DeclSpec::TSCS___thread, Loc,
+                                               PrevSpec, DiagID);
+      break;
+    case tok::kw_thread_local:
+      isInvalid = DS.SetStorageClassSpecThread(DeclSpec::TSCS_thread_local, Loc,
+                                               PrevSpec, DiagID);
+      break;
+    case tok::kw__Thread_local:
+      isInvalid = DS.SetStorageClassSpecThread(DeclSpec::TSCS__Thread_local,
+                                               Loc, PrevSpec, DiagID);
       break;
 
     // function-specifier
@@ -3066,6 +3087,7 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
                                   unsigned TagType, Decl *TagDecl) {
   PrettyDeclStackTraceEntry CrashInfo(Actions, TagDecl, RecordLoc,
                                       "parsing struct/union body");
+  assert(!getLangOpts().CPlusPlus && "C++ declarations not supported");
 
   BalancedDelimiterTracker T(*this, tok::l_brace);
   if (T.consumeOpen())
@@ -3074,9 +3096,8 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
   ParseScope StructScope(this, Scope::ClassScope|Scope::DeclScope);
   Actions.ActOnTagStartDefinition(getCurScope(), TagDecl);
 
-  // Empty structs are an extension in C (C99 6.7.2.1p7), but are allowed in
-  // C++.
-  if (Tok.is(tok::r_brace) && !getLangOpts().CPlusPlus) {
+  // Empty structs are an extension in C (C99 6.7.2.1p7).
+  if (Tok.is(tok::r_brace)) {
     Diag(Tok, diag::ext_empty_struct_union) << (TagType == TST_union);
     Diag(Tok, diag::warn_empty_struct_union_compat) << (TagType == TST_union);
   }
@@ -3090,6 +3111,13 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
     // Check for extraneous top-level semicolon.
     if (Tok.is(tok::semi)) {
       ConsumeExtraSemi(InsideStruct, TagType);
+      continue;
+    }
+
+    // Parse _Static_assert declaration.
+    if (Tok.is(tok::kw__Static_assert)) {
+      SourceLocation DeclEnd;
+      ParseStaticAssertDeclaration(DeclEnd);
       continue;
     }
 
@@ -3262,7 +3290,7 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
     ColonProtectionRAIIObject X(*this, AllowFixedUnderlyingType);
 
     if (ParseOptionalCXXScopeSpecifier(SS, ParsedType(),
-                                       /*EnteringContext=*/false))
+                                       /*EnteringContext=*/true))
       return;
 
     if (SS.isSet() && Tok.isNot(tok::identifier)) {
@@ -3887,6 +3915,8 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw_auto:
   case tok::kw_register:
   case tok::kw___thread:
+  case tok::kw_thread_local:
+  case tok::kw__Thread_local:
 
     // Modules
   case tok::kw___module_private__:

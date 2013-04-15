@@ -294,7 +294,7 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     }
   }
 
-  SanitizerArgs Sanitize(getDriver(), Args);
+  SanitizerArgs Sanitize(*this, Args);
 
   // Add Ubsan runtime library, if required.
   if (Sanitize.needsUbsanRt()) {
@@ -878,6 +878,10 @@ bool Darwin::isPICDefault() const {
   return true;
 }
 
+bool Darwin::isPIEDefault() const {
+  return false;
+}
+
 bool Darwin::isPICDefaultForced() const {
   return getArch() == llvm::Triple::x86_64;
 }
@@ -1082,6 +1086,7 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
   };
   static const char *const ARMHFTriples[] = {
     "arm-linux-gnueabihf",
+    "armv7hl-redhat-linux-gnueabi"
   };
 
   static const char *const X86_64LibDirs[] = { "/lib64", "/lib" };
@@ -1396,6 +1401,10 @@ bool Generic_GCC::isPICDefault() const {
   return false;
 }
 
+bool Generic_GCC::isPIEDefault() const {
+  return false;
+}
+
 bool Generic_GCC::isPICDefaultForced() const {
   return false;
 }
@@ -1627,6 +1636,10 @@ bool TCEToolChain::IsMathErrnoDefault() const {
 }
 
 bool TCEToolChain::isPICDefault() const {
+  return false;
+}
+
+bool TCEToolChain::isPIEDefault() const {
   return false;
 }
 
@@ -2197,6 +2210,8 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
   }
   addPathIfExists(SysRoot + "/lib", Paths);
   addPathIfExists(SysRoot + "/usr/lib", Paths);
+
+  IsPIEDefault = SanitizerArgs(*this, Args).hasZeroBaseShadow();
 }
 
 bool Linux::HasNativeLLVMSupport() const {
@@ -2422,6 +2437,10 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   }
 }
 
+bool Linux::isPIEDefault() const {
+  return IsPIEDefault;
+}
+
 /// DragonFly - DragonFly tool chain which can call as(1) and ld(1) directly.
 
 DragonFly::DragonFly(const Driver &D, const llvm::Triple& Triple, const ArgList &Args)
@@ -2434,7 +2453,10 @@ DragonFly::DragonFly(const Driver &D, const llvm::Triple& Triple, const ArgList 
 
   getFilePaths().push_back(getDriver().Dir + "/../lib");
   getFilePaths().push_back("/usr/lib");
-  getFilePaths().push_back("/usr/lib/gcc41");
+  if (llvm::sys::fs::exists("/usr/lib/gcc47"))
+    getFilePaths().push_back("/usr/lib/gcc47");
+  else
+    getFilePaths().push_back("/usr/lib/gcc44");
 }
 
 Tool *DragonFly::buildAssembler() const {
