@@ -2,6 +2,7 @@ add_clang_library(clangEdit
   Commit.cpp
   EditedSource.cpp
   RewriteObjCFoundationAPI.cpp
+  LINK_LIBS clangBasic clangAST clangLex
   )
 
 add_dependencies(clangEdit
@@ -11,10 +12,4 @@ add_dependencies(clangEdit
   ClangDeclNodes
   ClangDiagnosticCommon
   ClangStmtNodes
-  )
-
-target_link_libraries(clangEdit
-  clangBasic
-  clangAST
-  clangLex
   )

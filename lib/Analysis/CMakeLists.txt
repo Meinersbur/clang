@@ -18,6 +18,7 @@ add_clang_library(clangAnalysis
   ScanfFormatString.cpp
   ThreadSafety.cpp
   UninitializedValues.cpp
+  LINK_LIBS clangBasic clangAST
   )
 
 add_dependencies(clangAnalysis
@@ -28,9 +29,4 @@ add_dependencies(clangAnalysis
   ClangDeclNodes
   ClangDiagnosticAnalysis
   ClangStmtNodes
-  )
-
-target_link_libraries(clangAnalysis
-  clangBasic
-  clangAST
   )

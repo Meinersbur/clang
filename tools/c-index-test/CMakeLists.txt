@@ -5,6 +5,7 @@ set( LLVM_LINK_COMPONENTS
 
 add_clang_executable(c-index-test
   c-index-test.c
+  LINK_LIBS libclang
   )
 
 if(NOT MSVC)
@@ -13,10 +14,6 @@ if(NOT MSVC)
     PROPERTY COMPILE_FLAGS "-std=c89"
     )
 endif()
-
-target_link_libraries(c-index-test
-  libclang
-  )
 
 set_target_properties(c-index-test
   PROPERTIES

@@ -3,6 +3,7 @@ set(LLVM_LINK_COMPONENTS support)
 add_clang_library(clangASTMatchers
   ASTMatchFinder.cpp
   ASTMatchersInternal.cpp
+  LINK_LIBS clangBasic clangAST
   )
 
 add_dependencies(clangASTMatchers
@@ -13,9 +14,4 @@ add_dependencies(clangASTMatchers
   ClangDeclNodes
   ClangDiagnosticCommon
   ClangStmtNodes
-  )
-
-target_link_libraries(clangASTMatchers
-  clangBasic
-  clangAST
   )

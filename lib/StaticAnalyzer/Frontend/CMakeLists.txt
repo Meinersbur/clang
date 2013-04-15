@@ -6,6 +6,7 @@ add_clang_library(clangStaticAnalyzerFrontend
   AnalysisConsumer.cpp
   CheckerRegistration.cpp
   FrontendActions.cpp
+  LINK_LIBS clangBasic clangLex clangAST clangFrontend clangRewriteCore clangRewriteFrontend clangStaticAnalyzerCheckers
   )
 
 add_dependencies(clangStaticAnalyzerFrontend
@@ -18,14 +19,4 @@ add_dependencies(clangStaticAnalyzerFrontend
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
-  )
-
-target_link_libraries(clangStaticAnalyzerFrontend
-  clangBasic
-  clangLex
-  clangAST
-  clangFrontend
-  clangRewriteCore
-  clangRewriteFrontend
-  clangStaticAnalyzerCheckers
   )

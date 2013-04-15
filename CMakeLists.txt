@@ -184,7 +184,41 @@ function(clang_tablegen)
   endif()
 endfunction(clang_tablegen)
 
+
+if (BUILD_OBJECT_LIBS)
+
 macro(add_clang_library name)
+#message("ARGN: ${ARGN}")
+  parse_arguments(PARM "LINK_LIBS" "EXCLUDE_FROM_ALL" ${ARGN})
+  set(srcs ${PARM_DEFAULT_ARGS})
+
+  if (MODULE)
+    add_llvm_library( ${name} MODULE ${srcs} )
+  elseif (SHARED_LIBRARY)
+    add_llvm_library( ${name} SHARED ${srcs} )
+  else()
+    add_llvm_library( ${name} ${srcs} )
+  endif()
+
+  #llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
+  #target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
+#message("LLVM_COMMON_LIBS=${LLVM_COMMON_LIBS}")
+
+  get_target_property(_target_type ${name} "TYPE")
+  if ( NOT _target_type STREQUAL "OBJECT_LIBRARY" )
+    install(TARGETS ${name}
+      LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+      ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+      RUNTIME DESTINATION bin)
+  endif ()
+  set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
+endmacro(add_clang_library)
+
+else ()
+
+macro(add_clang_library name)
+  parse_arguments(PARM "LINK_LIBS" "EXCLUDE_FROM_ALL" ${ARGN})
+
   llvm_process_sources(srcs ${ARGN})
   if(MSVC_IDE OR XCODE)
     # Add public headers
@@ -208,6 +242,7 @@ macro(add_clang_library name)
       set(srcs ${srcs} ${headers} ${tds})
     endif()
   endif(MSVC_IDE OR XCODE)
+  
   if (MODULE)
     set(libkind MODULE)
   elseif (SHARED_LIBRARY)
@@ -216,6 +251,7 @@ macro(add_clang_library name)
     set(libkind)
   endif()
   add_library( ${name} ${libkind} ${srcs} )
+  add_llvm_library( ${name} ${libkind} ${srcs} )
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
@@ -230,6 +266,9 @@ macro(add_clang_library name)
     RUNTIME DESTINATION bin)
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
 endmacro(add_clang_library)
+
+endif ()
+
 
 macro(add_clang_executable name)
   add_llvm_executable( ${name} ${ARGN} )

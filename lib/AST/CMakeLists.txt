@@ -57,6 +57,7 @@ add_clang_library(clangAST
   TypePrinter.cpp
   VTableBuilder.cpp
   VTTBuilder.cpp
+  LINK_LIBS clangBasic clangLex
   )
 
 add_dependencies(clangAST
@@ -77,9 +78,4 @@ add_dependencies(clangAST
   ClangDiagnosticCommon
   ClangDiagnosticSema
   ClangStmtNodes
-  )
-
-target_link_libraries(clangAST
-  clangBasic
-  clangLex
   )

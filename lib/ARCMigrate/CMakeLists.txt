@@ -19,6 +19,7 @@ add_clang_library(clangARCMigrate
   TransZeroOutPropsInDealloc.cpp
   TransformActions.cpp
   Transforms.cpp
+  LINK_LIBS clangBasic clangAST clangParse clangFrontend clangRewriteCore clangRewriteFrontend
   )
 
 add_dependencies(clangARCMigrate
@@ -31,13 +32,4 @@ add_dependencies(clangARCMigrate
   ClangDiagnosticGroups
   ClangDiagnosticSema
   ClangStmtNodes
-  )
-
-target_link_libraries(clangARCMigrate
-  clangBasic
-  clangAST
-  clangParse
-  clangFrontend
-  clangRewriteCore
-  clangRewriteFrontend
   )

@@ -28,6 +28,7 @@ add_clang_library(clangFrontend
   TextDiagnosticPrinter.cpp
   VerifyDiagnosticConsumer.cpp
   Warnings.cpp
+  LINK_LIBS clangAST clangBasic clangDriver clangEdit clangLex clangParse clangSema clangSerialization
   )
 
 add_dependencies(clangFrontend
@@ -44,15 +45,4 @@ add_dependencies(clangFrontend
   ClangDiagnosticSema
   ClangDriverOptions
   ClangStmtNodes
-  )
-
-target_link_libraries(clangFrontend
-  clangAST
-  clangBasic
-  clangDriver
-  clangEdit
-  clangLex
-  clangParse
-  clangSema
-  clangSerialization
   )

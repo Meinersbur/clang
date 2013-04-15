@@ -51,6 +51,7 @@ add_clang_library(clangCodeGen
   ModuleBuilder.cpp
   TargetInfo.cpp
   CGMolly.cpp
+  LINK_LIBS clangBasic clangAST clangFrontend
   )
 
 add_dependencies(clangCodeGen
@@ -62,10 +63,4 @@ add_dependencies(clangCodeGen
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
-  )
-
-target_link_libraries(clangCodeGen
-  clangBasic
-  clangAST
-  clangFrontend
   )

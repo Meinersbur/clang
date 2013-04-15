@@ -4,6 +4,7 @@ add_clang_library(clangFormat
   TokenAnnotator.cpp
   UnwrappedLineParser.cpp
   Format.cpp
+  LINK_LIBS clangBasic clangFrontend clangAST clangASTMatchers clangRewriteCore clangRewriteFrontend clangTooling
   )
 
 add_dependencies(clangFormat
@@ -13,14 +14,4 @@ add_dependencies(clangFormat
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
-  )
-
-target_link_libraries(clangFormat
-  clangBasic
-  clangFrontend
-  clangAST
-  clangASTMatchers
-  clangRewriteCore
-  clangRewriteFrontend
-  clangTooling
   )

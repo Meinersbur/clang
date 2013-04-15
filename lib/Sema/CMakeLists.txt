@@ -51,6 +51,7 @@ add_clang_library(clangSema
   SemaTemplateVariadic.cpp
   SemaType.cpp
   TargetAttributesSema.cpp
+  LINK_LIBS clangAST clangAnalysis clangBasic clangEdit clangLex
   )
 
 add_dependencies(clangSema
@@ -69,12 +70,4 @@ add_dependencies(clangSema
   ClangDiagnosticParse
   ClangDiagnosticSema
   ClangStmtNodes
-  )
-
-target_link_libraries(clangSema
-  clangAST
-  clangAnalysis
-  clangBasic
-  clangEdit
-  clangLex
   )
