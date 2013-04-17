@@ -1141,39 +1141,6 @@ void ASTContext::getOverriddenMethods(
   Overridden.append(OverDecls.begin(), OverDecls.end());
 }
 
-void ASTContext::getBaseObjCCategoriesAfterInterface(
-                        const ObjCInterfaceDecl *D,
-                        SmallVectorImpl<const ObjCCategoryDecl *> &Cats) const {
-  if (!D)
-    return;
-  
-  typedef llvm::SmallVector<const ObjCCategoryDecl *, 2> VecTy;
-  typedef llvm::DenseMap<const ObjCInterfaceDecl *, VecTy> MapTy;
-  
-  std::pair<MapTy::iterator, bool>
-    InsertOp = CatsAfterInterface.insert(std::make_pair(D, VecTy()));
-  VecTy &Vec = InsertOp.first->second;
-  if (!InsertOp.second) {
-    // already in map.
-    Cats.append(Vec.begin(), Vec.end());
-    return;
-  }
-  
-  SourceLocation Loc = D->getLocation();
-  for (const ObjCInterfaceDecl *
-         Class = D->getSuperClass(); Class; Class = Class->getSuperClass()) {
-    for (ObjCInterfaceDecl::known_categories_iterator
-           CatI = Class->known_categories_begin(),
-           CatEnd = Class->known_categories_end();
-         CatI != CatEnd; ++CatI) {
-      if (SourceMgr.isBeforeInTranslationUnit(Loc, CatI->getLocation()))
-        Vec.push_back(*CatI);
-    }
-  }
-
-  Cats.append(Vec.begin(), Vec.end());
-}
-
 void ASTContext::addedLocalImportDecl(ImportDecl *Import) {
   assert(!Import->NextLocalImport && "Import declaration already in the chain");
   assert(!Import->isFromASTFile() && "Non-local import declaration");

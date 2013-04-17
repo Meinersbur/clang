@@ -1,10 +1,21 @@
 set(LLVM_LINK_COMPONENTS support)
 
+set(LLVM_LINK_LIBS
+  clangBasic
+  clangFrontend
+  clangAST
+  clangASTMatchers
+  clangRewriteCore
+  clangRewriteFrontend
+  clangTooling
+  )
+
 add_clang_library(clangFormat
+  BreakableToken.cpp
+  Format.cpp
   TokenAnnotator.cpp
   UnwrappedLineParser.cpp
-  Format.cpp
-  LINK_LIBS clangBasic clangFrontend clangAST clangASTMatchers clangRewriteCore clangRewriteFrontend clangTooling
+  WhitespaceManager.cpp
   )
 
 add_dependencies(clangFormat
