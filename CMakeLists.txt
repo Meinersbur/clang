@@ -185,41 +185,9 @@ function(clang_tablegen)
 endfunction(clang_tablegen)
 
 
-if (BUILD_OBJECT_LIBS)
 
-macro(add_clang_library name)
-#message("ARGN: ${ARGN}")
-  parse_arguments(PARM "LINK_LIBS" "EXCLUDE_FROM_ALL" ${ARGN})
-  set(srcs ${PARM_DEFAULT_ARGS})
-
-  if (MODULE)
-    add_llvm_library( ${name} MODULE ${srcs} )
-  elseif (SHARED_LIBRARY)
-    add_llvm_library( ${name} SHARED ${srcs} )
-  else()
-    add_llvm_library( ${name} ${srcs} )
-  endif()
-
-  #llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
-  #target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
-#message("LLVM_COMMON_LIBS=${LLVM_COMMON_LIBS}")
-
-  get_target_property(_target_type ${name} "TYPE")
-  if ( NOT _target_type STREQUAL "OBJECT_LIBRARY" )
-    install(TARGETS ${name}
-      LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      RUNTIME DESTINATION bin)
-  endif ()
-  set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
-endmacro(add_clang_library)
-
-else ()
-
-macro(add_clang_library name)
-  parse_arguments(PARM "LINK_LIBS" "EXCLUDE_FROM_ALL" ${ARGN})
-
-  llvm_process_sources(srcs ${ARGN})
+macro (add_clang_library name)
+  set(srcs)
   if(MSVC_IDE OR XCODE)
     # Add public headers
     file(RELATIVE_PATH lib_path
@@ -237,43 +205,22 @@ macro(add_clang_library name)
         ${CLANG_SOURCE_DIR}/include/clang/${lib_path}/*.td
       )
       source_group("TableGen descriptions" FILES ${tds})
-      set_source_files_properties(${tds}} PROPERTIES HEADER_FILE_ONLY ON)
+      set_source_files_properties(${tds} PROPERTIES HEADER_FILE_ONLY ON)
 
       set(srcs ${srcs} ${headers} ${tds})
     endif()
   endif(MSVC_IDE OR XCODE)
   
-  if (MODULE)
-    set(libkind MODULE)
-  elseif (SHARED_LIBRARY)
-    set(libkind SHARED)
-  else()
-    set(libkind)
-  endif()
-  add_library( ${name} ${libkind} ${srcs} )
-  add_llvm_library( ${name} ${libkind} ${srcs} )
-  if( LLVM_COMMON_DEPENDS )
-    add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
-  endif( LLVM_COMMON_DEPENDS )
-
-  llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
-  target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
-  link_system_libs( ${name} )
-
-  install(TARGETS ${name}
-    LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-    ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-    RUNTIME DESTINATION bin)
+  new_llvm_target(${name} ${ARGN} SOURCES2 ${srcs} LINK_LIBS2 ${LLVM_COMMON_LIBS} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
-endmacro(add_clang_library)
-
-endif ()
+endmacro (add_clang_library)
 
 
-macro(add_clang_executable name)
-  add_llvm_executable( ${name} ${ARGN} )
+macro (add_clang_executable name)
+  new_llvm_target( ${name} EXE ${ARGN} LINK_LIBS2 ${LLVM_COMMON_LIBS} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang executables")
-endmacro(add_clang_executable)
+endmacro (add_clang_executable)
+
 
 include_directories(BEFORE
   ${CMAKE_CURRENT_BINARY_DIR}/include
