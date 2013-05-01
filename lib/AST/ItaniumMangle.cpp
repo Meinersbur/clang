@@ -2275,7 +2275,7 @@ void CXXNameMangler::mangleType(const AutoType *T) {
   QualType D = T->getDeducedType();
   // <builtin-type> ::= Da  # dependent auto
   if (D.isNull())
-    Out << "Da";
+    Out << (T->isDecltypeAuto() ? "Dc" : "Da");
   else
     mangleType(D);
 }
@@ -2471,6 +2471,10 @@ recurse:
 
   case Expr::CXXDefaultArgExprClass:
     mangleExpression(cast<CXXDefaultArgExpr>(E)->getExpr(), Arity);
+    break;
+
+  case Expr::CXXDefaultInitExprClass:
+    mangleExpression(cast<CXXDefaultInitExpr>(E)->getExpr(), Arity);
     break;
 
   case Expr::SubstNonTypeTemplateParmExprClass:
