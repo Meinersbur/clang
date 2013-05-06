@@ -686,7 +686,7 @@ llvm::StructType *CodeGenTypes::ConvertRecordDeclType(const RecordDecl *RD) {
   if (auto cxxRecord = dyn_cast<CXXRecordDecl>(RD)) {
     getMollyGen().annotateFieldType(cxxRecord, Ty);
   }
-  // END Moly
+  // END Molly
 
   return Ty;
 }

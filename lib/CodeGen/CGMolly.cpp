@@ -3,10 +3,10 @@
 #include "clang/CodeGen/MollyFieldMetadata.h"
 
 #include "llvm/IR/Value.h"
-#include "llvm\IR/DerivedTypes.h"
-#include "clang\AST\Attr.h"
-#include "clang\AST/Decl.h"
-#include "clang\AST/DeclCXX.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "CodeGenModule.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Type.h"
@@ -26,6 +26,7 @@ using namespace llvm;
 FieldTypeMetadata::FieldTypeMetadata() {
   this->clangDecl = NULL;
   this->llvmType = NULL;
+  this->llvmEltType = NULL;
 
   this->funcGetLocal = NULL;
   this->funcSetLocal = NULL;
@@ -36,11 +37,13 @@ FieldTypeMetadata::FieldTypeMetadata() {
   this->funcIslocal = NULL;
 }
 
-FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims) {
+
+FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, llvm::ArrayRef<int> dims) {
   assert(clangDecl);
   assert(llvmType);
   this->clangDecl = clangDecl;
   this->llvmType = llvmType;
+  this->llvmEltType = llvmEltType;
   dimLengths.append(dims.begin(), dims.end());
 
   this->funcGetLocal = NULL;
@@ -78,6 +81,7 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
     /*[ 9]*/funcGetMaster,
     /*[10]*/funcSetMaster,
     /*[11]*/funcIslocal
+    ///*[12]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmEltType-> )
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
   return fieldNode;
@@ -112,6 +116,11 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   funcGetMaster = cast<llvm::Function>(metadata->getOperand(9));
   funcSetMaster = cast<llvm::Function>(metadata->getOperand(10));
   funcIslocal = cast<llvm::Function>(metadata->getOperand(11));
+
+  //auto llvmEltTyID = dyn_cast<llvm::ConstantInt>(metadata->getOperand(12));
+  //auto llvmEltIdMD = dyn_cast<MDString>(metadata->getOperand(12));
+  //Type::get
+  //llvmEltType = llvmModule->getTypeByName(llvmEltName);
 }
 
 
@@ -217,6 +226,7 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
 
   auto &llvmContext = cgm->getLLVMContext();
   auto &clangContext = cgm->getContext();
+  assert(cgm->getTypes().ConvertType(clangContext.getTypeDeclType(clangType)) == llvmType);
 
   const clang::CXXRecordDecl *cxxRecord = dyn_cast_or_null<clang::CXXRecordDecl>(clangType);
   if (!cxxRecord)
@@ -254,7 +264,12 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   }
   auto dims = lengths.size();
 
-  fieldType = new FieldTypeMetadata(clangType, llvmType, lengths);
+  // Determine the element type
+  auto eltTypedef = cast<TypedefDecl>(findMember(cgm, clangType, "ElementType"));
+  auto eltType = clangContext.getTypeDeclType(eltTypedef);
+  auto llvmEltType = cgm->getTypes().ConvertType(clangContext.getTypeDeclType(eltTypedef));
+
+  fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, lengths);
   return;
 
 
@@ -421,7 +436,6 @@ void CodeGenMolly::EmitMetadata() {
     fieldsMetadata->addOperand(field->buildMetadata());
   }
 }
-
 
 
 bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E) {

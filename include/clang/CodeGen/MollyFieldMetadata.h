@@ -12,6 +12,7 @@ namespace llvm {
   class Function;
   class MDNode;
   class Module;
+  class Type;
 } // namespace llvm
 
 namespace clang {
@@ -24,7 +25,7 @@ namespace clang {
     class CodeGenModule;
     class CodeGenFunction;
     class RValue;
-  }
+  } // namespace CodeGen
 } // namespace clang
 
 
@@ -35,10 +36,11 @@ namespace clang {
     class FieldTypeMetadata {
     public:
       FieldTypeMetadata();
-      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::ArrayRef<int> dims);
+      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, llvm::ArrayRef<int> dims);
 
       const clang::CXXRecordDecl *clangDecl;
       llvm::StructType *llvmType;
+      llvm::Type *llvmEltType;
       llvm::SmallVector<int, 4> dimLengths;
 
       llvm::Function *funcGetLocal;
@@ -52,7 +54,6 @@ namespace clang {
       llvm::MDNode *buildMetadata();
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
     }; // class FieldTypeMetadata
-
 
   } // namespace CodeGen
 } // namespace clang
