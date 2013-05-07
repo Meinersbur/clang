@@ -28,51 +28,101 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/YAMLTraits.h"
 #include <queue>
 #include <string>
+
+namespace llvm {
+namespace yaml {
+template <>
+struct ScalarEnumerationTraits<clang::format::FormatStyle::LanguageStandard> {
+  static void enumeration(IO &io,
+                          clang::format::FormatStyle::LanguageStandard &value) {
+    io.enumCase(value, "C++03", clang::format::FormatStyle::LS_Cpp03);
+    io.enumCase(value, "C++11", clang::format::FormatStyle::LS_Cpp11);
+    io.enumCase(value, "Auto", clang::format::FormatStyle::LS_Auto);
+  }
+};
+
+template <> struct MappingTraits<clang::format::FormatStyle> {
+  static void mapping(llvm::yaml::IO &IO, clang::format::FormatStyle &Style) {
+    if (!IO.outputting()) {
+      StringRef BasedOnStyle;
+      IO.mapOptional("BasedOnStyle", BasedOnStyle);
+
+      if (!BasedOnStyle.empty())
+        Style = clang::format::getPredefinedStyle(BasedOnStyle);
+    }
+
+    IO.mapOptional("AccessModifierOffset", Style.AccessModifierOffset);
+    IO.mapOptional("AlignEscapedNewlinesLeft", Style.AlignEscapedNewlinesLeft);
+    IO.mapOptional("AllowAllParametersOfDeclarationOnNextLine",
+                   Style.AllowAllParametersOfDeclarationOnNextLine);
+    IO.mapOptional("AllowShortIfStatementsOnASingleLine",
+                   Style.AllowShortIfStatementsOnASingleLine);
+    IO.mapOptional("BinPackParameters", Style.BinPackParameters);
+    IO.mapOptional("ColumnLimit", Style.ColumnLimit);
+    IO.mapOptional("ConstructorInitializerAllOnOneLineOrOnePerLine",
+                   Style.ConstructorInitializerAllOnOneLineOrOnePerLine);
+    IO.mapOptional("DerivePointerBinding", Style.DerivePointerBinding);
+    IO.mapOptional("IndentCaseLabels", Style.IndentCaseLabels);
+    IO.mapOptional("MaxEmptyLinesToKeep", Style.MaxEmptyLinesToKeep);
+    IO.mapOptional("ObjCSpaceBeforeProtocolList",
+                   Style.ObjCSpaceBeforeProtocolList);
+    IO.mapOptional("PenaltyExcessCharacter", Style.PenaltyExcessCharacter);
+    IO.mapOptional("PenaltyReturnTypeOnItsOwnLine",
+                   Style.PenaltyReturnTypeOnItsOwnLine);
+    IO.mapOptional("PointerBindsToType", Style.PointerBindsToType);
+    IO.mapOptional("SpacesBeforeTrailingComments",
+                   Style.SpacesBeforeTrailingComments);
+    IO.mapOptional("Standard", Style.Standard);
+  }
+};
+}
+}
 
 namespace clang {
 namespace format {
 
 FormatStyle getLLVMStyle() {
   FormatStyle LLVMStyle;
-  LLVMStyle.ColumnLimit = 80;
-  LLVMStyle.MaxEmptyLinesToKeep = 1;
-  LLVMStyle.PointerBindsToType = false;
-  LLVMStyle.DerivePointerBinding = false;
   LLVMStyle.AccessModifierOffset = -2;
-  LLVMStyle.Standard = FormatStyle::LS_Cpp03;
-  LLVMStyle.IndentCaseLabels = false;
-  LLVMStyle.SpacesBeforeTrailingComments = 1;
-  LLVMStyle.BinPackParameters = true;
+  LLVMStyle.AlignEscapedNewlinesLeft = false;
   LLVMStyle.AllowAllParametersOfDeclarationOnNextLine = true;
-  LLVMStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = false;
   LLVMStyle.AllowShortIfStatementsOnASingleLine = false;
+  LLVMStyle.BinPackParameters = true;
+  LLVMStyle.ColumnLimit = 80;
+  LLVMStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = false;
+  LLVMStyle.DerivePointerBinding = false;
+  LLVMStyle.IndentCaseLabels = false;
+  LLVMStyle.MaxEmptyLinesToKeep = 1;
   LLVMStyle.ObjCSpaceBeforeProtocolList = true;
   LLVMStyle.PenaltyExcessCharacter = 1000000;
   LLVMStyle.PenaltyReturnTypeOnItsOwnLine = 75;
-  LLVMStyle.AlignEscapedNewlinesLeft = false;
+  LLVMStyle.PointerBindsToType = false;
+  LLVMStyle.SpacesBeforeTrailingComments = 1;
+  LLVMStyle.Standard = FormatStyle::LS_Cpp03;
   return LLVMStyle;
 }
 
 FormatStyle getGoogleStyle() {
   FormatStyle GoogleStyle;
-  GoogleStyle.ColumnLimit = 80;
-  GoogleStyle.MaxEmptyLinesToKeep = 1;
-  GoogleStyle.PointerBindsToType = true;
-  GoogleStyle.DerivePointerBinding = true;
   GoogleStyle.AccessModifierOffset = -1;
-  GoogleStyle.Standard = FormatStyle::LS_Auto;
-  GoogleStyle.IndentCaseLabels = true;
-  GoogleStyle.SpacesBeforeTrailingComments = 2;
-  GoogleStyle.BinPackParameters = true;
+  GoogleStyle.AlignEscapedNewlinesLeft = true;
   GoogleStyle.AllowAllParametersOfDeclarationOnNextLine = true;
-  GoogleStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
   GoogleStyle.AllowShortIfStatementsOnASingleLine = true;
+  GoogleStyle.BinPackParameters = true;
+  GoogleStyle.ColumnLimit = 80;
+  GoogleStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
+  GoogleStyle.DerivePointerBinding = true;
+  GoogleStyle.IndentCaseLabels = true;
+  GoogleStyle.MaxEmptyLinesToKeep = 1;
   GoogleStyle.ObjCSpaceBeforeProtocolList = false;
   GoogleStyle.PenaltyExcessCharacter = 1000000;
   GoogleStyle.PenaltyReturnTypeOnItsOwnLine = 200;
-  GoogleStyle.AlignEscapedNewlinesLeft = true;
+  GoogleStyle.PointerBindsToType = true;
+  GoogleStyle.SpacesBeforeTrailingComments = 2;
+  GoogleStyle.Standard = FormatStyle::LS_Auto;
   return GoogleStyle;
 }
 
@@ -84,6 +134,49 @@ FormatStyle getChromiumStyle() {
   ChromiumStyle.Standard = FormatStyle::LS_Cpp03;
   ChromiumStyle.DerivePointerBinding = false;
   return ChromiumStyle;
+}
+
+FormatStyle getMozillaStyle() {
+  FormatStyle MozillaStyle = getLLVMStyle();
+  MozillaStyle.AllowAllParametersOfDeclarationOnNextLine = false;
+  MozillaStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
+  MozillaStyle.DerivePointerBinding = true;
+  MozillaStyle.IndentCaseLabels = true;
+  MozillaStyle.ObjCSpaceBeforeProtocolList = false;
+  MozillaStyle.PenaltyReturnTypeOnItsOwnLine = 200;
+  MozillaStyle.PointerBindsToType = true;
+  return MozillaStyle;
+}
+
+FormatStyle getPredefinedStyle(StringRef Name) {
+  if (Name.equals_lower("llvm"))
+    return getLLVMStyle();
+  if (Name.equals_lower("chromium"))
+    return getChromiumStyle();
+  if (Name.equals_lower("mozilla"))
+    return getMozillaStyle();
+  if (Name.equals_lower("google"))
+    return getGoogleStyle();
+
+  llvm::errs() << "Unknown style " << Name << ", using Google style.\n";
+  return getGoogleStyle();
+}
+
+llvm::error_code parseConfiguration(StringRef Text, FormatStyle *Style) {
+  llvm::yaml::Input Input(Text);
+  Input >> *Style;
+  return Input.error();
+}
+
+std::string configurationAsText(const FormatStyle &Style) {
+  std::string Text;
+  llvm::raw_string_ostream Stream(Text);
+  llvm::yaml::Output Output(Stream);
+  // We use the same mapping method for input and output, so we need a non-const
+  // reference here.
+  FormatStyle NonConstStyle = Style;
+  Output << NonConstStyle;
+  return Text;
 }
 
 // Returns the length of everything up to the first possible line break after
@@ -359,7 +452,8 @@ private:
                  State.Stack.back().VariablePos != 0) {
         State.Column = State.Stack.back().VariablePos;
       } else if (Previous.ClosesTemplateDeclaration ||
-                 (Current.Type == TT_StartOfName && State.ParenLevel == 0)) {
+                 (Current.Type == TT_StartOfName && State.ParenLevel == 0 &&
+                  Line.StartsDefinition)) {
         State.Column = State.Stack.back().Indent;
       } else if (Current.Type == TT_ObjCSelectorName) {
         if (State.Stack.back().ColonPos > Current.FormatTok.TokenLength) {
@@ -642,7 +736,9 @@ private:
       if (!DryRun)
         BBC->alignLines(Whitespaces);
       Token.reset(BBC);
-    } else if (Current.Type == TT_LineComment) {
+    } else if (Current.Type == TT_LineComment &&
+               (Current.Parent == NULL ||
+                Current.Parent->Type != TT_ImplicitStringLiteral)) {
       Token.reset(new BreakableLineComment(SourceMgr, Current, StartColumn));
     } else {
       return 0;

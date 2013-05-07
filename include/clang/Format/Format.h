@@ -17,6 +17,7 @@
 
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Refactoring.h"
+#include "llvm/Support/system_error.h"
 
 namespace clang {
 
@@ -56,9 +57,6 @@ struct FormatStyle {
   /// \brief Format compatible with this standard, e.g. use \c A<A<int> >
   /// instead of \c A<A<int>> for LS_Cpp03.
   LanguageStandard Standard;
-
-  /// \brief If \c true, analyze the formatted file for C++03 compatibility.
-  bool DeriveBackwardsCompatibility;
 
   /// \brief Indent case labels one level from the switch statement.
   ///
@@ -108,6 +106,22 @@ FormatStyle getGoogleStyle();
 /// \brief Returns a format style complying with Chromium's style guide:
 /// http://www.chromium.org/developers/coding-style.
 FormatStyle getChromiumStyle();
+
+/// \brief Returns a format style complying with Mozilla's style guide:
+/// https://developer.mozilla.org/en-US/docs/Developer_Guide/Coding_Style.
+FormatStyle getMozillaStyle();
+
+/// \brief Returns a predefined style by name.
+///
+/// Currently supported names: LLVM, Google, Chromium, Mozilla. Names are
+/// compared case-insensitively.
+FormatStyle getPredefinedStyle(StringRef Name);
+
+/// \brief Parse configuration from YAML-formatted text.
+llvm::error_code parseConfiguration(StringRef Text, FormatStyle *Style);
+
+/// \brief Gets configuration in a YAML string.
+std::string configurationAsText(const FormatStyle &Style);
 
 /// \brief Reformats the given \p Ranges in the token stream coming out of
 /// \c Lex.

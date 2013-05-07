@@ -149,6 +149,7 @@ class Parser : public CodeCompletionHandler {
   OwningPtr<PragmaHandler> OpenCLExtensionHandler;
   OwningPtr<CommentHandler> CommentSemaHandler;
   OwningPtr<PragmaHandler> OpenMPHandler;
+  OwningPtr<PragmaHandler> MSCommentHandler;
 
   /// Whether the '>' token acts as an operator or not. This will be
   /// true except when we are parsing an expression within a C++
@@ -1220,6 +1221,11 @@ public:
   ExprResult ParseConstantExpression(TypeCastState isTypeCast = NotTypeCast);
   // Expr that doesn't include commas.
   ExprResult ParseAssignmentExpression(TypeCastState isTypeCast = NotTypeCast);
+
+  ExprResult ParseMSAsmIdentifier(llvm::SmallVectorImpl<Token> &LineToks,
+                                  unsigned &NumLineToksConsumed,
+                                  void *Info,
+                                  bool IsUnevaluated);
 
 private:
   ExprResult ParseExpressionWithLeadingAt(SourceLocation AtLoc);
