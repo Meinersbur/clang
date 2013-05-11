@@ -897,13 +897,17 @@ void ASTContext::InitBuiltinTypes(const TargetInfo &Target) {
   InitBuiltinType(Int128Ty,            BuiltinType::Int128);
   InitBuiltinType(UnsignedInt128Ty,    BuiltinType::UInt128);
 
-  if (LangOpts.CPlusPlus && LangOpts.WChar) { // C++ 3.9.1p5
-    if (TargetInfo::isTypeSigned(Target.getWCharType()))
-      InitBuiltinType(WCharTy,           BuiltinType::WChar_S);
-    else  // -fshort-wchar makes wchar_t be unsigned.
-      InitBuiltinType(WCharTy,           BuiltinType::WChar_U);
-  } else // C99 (or C++ using -fno-wchar)
-    WCharTy = getFromTargetType(Target.getWCharType());
+  // C++ 3.9.1p5
+  if (TargetInfo::isTypeSigned(Target.getWCharType()))
+    InitBuiltinType(WCharTy,           BuiltinType::WChar_S);
+  else  // -fshort-wchar makes wchar_t be unsigned.
+    InitBuiltinType(WCharTy,           BuiltinType::WChar_U);
+  if (LangOpts.CPlusPlus && LangOpts.WChar)
+    WideCharTy = WCharTy;
+  else {
+    // C99 (or C++ using -fno-wchar).
+    WideCharTy = getFromTargetType(Target.getWCharType());
+  }
 
   WIntTy = getFromTargetType(Target.getWIntType());
 
@@ -2053,12 +2057,18 @@ const FunctionType *ASTContext::adjustFunctionType(const FunctionType *T,
 
 void ASTContext::adjustDeducedFunctionResultType(FunctionDecl *FD,
                                                  QualType ResultType) {
-  // FIXME: Need to inform serialization code about this!
-  for (FD = FD->getMostRecentDecl(); FD; FD = FD->getPreviousDecl()) {
+  FD = FD->getMostRecentDecl();
+  while (true) {
     const FunctionProtoType *FPT = FD->getType()->castAs<FunctionProtoType>();
     FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
     FD->setType(getFunctionType(ResultType, FPT->getArgTypes(), EPI));
+    if (FunctionDecl *Next = FD->getPreviousDecl())
+      FD = Next;
+    else
+      break;
   }
+  if (ASTMutationListener *L = getASTMutationListener())
+    L->DeducedReturnType(FD, ResultType);
 }
 
 /// getComplexType - Return the uniqued reference to the type for a complex
@@ -4910,6 +4920,10 @@ void ASTContext::getObjCEncodingForPropertyDecl(const ObjCPropertyDecl *PD,
 
   if (PD->isReadOnly()) {
     S += ",R";
+    if (PD->getPropertyAttributes() & ObjCPropertyDecl::OBJC_PR_copy)
+      S += ",C";
+    if (PD->getPropertyAttributes() & ObjCPropertyDecl::OBJC_PR_retain)
+      S += ",&";
   } else {
     switch (PD->getSetterKind()) {
     case ObjCPropertyDecl::Assign: break;
@@ -7450,6 +7464,8 @@ QualType ASTContext::getCorrespondingUnsignedType(QualType T) const {
 
 ASTMutationListener::~ASTMutationListener() { }
 
+void ASTMutationListener::DeducedReturnType(const FunctionDecl *FD,
+                                            QualType ReturnType) {}
 
 //===----------------------------------------------------------------------===//
 //                          Builtin Type Computation

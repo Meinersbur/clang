@@ -1289,9 +1289,29 @@ TEST_F(FormatTest, LayoutCodeInMacroDefinitions) {
 
 TEST_F(FormatTest, LayoutRemainingTokens) { EXPECT_EQ("{}", format("{}")); }
 
-TEST_F(FormatTest, LayoutSingleUnwrappedLineInMacro) {
-  EXPECT_EQ("# define A\\\n  b;",
-            format("# define A b;", 11, 2, getLLVMStyleWithColumns(11)));
+TEST_F(FormatTest, AlwaysFormatsEntireMacroDefinitions) {
+  EXPECT_EQ("int  i;\n"
+            "#define A \\\n"
+            "  int i;  \\\n"
+            "  int j\n"
+            "int  k;",
+            format("int  i;\n"
+                   "#define A  \\\n"
+                   " int   i    ;  \\\n"
+                   " int   j\n"
+                   "int  k;",
+                   8, 0, getGoogleStyle())); // 8: position of "#define".
+  EXPECT_EQ("int  i;\n"
+            "#define A \\\n"
+            "  int i;  \\\n"
+            "  int j\n"
+            "int  k;",
+            format("int  i;\n"
+                   "#define A  \\\n"
+                   " int   i    ;  \\\n"
+                   " int   j\n"
+                   "int  k;",
+                   45, 0, getGoogleStyle())); // 45: position of "j".
 }
 
 TEST_F(FormatTest, MacroDefinitionInsideStatement) {
@@ -1604,6 +1624,24 @@ TEST_F(FormatTest, PreventConfusingIndents) {
   verifyFormat("int a = bbbb && ccc && fffff(\n"
                "#define A Just forcing a new line\n"
                "                           ddd);");
+}
+
+TEST_F(FormatTest, LineBreakingInBinaryExpressions) {
+  verifyFormat(
+      "bool aaaaaaa =\n"
+      "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(aaa).aaaaaaaaaaaaaaaaaaa() ||\n"
+      "    bbbbbbbb();");
+  verifyFormat("bool aaaaaaaaaaaaaaaaaaaaa =\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa != bbbbbbbbbbbbbbbbbb &&\n"
+               "    ccccccccc == ddddddddddd;");
+
+  verifyFormat("aaaaaa = aaaaaaa(aaaaaaa, // break\n"
+               "                 aaaaaa) &&\n"
+               "         bbbbbb && cccccc;");
+  verifyFormat("Whitespaces.addUntouchableComment(\n"
+               "    SourceMgr.getSpellingColumnNumber(\n"
+               "        TheLine.Last->FormatTok.Tok.getLocation()) -\n"
+               "    1);");
 }
 
 TEST_F(FormatTest, ExpressionIndentation) {
@@ -1938,7 +1976,7 @@ TEST_F(FormatTest, FormatsBuilderPattern) {
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaa *aaaaaaaaa = aaaaaa->aaaaaaaaaaaa()\n"
       "    ->aaaaaaaaaaaaaaaa(\n"
-      "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
+      "          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
       "    ->aaaaaaaaaaaaaaaaa();");
 }
 
@@ -2258,8 +2296,8 @@ TEST_F(FormatTest, WrapsAtFunctionCallsIfNecessary) {
       "aaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
       "      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
       "    .aaaaaaaaaaaaaaa(\n"
-      "        aa(aaaaaaaaaaaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
-      "           aaaaaaaaaaaaaaaaaaaaaaaaaaa));");
+      "         aa(aaaaaaaaaaaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "            aaaaaaaaaaaaaaaaaaaaaaaaaaa));");
   verifyFormat("if (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                "        .aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                "        .aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
@@ -2338,11 +2376,11 @@ TEST_F(FormatTest, WrapsAtNestedNameSpecifiers) {
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
       "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa());");
 
-  // FIXME: Should we have an extra indent after the second break?
+  // FIXME: Should we have the extra indent after the second break?
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa::\n"
-      "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa();");
+      "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa();");
 
   // FIXME: Look into whether we should indent 4 from the start or 4 from
   // "bbbbb..." here instead of what we are doing now.
@@ -2399,14 +2437,18 @@ TEST_F(FormatTest, UnderstandsBinaryOperators) {
 
 TEST_F(FormatTest, UnderstandsPointersToMembers) {
   verifyFormat("int A::*x;");
-  // FIXME: Recognize pointers to member functions.
-  //verifyFormat("int (S::*func)(void *);");
-  verifyFormat("int(S::*func)(void *);");
-  verifyFormat("(a->*f)();");
-  verifyFormat("a->*x;");
-  verifyFormat("(a.*f)();");
-  verifyFormat("((*a).*f)();");
-  verifyFormat("a.*x;");
+  verifyFormat("int (S::*func)(void *);");
+  verifyFormat("typedef bool *(Class::*Member)() const;");
+  verifyFormat("void f() {\n"
+               "  (a->*f)();\n"
+               "  a->*x;\n"
+               "  (a.*f)();\n"
+               "  ((*a).*f)();\n"
+               "  a.*x;\n"
+               "}");
+  FormatStyle Style = getLLVMStyle();
+  Style.PointerBindsToType = true;
+  verifyFormat("typedef bool* (Class::*Member)() const;", Style);
 }
 
 TEST_F(FormatTest, UnderstandsUnaryOperators) {
@@ -2468,6 +2510,8 @@ TEST_F(FormatTest, UndestandsOverloadedOperators) {
   verifyFormat("void *operator new[](std::size_t size);");
   verifyFormat("void operator delete(void *ptr);");
   verifyFormat("void operator delete[](void *ptr);");
+  verifyFormat("template <typename AAAAAAA, typename BBBBBBB>\n"
+               "AAAAAAA operator/(const AAAAAAA &a, BBBBBBB &b);");
 
   verifyFormat(
       "ostream &operator<<(ostream &OutputStream,\n"
@@ -3907,28 +3951,6 @@ TEST_F(FormatTest, DoNotCreateUnreasonableUnwrappedLines) {
                "  f();\n"
                "  g();\n"
                "}");
-}
-
-bool operator==(const FormatStyle &L, const FormatStyle &R) {
-  return L.AccessModifierOffset == R.AccessModifierOffset &&
-         L.AlignEscapedNewlinesLeft == R.AlignEscapedNewlinesLeft &&
-         L.AllowAllParametersOfDeclarationOnNextLine ==
-             R.AllowAllParametersOfDeclarationOnNextLine &&
-         L.AllowShortIfStatementsOnASingleLine ==
-             R.AllowShortIfStatementsOnASingleLine &&
-         L.BinPackParameters == R.BinPackParameters &&
-         L.ColumnLimit == R.ColumnLimit &&
-         L.ConstructorInitializerAllOnOneLineOrOnePerLine ==
-             R.ConstructorInitializerAllOnOneLineOrOnePerLine &&
-         L.DerivePointerBinding == R.DerivePointerBinding &&
-         L.IndentCaseLabels == R.IndentCaseLabels &&
-         L.MaxEmptyLinesToKeep == R.MaxEmptyLinesToKeep &&
-         L.ObjCSpaceBeforeProtocolList == R.ObjCSpaceBeforeProtocolList &&
-         L.PenaltyExcessCharacter == R.PenaltyExcessCharacter &&
-         L.PenaltyReturnTypeOnItsOwnLine == R.PenaltyReturnTypeOnItsOwnLine &&
-         L.PointerBindsToType == R.PointerBindsToType &&
-         L.SpacesBeforeTrailingComments == R.SpacesBeforeTrailingComments &&
-         L.Standard == R.Standard;
 }
 
 bool allStylesEqual(ArrayRef<FormatStyle> Styles) {

@@ -1018,6 +1018,14 @@ void Clang::AddMIPSTargetArgs(const ArgList &Args,
     }
   }
 
+  if (Arg *A = Args.getLastArg(options::OPT_mldc1_sdc1,
+                               options::OPT_mno_ldc1_sdc1)) {
+    if (A->getOption().matches(options::OPT_mno_ldc1_sdc1)) {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-mno-ldc1-sdc1");
+    }
+  }
+
   if (Arg *A = Args.getLastArg(options::OPT_G)) {
     StringRef v = A->getValue();
     CmdArgs.push_back("-mllvm");
@@ -2664,6 +2672,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Arg *A = Args.getLastArg(options::OPT_fconstexpr_depth_EQ)) {
     CmdArgs.push_back("-fconstexpr-depth");
+    CmdArgs.push_back(A->getValue());
+  }
+
+  if (Arg *A = Args.getLastArg(options::OPT_fconstexpr_steps_EQ)) {
+    CmdArgs.push_back("-fconstexpr-steps");
     CmdArgs.push_back(A->getValue());
   }
 
