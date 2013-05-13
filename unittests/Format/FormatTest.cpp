@@ -1761,6 +1761,33 @@ TEST_F(FormatTest, MemoizationTests) {
       "            aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(aaaaa(\n"
       "                aaaaa())))))))))))))))))))))))))))))))))))))));",
       getLLVMStyleWithColumns(65));
+  verifyFormat(
+      "aaaaa(\n"
+      "    aaaaa,\n"
+      "    aaaaa(\n"
+      "        aaaaa,\n"
+      "        aaaaa(\n"
+      "            aaaaa,\n"
+      "            aaaaa(\n"
+      "                aaaaa,\n"
+      "                aaaaa(\n"
+      "                    aaaaa,\n"
+      "                    aaaaa(\n"
+      "                        aaaaa,\n"
+      "                        aaaaa(\n"
+      "                            aaaaa,\n"
+      "                            aaaaa(\n"
+      "                                aaaaa,\n"
+      "                                aaaaa(\n"
+      "                                    aaaaa,\n"
+      "                                    aaaaa(\n"
+      "                                        aaaaa,\n"
+      "                                        aaaaa(\n"
+      "                                            aaaaa,\n"
+      "                                            aaaaa(\n"
+      "                                                aaaaa,\n"
+      "                                                aaaaa))))))))))));",
+      getLLVMStyleWithColumns(65));
 
   // This test takes VERY long when memoization is broken.
   FormatStyle OnePerLine = getLLVMStyle();
@@ -2638,10 +2665,16 @@ TEST_F(FormatTest, UnderstandsUsesOfStarAndAmp) {
   verifyFormat("for (int i = a * a; i < 10; ++i) {\n}");
   verifyFormat("for (int i = 0; i < a * a; ++i) {\n}");
 
+  verifyFormat("#define MACRO     \\\n"
+               "  int *i = a * b; \\\n"
+               "  void f(a *b);",
+               getLLVMStyleWithColumns(19));
+
   verifyIndependentOfContext("A = new SomeType *[Length];");
   verifyIndependentOfContext("A = new SomeType *[Length]();");
   verifyGoogleFormat("A = new SomeType* [Length]();");
   verifyGoogleFormat("A = new SomeType* [Length];");
+
   FormatStyle PointerLeft = getLLVMStyle();
   PointerLeft.PointerBindsToType = true;
   verifyFormat("delete *x;", PointerLeft);
@@ -3953,6 +3986,57 @@ TEST_F(FormatTest, DoNotCreateUnreasonableUnwrappedLines) {
                "}");
 }
 
+TEST_F(FormatTest, FormatsClosingBracesInEmptyNestedBlocks) {
+  verifyFormat("class X {\n"
+               "  void f() {\n"
+               "  }\n"
+               "};",
+               getLLVMStyleWithColumns(12));
+}
+
+TEST_F(FormatTest, ConfigurableIndentWidth) {
+  FormatStyle EightIndent = getLLVMStyleWithColumns(18);
+  EightIndent.IndentWidth = 8;
+  verifyFormat("void f() {\n"
+               "        someFunction();\n"
+               "        if (true) {\n"
+               "                f();\n"
+               "        }\n"
+               "}",
+               EightIndent);
+  verifyFormat("class X {\n"
+               "        void f() {\n"
+               "        }\n"
+               "};",
+               EightIndent);
+  verifyFormat("int x[] = {\n"
+               "        call(),\n"
+               "        call(),\n"
+               "};",
+               EightIndent);
+}
+
+TEST_F(FormatTest, ConfigurableUseOfTab) {
+  FormatStyle Tab = getLLVMStyleWithColumns(42);
+  Tab.IndentWidth = 8;
+  Tab.UseTab = true;
+  Tab.AlignEscapedNewlinesLeft = true;
+  verifyFormat("class X {\n"
+               "\tvoid f() {\n"
+               "\t\tsomeFunction(parameter1,\n"
+               "\t\t\t     parameter2);\n"
+               "\t}\n"
+               "};",
+               Tab);
+  verifyFormat("#define A                        \\\n"
+               "\tvoid f() {               \\\n"
+               "\t\tsomeFunction(    \\\n"
+               "\t\t    parameter1,  \\\n"
+               "\t\t    parameter2); \\\n"
+               "\t}",
+               Tab);
+}
+
 bool allStylesEqual(ArrayRef<FormatStyle> Styles) {
   for (size_t i = 1; i < Styles.size(); ++i)
     if (!(Styles[0] == Styles[i]))
@@ -4007,6 +4091,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE_BOOL(IndentCaseLabels);
   CHECK_PARSE_BOOL(ObjCSpaceBeforeProtocolList);
   CHECK_PARSE_BOOL(PointerBindsToType);
+  CHECK_PARSE_BOOL(UseTab);
 
   CHECK_PARSE("AccessModifierOffset: -1234", AccessModifierOffset, -1234);
   CHECK_PARSE("ColumnLimit: 1234", ColumnLimit, 1234u);
@@ -4016,6 +4101,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
               PenaltyReturnTypeOnItsOwnLine, 1234u);
   CHECK_PARSE("SpacesBeforeTrailingComments: 1234",
               SpacesBeforeTrailingComments, 1234u);
+  CHECK_PARSE("IndentWidth: 32", IndentWidth, 32u);
 
   Style.Standard = FormatStyle::LS_Auto;
   CHECK_PARSE("Standard: C++03", Standard, FormatStyle::LS_Cpp03);

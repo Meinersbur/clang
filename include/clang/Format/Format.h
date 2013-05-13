@@ -94,6 +94,13 @@ struct FormatStyle {
   /// Otherwise puts them into the right-most column.
   bool AlignEscapedNewlinesLeft;
 
+  /// \brief The number of characters to use for indentation.
+  unsigned IndentWidth;
+
+  /// \brief If true, \c IndentWidth consecutive spaces will be replaced with
+  /// tab characters.
+  bool UseTab;
+
   bool operator==(const FormatStyle &R) const {
     return AccessModifierOffset == R.AccessModifierOffset &&
            AlignEscapedNewlinesLeft == R.AlignEscapedNewlinesLeft &&
@@ -113,7 +120,9 @@ struct FormatStyle {
            PenaltyReturnTypeOnItsOwnLine == R.PenaltyReturnTypeOnItsOwnLine &&
            PointerBindsToType == R.PointerBindsToType &&
            SpacesBeforeTrailingComments == R.SpacesBeforeTrailingComments &&
-           Standard == R.Standard;
+           Standard == R.Standard &&
+           IndentWidth == R.IndentWidth &&
+           UseTab == R.UseTab;
   }
 
 };
