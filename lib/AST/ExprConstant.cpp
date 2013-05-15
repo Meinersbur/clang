@@ -1809,7 +1809,7 @@ struct CompleteObject {
     assert(Value && "missing value for complete object");
   }
 
-  operator bool() const { return Value; }
+  LLVM_EXPLICIT operator bool() const { return Value; }
 };
 
 /// Find the designated sub-object of an rvalue.
@@ -2869,10 +2869,9 @@ static EvalStmtResult EvaluateSwitch(APValue &Result, EvalInfo &Info,
   case ESR_Returned:
     return ESR;
   case ESR_CaseNotFound:
-    Found->dump();
-    SS->getBody()->dump();
     llvm_unreachable("couldn't find switch case");
   }
+  llvm_unreachable("Invalid EvalStmtResult!");
 }
 
 // Evaluate a statement.
@@ -3160,6 +3159,11 @@ static bool CheckConstexprFunction(EvalInfo &Info, SourceLocation CallLoc,
   // defined, constexpr functions.
   if (Info.CheckingPotentialConstantExpression && !Definition &&
       Declaration->isConstexpr())
+    return false;
+
+  // Bail out with no diagnostic if the function declaration itself is invalid.
+  // We will have produced a relevant diagnostic while parsing it.
+  if (Declaration->isInvalidDecl())
     return false;
 
   // Can we evaluate this function call?

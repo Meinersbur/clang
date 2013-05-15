@@ -155,6 +155,9 @@ private:
       }
 
       if (CurrentToken->is(tok::r_paren)) {
+        if (CurrentToken->Children.empty() ||
+            !CurrentToken->Children[0].isOneOf(tok::l_paren, tok::l_square))
+          Left->DefinesFunctionType = false;
         if (CurrentToken->Parent->closesScope())
           CurrentToken->Parent->MatchingParen->NoMoreTokensOnLevel = true;
         Left->MatchingParen = CurrentToken;
@@ -872,8 +875,6 @@ void TokenAnnotator::annotate(AnnotatedLine &Line) {
   Line.First.SpacesRequiredBefore = 1;
   Line.First.MustBreakBefore = Line.First.FormatTok.MustBreakBefore;
   Line.First.CanBreakBefore = Line.First.MustBreakBefore;
-
-  Line.First.TotalLength = Line.First.FormatTok.TokenLength;
 }
 
 void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
