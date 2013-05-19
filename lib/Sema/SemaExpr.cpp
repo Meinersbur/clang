@@ -5630,7 +5630,14 @@ ExprResult Sema::ActOnConditionalOp(SourceLocation QuestionLoc,
   Expr *commonExpr = 0;
   if (LHSExpr == 0) {
     commonExpr = CondExpr;
-
+    // Lower out placeholder types first.  This is important so that we don't
+    // try to capture a placeholder. This happens in few cases in C++; such
+    // as Objective-C++'s dictionary subscripting syntax.
+    if (commonExpr->hasPlaceholderType()) {
+      ExprResult result = CheckPlaceholderExpr(commonExpr);
+      if (!result.isUsable()) return ExprError();
+      commonExpr = result.take();
+    }
     // We usually want to apply unary conversions *before* saving, except
     // in the special case of a C++ l-value conditional.
     if (!(getLangOpts().CPlusPlus
@@ -9932,7 +9939,7 @@ ExprResult Sema::ActOnBlockStmtExpr(SourceLocation CaretLoc,
     if (Cap.isThisCapture())
       continue;
     BlockDecl::Capture NewCap(Cap.getVariable(), Cap.isBlockCapture(),
-                              Cap.isNested(), Cap.getCopyExpr());
+                              Cap.isNested(), Cap.getInitExpr());
     Captures.push_back(NewCap);
   }
   BSI->TheDecl->setCaptures(Context, Captures.begin(), Captures.end(),
@@ -11144,17 +11151,18 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation Loc,
       cast<CapturingScopeInfo>(FunctionScopes[FunctionScopesIndex]);
 
     // Check whether we've already captured it.
-    if (CSI->CaptureMap.count(Var)) {
+    if (CSI->isCaptured(Var)) {
+      const CapturingScopeInfo::Capture &Cap = CSI->getCapture(Var);
+
       // If we found a capture, any subcaptures are nested.
       Nested = true;
       
       // Retrieve the capture type for this variable.
-      CaptureType = CSI->getCapture(Var).getCaptureType();
+      CaptureType = Cap.getCaptureType();
       
       // Compute the type of an expression that refers to this variable.
       DeclRefType = CaptureType.getNonReferenceType();
       
-      const CapturingScopeInfo::Capture &Cap = CSI->getCapture(Var);
       if (Cap.isCopyCapture() &&
           !(isa<LambdaScopeInfo>(CSI) && cast<LambdaScopeInfo>(CSI)->Mutable))
         DeclRefType.addConst();

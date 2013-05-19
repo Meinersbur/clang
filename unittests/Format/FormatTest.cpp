@@ -10,7 +10,6 @@
 #define DEBUG_TYPE "format-test"
 
 #include "clang/Format/Format.h"
-#include "../Tooling/RewriterTestContext.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/Support/Debug.h"
 #include "gtest/gtest.h"
@@ -23,21 +22,13 @@ protected:
   std::string format(llvm::StringRef Code, unsigned Offset, unsigned Length,
                      const FormatStyle &Style) {
     DEBUG(llvm::errs() << "---\n");
-    RewriterTestContext Context;
-    FileID ID = Context.createInMemoryFile("input.cc", Code);
-    SourceLocation Start =
-        Context.Sources.getLocForStartOfFile(ID).getLocWithOffset(Offset);
-    std::vector<CharSourceRange> Ranges(
-        1,
-        CharSourceRange::getCharRange(Start, Start.getLocWithOffset(Length)));
-    Lexer Lex(ID, Context.Sources.getBuffer(ID), Context.Sources,
-              getFormattingLangOpts());
-    tooling::Replacements Replace =
-        reformat(Style, Lex, Context.Sources, Ranges);
-    ReplacementCount = Replace.size();
-    EXPECT_TRUE(applyAllReplacements(Replace, Context.Rewrite));
-    DEBUG(llvm::errs() << "\n" << Context.getRewrittenText(ID) << "\n\n");
-    return Context.getRewrittenText(ID);
+    std::vector<tooling::Range> Ranges(1, tooling::Range(Offset, Length));
+    tooling::Replacements Replaces = reformat(Style, Code, Ranges);
+    ReplacementCount = Replaces.size();
+    std::string Result = applyAllReplacements(Code, Replaces);
+    EXPECT_NE("", Result);
+    DEBUG(llvm::errs() << "\n" << Result << "\n\n");
+    return Result;
   }
 
   std::string
@@ -223,20 +214,26 @@ TEST_F(FormatTest, FormatIfWithoutCompoundStatement) {
   verifyFormat("if (a)\n  if (b)\n    if (c)\n      g();\nh();");
   verifyFormat("if (a)\n  if (b) {\n    f();\n  }\ng();");
 
-  FormatStyle AllowsMergedIf = getGoogleStyle();
+  FormatStyle AllowsMergedIf = getLLVMStyle();
   AllowsMergedIf.AllowShortIfStatementsOnASingleLine = true;
   verifyFormat("if (a)\n"
                "  // comment\n"
                "  f();",
                AllowsMergedIf);
+  verifyFormat("if (a)\n"
+               "  ;",
+               AllowsMergedIf);
+  verifyFormat("if (a)\n"
+               "  if (b) return;",
+               AllowsMergedIf);
 
-  verifyFormat("if (a)  // Can't merge this\n"
+  verifyFormat("if (a) // Can't merge this\n"
                "  f();\n",
                AllowsMergedIf);
   verifyFormat("if (a) /* still don't merge */\n"
                "  f();",
                AllowsMergedIf);
-  verifyFormat("if (a) {  // Never merge this\n"
+  verifyFormat("if (a) { // Never merge this\n"
                "  f();\n"
                "}",
                AllowsMergedIf);
@@ -246,7 +243,7 @@ TEST_F(FormatTest, FormatIfWithoutCompoundStatement) {
                AllowsMergedIf);
 
   EXPECT_EQ("if (a) return;", format("if(a)\nreturn;", 7, 1, AllowsMergedIf));
-  EXPECT_EQ("if (a) return;  // comment",
+  EXPECT_EQ("if (a) return; // comment",
             format("if(a)\nreturn; // comment", 20, 1, AllowsMergedIf));
 
   AllowsMergedIf.ColumnLimit = 14;
@@ -257,6 +254,29 @@ TEST_F(FormatTest, FormatIfWithoutCompoundStatement) {
 
   AllowsMergedIf.ColumnLimit = 13;
   verifyFormat("if (a)\n  return;", AllowsMergedIf);
+}
+
+TEST_F(FormatTest, FormatLoopsWithoutCompoundStatement) {
+  FormatStyle AllowsMergedLoops = getLLVMStyle();
+  AllowsMergedLoops.AllowShortLoopsOnASingleLine = true;
+  verifyFormat("while (true) continue;", AllowsMergedLoops);
+  verifyFormat("for (;;) continue;", AllowsMergedLoops);
+  verifyFormat("for (int &v : vec) v *= 2;", AllowsMergedLoops);
+  verifyFormat("while (true)\n"
+               "  ;",
+               AllowsMergedLoops);
+  verifyFormat("for (;;)\n"
+               "  ;",
+               AllowsMergedLoops);
+  verifyFormat("for (;;)\n"
+               "  for (;;) continue;",
+               AllowsMergedLoops);
+  verifyFormat("for (;;) // Can't merge this\n"
+               "  continue;",
+               AllowsMergedLoops);
+  verifyFormat("for (;;) /* still don't merge */\n"
+               "  continue;",
+               AllowsMergedLoops);
 }
 
 TEST_F(FormatTest, ParseIfElse) {
@@ -745,11 +765,11 @@ TEST_F(FormatTest, SplitsLongCxxComments) {
 }
 
 TEST_F(FormatTest, ParsesCommentsAdjacentToPPDirectives) {
-  EXPECT_EQ("namespace {}\n// Test\n#define A",
+  EXPECT_EQ("namespace {\n}\n// Test\n#define A",
             format("namespace {}\n   // Test\n#define A"));
-  EXPECT_EQ("namespace {}\n/* Test */\n#define A",
+  EXPECT_EQ("namespace {\n}\n/* Test */\n#define A",
             format("namespace {}\n   /* Test */\n#define A"));
-  EXPECT_EQ("namespace {}\n/* Test */ #define A",
+  EXPECT_EQ("namespace {\n}\n/* Test */ #define A",
             format("namespace {}\n   /* Test */    #define A"));
 }
 
@@ -1172,6 +1192,18 @@ TEST_F(FormatTest, StaticInitializers) {
       "static SomeClass = { a, b, c, d, e, f, g, h, i, j,\n"
       "                     looooooooooooooooooooooooooooooooooongname,\n"
       "                     looooooooooooooooooooooooooooooong };");
+  // Here, everything other than the "}" would fit on a line.
+  verifyFormat("static int LooooooooooooooooooooooooongVariable[1] = {\n"
+               "  100000000000000000000000\n"
+               "};");
+
+  // FIXME: This would fit into the column limit if we'd fit "{ {" on the first
+  // line. However, the formatting looks a bit off and this probably doesn't
+  // happen often in practice.
+  verifyFormat("static int Variable[1] = {\n"
+               "  { 1000000000000000000000000000000000000 }\n"
+               "};",
+               getLLVMStyleWithColumns(40));
 }
 
 TEST_F(FormatTest, NestedStaticInitializers) {
@@ -2238,6 +2270,8 @@ TEST_F(FormatTest, AlignsStringLiterals) {
   verifyFormat("a = a + \"a\"\n"
                "        \"a\"\n"
                "        \"a\";");
+  verifyFormat("f(\"a\", \"b\"\n"
+               "       \"c\");");
 
   verifyFormat(
       "#define LL_FORMAT \"ll\"\n"
@@ -2872,6 +2906,7 @@ TEST_F(FormatTest, HandlesIncludeDirectives) {
                "#include <a-a>\n"
                "#include < path with space >\n"
                "#include \"abc.h\" // this is included for ABC\n"
+               "#include \"some long include\" // with a comment\n"
                "#include \"some very long include paaaaaaaaaaaaaaaaaaaaaaath\"",
                getLLVMStyleWithColumns(35));
 
@@ -2921,7 +2956,10 @@ TEST_F(FormatTest, IncorrectCodeMissingSemicolon) {
             "    return\n"
             "}",
             format("void  f  (  )  {  if  ( a )  return  }"));
-  EXPECT_EQ("namespace N { void f() }", format("namespace  N  {  void f()  }"));
+  EXPECT_EQ("namespace N {\n"
+            "void f()\n"
+            "}",
+            format("namespace  N  {  void f()  }"));
   EXPECT_EQ("namespace N {\n"
             "void f() {}\n"
             "void g()\n"
@@ -3038,6 +3076,11 @@ TEST_F(FormatTest, PullTrivialFunctionDefinitionsIntoSingleLine) {
                "  int a;\n"
                "#error {\n"
                "}");
+  verifyFormat("void f() {} // comment");
+  verifyFormat("void f() { int a; } // comment");
+  verifyFormat("void f() {\n"
+               "} // comment",
+               getLLVMStyleWithColumns(15));
 
   verifyFormat("void f() { return 42; }", getLLVMStyleWithColumns(23));
   verifyFormat("void f() {\n  return 42;\n}", getLLVMStyleWithColumns(22));
@@ -3077,6 +3120,13 @@ TEST_F(FormatTest, UnderstandContextOfRecordTypeKeywords) {
   verifyFormat("class A::B::C {\n} n;");
 
   // Template definitions.
+  verifyFormat(
+      "template <typename F>\n"
+      "Matcher(const Matcher<F> &Other,\n"
+      "        typename enable_if_c<is_base_of<F, T>::value &&\n"
+      "                             !is_same<F, T>::value>::type * = 0)\n"
+      "    : Implementation(new ImplicitCastMatcher<F>(Other)) {}");
+
   // FIXME: This is still incorrectly handled at the formatter side.
   verifyFormat("template <> struct X < 15, i < 3 && 42 < 50 && 33<28> {\n};");
 
@@ -4159,27 +4209,29 @@ bool allStylesEqual(ArrayRef<FormatStyle> Styles) {
 }
 
 TEST_F(FormatTest, GetsPredefinedStyleByName) {
-  FormatStyle LLVMStyles[] = { getLLVMStyle(), getPredefinedStyle("LLVM"),
-                               getPredefinedStyle("llvm"),
-                               getPredefinedStyle("lLvM") };
-  EXPECT_TRUE(allStylesEqual(LLVMStyles));
+  FormatStyle Styles[3];
 
-  FormatStyle GoogleStyles[] = { getGoogleStyle(), getPredefinedStyle("Google"),
-                                 getPredefinedStyle("google"),
-                                 getPredefinedStyle("gOOgle") };
-  EXPECT_TRUE(allStylesEqual(GoogleStyles));
+  Styles[0] = getLLVMStyle();
+  EXPECT_TRUE(getPredefinedStyle("LLVM", &Styles[1]));
+  EXPECT_TRUE(getPredefinedStyle("lLvM", &Styles[2]));
+  EXPECT_TRUE(allStylesEqual(Styles));
 
-  FormatStyle ChromiumStyles[] = { getChromiumStyle(),
-                                   getPredefinedStyle("Chromium"),
-                                   getPredefinedStyle("chromium"),
-                                   getPredefinedStyle("chROmiUM") };
-  EXPECT_TRUE(allStylesEqual(ChromiumStyles));
+  Styles[0] = getGoogleStyle();
+  EXPECT_TRUE(getPredefinedStyle("Google", &Styles[1]));
+  EXPECT_TRUE(getPredefinedStyle("gOOgle", &Styles[2]));
+  EXPECT_TRUE(allStylesEqual(Styles));
 
-  FormatStyle MozillaStyles[] = { getMozillaStyle(),
-                                  getPredefinedStyle("Mozilla"),
-                                  getPredefinedStyle("mozilla"),
-                                  getPredefinedStyle("moZilla") };
-  EXPECT_TRUE(allStylesEqual(MozillaStyles));
+  Styles[0] = getChromiumStyle();
+  EXPECT_TRUE(getPredefinedStyle("Chromium", &Styles[1]));
+  EXPECT_TRUE(getPredefinedStyle("cHRoMiUM", &Styles[2]));
+  EXPECT_TRUE(allStylesEqual(Styles));
+
+  Styles[0] = getMozillaStyle();
+  EXPECT_TRUE(getPredefinedStyle("Mozilla", &Styles[1]));
+  EXPECT_TRUE(getPredefinedStyle("moZILla", &Styles[2]));
+  EXPECT_TRUE(allStylesEqual(Styles));
+
+  EXPECT_FALSE(getPredefinedStyle("qwerty", &Styles[0]));
 }
 
 TEST_F(FormatTest, ParsesConfiguration) {
@@ -4192,13 +4244,14 @@ TEST_F(FormatTest, ParsesConfiguration) {
 #define CHECK_PARSE_BOOL(FIELD)                                                \
   Style.FIELD = false;                                                         \
   EXPECT_EQ(0, parseConfiguration(#FIELD ": true", &Style).value());           \
-  EXPECT_TRUE(Style.FIELD);                                                \
+  EXPECT_TRUE(Style.FIELD);                                                    \
   EXPECT_EQ(0, parseConfiguration(#FIELD ": false", &Style).value());          \
   EXPECT_FALSE(Style.FIELD);
 
   CHECK_PARSE_BOOL(AlignEscapedNewlinesLeft);
   CHECK_PARSE_BOOL(AllowAllParametersOfDeclarationOnNextLine);
   CHECK_PARSE_BOOL(AllowShortIfStatementsOnASingleLine);
+  CHECK_PARSE_BOOL(AllowShortLoopsOnASingleLine);
   CHECK_PARSE_BOOL(BinPackParameters);
   CHECK_PARSE_BOOL(ConstructorInitializerAllOnOneLineOrOnePerLine);
   CHECK_PARSE_BOOL(DerivePointerBinding);

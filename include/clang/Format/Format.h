@@ -86,6 +86,9 @@ struct FormatStyle {
   /// \brief If true, "if (a) return;" can be put on a single line.
   bool AllowShortIfStatementsOnASingleLine;
 
+  /// \brief If true, "while (true) continue;" can be put on a single line.
+  bool AllowShortLoopsOnASingleLine;
+
   /// \brief Add a space in front of an Objective-C protocol list, i.e. use
   /// Foo <Protocol> instead of Foo<Protocol>.
   bool ObjCSpaceBeforeProtocolList;
@@ -158,11 +161,13 @@ FormatStyle getChromiumStyle();
 /// https://developer.mozilla.org/en-US/docs/Developer_Guide/Coding_Style.
 FormatStyle getMozillaStyle();
 
-/// \brief Returns a predefined style by name.
+/// \brief Gets a predefined style by name.
 ///
 /// Currently supported names: LLVM, Google, Chromium, Mozilla. Names are
 /// compared case-insensitively.
-FormatStyle getPredefinedStyle(StringRef Name);
+///
+/// Returns true if the Style has been set.
+bool getPredefinedStyle(StringRef Name, FormatStyle *Style);
 
 /// \brief Parse configuration from YAML-formatted text.
 llvm::error_code parseConfiguration(StringRef Text, FormatStyle *Style);
@@ -182,6 +187,13 @@ std::string configurationAsText(const FormatStyle &Style);
 tooling::Replacements reformat(const FormatStyle &Style, Lexer &Lex,
                                SourceManager &SourceMgr,
                                std::vector<CharSourceRange> Ranges);
+
+/// \brief Reformats the given \p Ranges in \p Code.
+///
+/// Otherwise identical to the reformat() function consuming a \c Lexer.
+tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
+                               std::vector<tooling::Range> Ranges,
+                               StringRef FileName = "<stdin>");
 
 /// \brief Returns the \c LangOpts that the formatter expects you to set.
 LangOptions getFormattingLangOpts();
