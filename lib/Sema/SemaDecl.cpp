@@ -4636,6 +4636,15 @@ static void checkAttributesAfterMerging(Sema &S, NamedDecl &ND) {
       ND.dropAttr<WeakRefAttr>();
     }
   }
+
+  // 'selectany' only applies to externally visible varable declarations.
+  // It does not apply to functions.
+  if (SelectAnyAttr *Attr = ND.getAttr<SelectAnyAttr>()) {
+    if (isa<FunctionDecl>(ND) || !ND.isExternallyVisible()) {
+      S.Diag(Attr->getLocation(), diag::err_attribute_selectany_non_extern_data);
+      ND.dropAttr<SelectAnyAttr>();
+    }
+  }
 }
 
 /// Given that we are within the definition of the given function,
@@ -5262,11 +5271,15 @@ void Sema::CheckVariableDeclarationType(VarDecl *NewVD) {
     NewVD->setTypeSourceInfo(FixedTInfo);
   }
 
-  if (T->isVoidType() && NewVD->isThisDeclarationADefinition()) {
-    Diag(NewVD->getLocation(), diag::err_typecheck_decl_incomplete_type)
-      << T;
-    NewVD->setInvalidDecl();
-    return;
+  if (T->isVoidType()) {
+    // C++98 [dcl.stc]p5: The extern specifier can be applied only to the names
+    //                    of objects and functions.
+    if (NewVD->isThisDeclarationADefinition() || getLangOpts().CPlusPlus) {
+      Diag(NewVD->getLocation(), diag::err_typecheck_decl_incomplete_type)
+        << T;
+      NewVD->setInvalidDecl();
+      return;
+    }
   }
 
   if (!NewVD->hasLocalStorage() && NewVD->hasAttr<BlocksAttr>()) {
@@ -5775,6 +5788,15 @@ static FunctionDecl* CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
           Record->getDefinition() && !Record->isBeingDefined() &&
           R->getAs<FunctionProtoType>()->getExceptionSpecType() == EST_None) {
         SemaRef.AdjustDestructorExceptionSpec(Record, NewDD);
+      }
+
+      // The Microsoft ABI requires that we perform the destructor body
+      // checks (i.e. operator delete() lookup) at every declaration, as
+      // any translation unit may need to emit a deleting destructor.
+      if (SemaRef.Context.getTargetInfo().getCXXABI().isMicrosoft() &&
+          !Record->isDependentType() && Record->getDefinition() &&
+          !Record->isBeingDefined()) {
+        SemaRef.CheckDestructor(NewDD);
       }
 
       IsVirtualOkay = true;
@@ -11145,10 +11167,18 @@ void Sema::ActOnFields(Scope* S,
           I.setAccess((*I)->getAccess());
         
         if (!CXXRecord->isDependentType()) {
-          // Adjust user-defined destructor exception spec.
-          if (getLangOpts().CPlusPlus11 &&
-              CXXRecord->hasUserDeclaredDestructor())
-            AdjustDestructorExceptionSpec(CXXRecord,CXXRecord->getDestructor());
+          if (CXXRecord->hasUserDeclaredDestructor()) {
+            // Adjust user-defined destructor exception spec.
+            if (getLangOpts().CPlusPlus11)
+              AdjustDestructorExceptionSpec(CXXRecord,
+                                            CXXRecord->getDestructor());
+
+            // The Microsoft ABI requires that we perform the destructor body
+            // checks (i.e. operator delete() lookup) at every declaration, as
+            // any translation unit may need to emit a deleting destructor.
+            if (Context.getTargetInfo().getCXXABI().isMicrosoft())
+              CheckDestructor(CXXRecord->getDestructor());
+          }
 
           // Add any implicitly-declared members to this class.
           AddImplicitlyDeclaredMembersToClass(CXXRecord);

@@ -470,6 +470,8 @@ public:
 
   const TargetInfo &getTargetInfo() const { return *Target; }
   
+  bool AtomicUsesUnsupportedLibcall(const AtomicExpr *E) const;
+  
   const LangOptions& getLangOpts() const { return LangOpts; }
 
   DiagnosticsEngine &getDiagnostics() const;
@@ -580,7 +582,12 @@ public:
   /// preprocessor is not available.
   comments::FullComment *getCommentForDecl(const Decl *D,
                                            const Preprocessor *PP) const;
-  
+
+  /// Return parsed documentation comment attached to a given declaration.
+  /// Returns NULL if no comment is attached. Does not look at any
+  /// redeclarations of the declaration.
+  comments::FullComment *getLocalCommentForDeclUncached(const Decl *D) const;
+
   comments::FullComment *cloneFullComment(comments::FullComment *FC,
                                          const Decl *D) const;
 

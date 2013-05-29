@@ -33,13 +33,16 @@ enum TokenType {
   TT_CastRParen,
   TT_ConditionalExpr,
   TT_CtorInitializerColon,
+  TT_DesignatedInitializerPeriod,
   TT_ImplicitStringLiteral,
   TT_InlineASMColon,
   TT_InheritanceColon,
+  TT_FunctionTypeLParen,
   TT_LineComment,
   TT_ObjCArrayLiteral,
   TT_ObjCBlockLParen,
   TT_ObjCDecl,
+  TT_ObjCDictLiteral,
   TT_ObjCForIn,
   TT_ObjCMethodExpr,
   TT_ObjCMethodSpecifier,
@@ -71,17 +74,16 @@ enum LineType {
 
 class AnnotatedToken {
 public:
-  explicit AnnotatedToken(const FormatToken &FormatTok)
+  explicit AnnotatedToken(FormatToken *FormatTok)
       : FormatTok(FormatTok), Type(TT_Unknown), SpacesRequiredBefore(0),
         CanBreakBefore(false), MustBreakBefore(false),
         ClosesTemplateDeclaration(false), MatchingParen(NULL),
-        ParameterCount(0), TotalLength(FormatTok.TokenLength),
-        BindingStrength(0), SplitPenalty(0), LongestObjCSelectorName(0),
-        DefinesFunctionType(false), Parent(NULL), FakeRParens(0),
-        LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false),
-        NoMoreTokensOnLevel(false) {}
+        ParameterCount(0), TotalLength(FormatTok->TokenLength),
+        UnbreakableTailLength(0), BindingStrength(0), SplitPenalty(0),
+        LongestObjCSelectorName(0), Parent(NULL), FakeRParens(0),
+        LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false) {}
 
-  bool is(tok::TokenKind Kind) const { return FormatTok.Tok.is(Kind); }
+  bool is(tok::TokenKind Kind) const { return FormatTok->Tok.is(Kind); }
 
   bool isOneOf(tok::TokenKind K1, tok::TokenKind K2) const {
     return is(K1) || is(K2);
@@ -103,10 +105,10 @@ public:
            is(K8) || is(K9) || is(K10) || is(K11) || is(K12);
   }
 
-  bool isNot(tok::TokenKind Kind) const { return FormatTok.Tok.isNot(Kind); }
+  bool isNot(tok::TokenKind Kind) const { return FormatTok->Tok.isNot(Kind); }
 
   bool isObjCAtKeyword(tok::ObjCKeywordKind Kind) const {
-    return FormatTok.Tok.isObjCAtKeyword(Kind);
+    return FormatTok->Tok.isObjCAtKeyword(Kind);
   }
 
   bool isAccessSpecifier(bool ColonRequired = true) const {
@@ -132,7 +134,7 @@ public:
   bool isBinaryOperator() const;
   bool isTrailingComment() const;
 
-  FormatToken FormatTok;
+  FormatToken *FormatTok;
 
   TokenType Type;
 
@@ -154,6 +156,10 @@ public:
   /// \brief The total length of the line up to and including this token.
   unsigned TotalLength;
 
+  /// \brief The length of following tokens until the next natural split point,
+  /// or the next token that can be broken.
+  unsigned UnbreakableTailLength;
+
   // FIXME: Come up with a 'cleaner' concept.
   /// \brief The binding strength of a token. This is a combined value of
   /// operator precedence, parenthesis nesting, etc.
@@ -165,9 +171,6 @@ public:
   /// \brief If this is the first ObjC selector name in an ObjC method
   /// definition or call, this contains the length of the longest name.
   unsigned LongestObjCSelectorName;
-
-  /// \brief \c true if this is a "(" that starts a function type definition.
-  bool DefinesFunctionType;
 
   std::vector<AnnotatedToken> Children;
   AnnotatedToken *Parent;
@@ -189,19 +192,6 @@ public:
   /// Only set if \c Type == \c TT_StartOfName.
   bool PartOfMultiVariableDeclStmt;
 
-  /// \brief Set to \c true for "("-tokens if this is the last token other than
-  /// ")" in the next higher parenthesis level.
-  ///
-  /// If this is \c true, no more formatting decisions have to be made on the
-  /// next higher parenthesis level, enabling optimizations.
-  ///
-  /// Example:
-  /// \code
-  /// aaaaaa(aaaaaa());
-  ///              ^  // Set to true for this parenthesis.
-  /// \endcode
-  bool NoMoreTokensOnLevel;
-
   /// \brief Returns the previous token ignoring comments.
   AnnotatedToken *getPreviousNoneComment() const;
 
@@ -218,8 +208,8 @@ public:
         StartsDefinition(false) {
     assert(!Line.Tokens.empty());
     AnnotatedToken *Current = &First;
-    for (std::list<FormatToken>::const_iterator I = ++Line.Tokens.begin(),
-                                                E = Line.Tokens.end();
+    for (std::list<FormatToken *>::const_iterator I = ++Line.Tokens.begin(),
+                                                  E = Line.Tokens.end();
          I != E; ++I) {
       Current->Children.push_back(AnnotatedToken(*I));
       Current->Children[0].Parent = Current;
@@ -252,7 +242,7 @@ public:
 };
 
 inline prec::Level getPrecedence(const AnnotatedToken &Tok) {
-  return getBinOpPrecedence(Tok.FormatTok.Tok.getKind(), true, true);
+  return getBinOpPrecedence(Tok.FormatTok->Tok.getKind(), true, true);
 }
 
 /// \brief Determines extra information about the tokens comprising an
@@ -281,6 +271,8 @@ private:
   bool canBreakBefore(const AnnotatedLine &Line, const AnnotatedToken &Right);
 
   void printDebugInfo(const AnnotatedLine &Line);
+
+  void calculateUnbreakableTailLengths(AnnotatedLine &Line);
 
   const FormatStyle &Style;
   SourceManager &SourceMgr;

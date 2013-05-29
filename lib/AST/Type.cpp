@@ -93,7 +93,7 @@ unsigned ConstantArrayType::getNumAddressingBits(ASTContext &Context,
   if ((ElementSize >> 32) == 0 && NumElements.getBitWidth() <= 64 &&
       (NumElements.getZExtValue() >> 32) == 0) {
     uint64_t TotalSize = NumElements.getZExtValue() * ElementSize;
-    return 64 - llvm::CountLeadingZeros_64(TotalSize);
+    return 64 - llvm::countLeadingZeros(TotalSize);
   }
 
   // Otherwise, use APSInt to handle arbitrary sized values.
@@ -1195,6 +1195,15 @@ bool Type::isLiteralType(ASTContext &Ctx) const {
 
     return true;
   }
+
+  // We treat _Atomic T as a literal type if T is a literal type.
+  if (const AtomicType *AT = BaseTy->getAs<AtomicType>())
+    return AT->getValueType()->isLiteralType(Ctx);
+
+  // If this type hasn't been deduced yet, then conservatively assume that
+  // it'll work out to be a literal type.
+  if (isa<AutoType>(BaseTy->getCanonicalTypeInternal()))
+    return true;
 
   return false;
 }
