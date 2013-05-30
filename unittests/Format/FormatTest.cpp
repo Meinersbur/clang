@@ -3641,6 +3641,26 @@ TEST_F(FormatTest, BlockComments) {
                    "/* */someCall(parameter);",
                    getLLVMStyleWithColumns(15)));
   EXPECT_EQ("/*\n**\n*/", format("/*\n**\n*/"));
+  EXPECT_EQ("/*\n"
+            "*\n"
+            " * aaaaaa\n"
+            "* aaaaaa\n"
+            "*/",
+            format("/*\n"
+                   "*\n"
+                   " * aaaaaa aaaaaa\n"
+                   "*/",
+                   getLLVMStyleWithColumns(10)));
+  EXPECT_EQ("/*\n"
+            "**\n"
+            "* aaaaaa\n"
+            "* aaaaaa\n"
+            "*/",
+            format("/*\n"
+                   "**\n"
+                   "* aaaaaa aaaaaa\n"
+                   "*/",
+                   getLLVMStyleWithColumns(10)));
 
   FormatStyle NoBinPacking = getLLVMStyle();
   NoBinPacking.BinPackParameters = false;
