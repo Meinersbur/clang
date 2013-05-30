@@ -10,6 +10,32 @@ set( LLVM_LINK_COMPONENTS
   linker
   selectiondag
   )
+  
+set(LLVM_LINK_LIBS)
+  
+if(CLANG_ENABLE_STATIC_ANALYZER)
+  list(APPEND LLVM_LINK_LIBS
+    clangStaticAnalyzerFrontend
+    clangStaticAnalyzerCheckers
+    clangStaticAnalyzerCore
+    )
+endif()
+
+if(CLANG_ENABLE_ARCMT)
+  list(APPEND LLVM_LINK_LIBS
+    clangARCMigrate
+    )
+endif()
+
+if(CLANG_ENABLE_REWRITER)
+  list(APPEND LLVM_LINK_LIBS
+    clangRewriteCore
+    clangRewriteFrontend
+    )
+endif()
+
+  
+
 
 add_clang_executable(clang
   driver.cpp
@@ -30,27 +56,6 @@ add_clang_executable(clang
   clangSema
   clangSerialization
   )
-
-if(CLANG_ENABLE_STATIC_ANALYZER)
-  target_link_libraries(clang
-    clangStaticAnalyzerFrontend
-    clangStaticAnalyzerCheckers
-    clangStaticAnalyzerCore
-    )
-endif()
-
-if(CLANG_ENABLE_ARCMT)
-  target_link_libraries(clang
-    clangARCMigrate
-    )
-endif()
-
-if(CLANG_ENABLE_REWRITER)
-  target_link_libraries(clang
-    clangRewriteCore
-    clangRewriteFrontend
-    )
-endif()
 
 set_target_properties(clang PROPERTIES VERSION ${CLANG_EXECUTABLE_VERSION})
 set_target_properties(clang PROPERTIES ENABLE_EXPORTS 1)
