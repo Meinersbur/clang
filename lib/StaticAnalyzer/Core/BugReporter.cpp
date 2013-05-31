@@ -2227,8 +2227,13 @@ static bool optimizeEdges(PathPieces &path, SourceManager &SM,
   return hasChanges;
 }
 
-static void adjustBranchEdges(PathPieces &pieces, LocationContextMap &LCM,
-                            SourceManager &SM) {
+/// \brief Split edges incident on a branch condition into two edges.
+///
+/// The first edge is incident on the branch statement, the second on the
+/// condition.
+static void splitBranchConditionEdges(PathPieces &pieces,
+                                      LocationContextMap &LCM,
+                                      SourceManager &SM) {
   // Retrieve the parent map for this path.
   const LocationContext *LC = LCM[&pieces];
   ParentMap &PM = LC->getParentMap();
@@ -2237,7 +2242,7 @@ static void adjustBranchEdges(PathPieces &pieces, LocationContextMap &LCM,
        Prev = I, ++I) {
     // Adjust edges in subpaths.
     if (PathDiagnosticCallPiece *Call = dyn_cast<PathDiagnosticCallPiece>(*I)) {
-      adjustBranchEdges(Call->path, LCM, SM);
+      splitBranchConditionEdges(Call->path, LCM, SM);
       continue;
     }
 
@@ -2282,6 +2287,13 @@ static void adjustBranchEdges(PathPieces &pieces, LocationContextMap &LCM,
           Branch = OFS;
         break;
       }
+      if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(Parent)) {
+        if (BO->isLogicalOp()) {
+          if (BO->getLHS()->IgnoreParens() == S)
+            Branch = BO;
+          break;
+        }
+      }
 
       S = Parent;
     }
@@ -2298,34 +2310,31 @@ static void adjustBranchEdges(PathPieces &pieces, LocationContextMap &LCM,
 
     // Now look at the previous edge.  We want to know if this was in the same
     // "level" as the for statement.
-    const Stmt *SrcParent = getStmtParent(Src, PM);
     const Stmt *BranchParent = getStmtParent(Branch, PM);
-    if (SrcParent && SrcParent == BranchParent) {
-      PathDiagnosticLocation L(Branch, SM, LC);
-      bool needsEdge = true;
+    PathDiagnosticLocation L(Branch, SM, LC);
+    bool needsEdge = true;
 
-      if (Prev != E) {
-        if (PathDiagnosticControlFlowPiece *P =
-            dyn_cast<PathDiagnosticControlFlowPiece>(*Prev)) {
-          const Stmt *PrevSrc = getLocStmt(P->getStartLocation());
-          if (PrevSrc) {
-            const Stmt *PrevSrcParent = getStmtParent(PrevSrc, PM);
-            if (PrevSrcParent == BranchParent) {
-              P->setEndLocation(L);
-              needsEdge = false;
-            }
+    if (Prev != E) {
+      if (PathDiagnosticControlFlowPiece *P =
+          dyn_cast<PathDiagnosticControlFlowPiece>(*Prev)) {
+        const Stmt *PrevSrc = getLocStmt(P->getStartLocation());
+        if (PrevSrc) {
+          const Stmt *PrevSrcParent = getStmtParent(PrevSrc, PM);
+          if (PrevSrcParent == BranchParent) {
+            P->setEndLocation(L);
+            needsEdge = false;
           }
         }
       }
-
-      if (needsEdge) {
-        PathDiagnosticControlFlowPiece *P =
-          new PathDiagnosticControlFlowPiece(PieceI->getStartLocation(), L);
-        pieces.insert(I, P);
-      }
-
-      PieceI->setStartLocation(L);
     }
+
+    if (needsEdge) {
+      PathDiagnosticControlFlowPiece *P =
+        new PathDiagnosticControlFlowPiece(PieceI->getStartLocation(), L);
+      pieces.insert(I, P);
+    }
+
+    PieceI->setStartLocation(L);
   }
 }
 
@@ -3023,7 +3032,7 @@ bool GRBugReporter::generatePathDiagnostic(PathDiagnostic& PD,
 
         // Adjust edges into loop conditions to make them more uniform
         // and aesthetically pleasing.
-        adjustBranchEdges(PD.getMutablePieces(), LCM, SM);
+        splitBranchConditionEdges(PD.getMutablePieces(), LCM, SM);
       }
     }
 
