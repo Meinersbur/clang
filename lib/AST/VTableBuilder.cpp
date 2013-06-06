@@ -1499,8 +1499,8 @@ VTableBuilder::AddMethods(BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
 
   const CXXDestructorDecl *ImplicitVirtualDtor = 0;
 
-  typedef llvm::SmallPtrSet<const CXXMethodDecl *, 8> NewVirtualFunctionsSetTy;
-  NewVirtualFunctionsSetTy NewVirtualFunctions;
+  typedef llvm::SmallVector<const CXXMethodDecl *, 8> NewVirtualFunctionsTy;
+  NewVirtualFunctionsTy NewVirtualFunctions;
 
   // Now go through all virtual member functions and add them.
   for (CXXRecordDecl::method_iterator I = RD->method_begin(),
@@ -1580,13 +1580,13 @@ VTableBuilder::AddMethods(BaseSubobject Base, CharUnits BaseOffsetInLayoutClass,
       }
     }
 
-    NewVirtualFunctions.insert(MD);
+    NewVirtualFunctions.push_back(MD);
   }
 
   if (ImplicitVirtualDtor)
-    NewVirtualFunctions.insert(ImplicitVirtualDtor);
+    NewVirtualFunctions.push_back(ImplicitVirtualDtor);
 
-  for (NewVirtualFunctionsSetTy::const_iterator I = NewVirtualFunctions.begin(),
+  for (NewVirtualFunctionsTy::const_iterator I = NewVirtualFunctions.begin(),
        E = NewVirtualFunctions.end(); I != E; ++I) {
     const CXXMethodDecl *MD = *I;
 

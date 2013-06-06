@@ -44,6 +44,7 @@
 // RUN: FileCheck --check-prefix=CHECK-43 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-44 %s < %t
 // RUN: FileCheck --check-prefix=CHECK-45 %s < %t
+// RUN: FileCheck --check-prefix=CHECK-46 %s < %t
 
 // For now, just verify this doesn't crash.
 namespace test0 {
@@ -1888,4 +1889,38 @@ namespace Test39 {
 
   void B::foo2() {
   }
+}
+
+namespace Test40 {
+  struct A {
+    virtual void foo() = 0;
+  };
+
+  struct B : public A {
+    virtual void foo();
+  };
+
+  struct C: public B {
+    // CHECK-46: VTable indices for 'Test40::C' (8 entries).
+    // CHECK-46-NEXT: 1 | int Test40::C::f(int)
+    // CHECK-46-NEXT: 2 | int Test40::C::f()
+    // CHECK-46-NEXT: 3 | int Test40::C::g(int)
+    // CHECK-46-NEXT: 4 | int Test40::C::g()
+    // CHECK-46-NEXT: 5 | int Test40::C::h(int)
+    // CHECK-46-NEXT: 6 | int Test40::C::h()
+    // CHECK-46-NEXT: 7 | int Test40::C::i(int)
+    // CHECK-46-NEXT: 8 | int Test40::C::i()
+    virtual int f(int);
+    virtual int f();
+    virtual int g(int);
+    virtual int g();
+    virtual int h(int);
+    virtual int h();
+    virtual int i(int);
+    virtual int i();
+  };
+
+  class D : C {};
+
+  D d;
 }
