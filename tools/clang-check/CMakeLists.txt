@@ -8,7 +8,11 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_executable(clang-check
   ClangCheck.cpp
-  LINK_LIBS clangTooling clangBasic clangRewriteFrontend
+  LINK_LIBS
+  clangTooling
+  clangBasic
+  clangRewriteFrontend
+  clangStaticAnalyzerFrontend
   )
 
 install(TARGETS clang-check
