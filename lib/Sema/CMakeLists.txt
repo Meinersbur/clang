@@ -51,6 +51,7 @@ add_clang_library(clangSema
   SemaTemplateVariadic.cpp
   SemaType.cpp
   TargetAttributesSema.cpp
+  TypeLocBuilder.cpp
   LINK_LIBS clangAST clangAnalysis clangBasic clangEdit clangLex
   )
 
