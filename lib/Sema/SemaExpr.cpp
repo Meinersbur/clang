@@ -8356,7 +8356,15 @@ static QualType CheckAddressOfOperand(Sema &S, ExprResult &OrigOp,
           << OrigOp.get()->getSourceRange();
         return QualType();
       }
-                  
+
+      OverloadExpr *Ovl = cast<OverloadExpr>(OrigOp.get()->IgnoreParens());
+      if (isa<UnresolvedMemberExpr>(Ovl))
+        if (!S.ResolveSingleFunctionTemplateSpecialization(Ovl)) {
+          S.Diag(OpLoc, diag::err_invalid_form_pointer_member_function)
+            << OrigOp.get()->getSourceRange();
+          return QualType();
+        }
+
       return S.Context.OverloadTy;
     }
 
@@ -10027,11 +10035,7 @@ ExprResult Sema::ActOnBlockStmtExpr(SourceLocation CaretLoc,
       FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
       EPI.TypeQuals = 0; // FIXME: silently?
       EPI.ExtInfo = Ext;
-      BlockTy =
-        Context.getFunctionType(RetTy,
-                                ArrayRef<QualType>(FPT->arg_type_begin(),
-                                                   FPT->getNumArgs()),
-                                EPI);
+      BlockTy = Context.getFunctionType(RetTy, FPT->getArgTypes(), EPI);
     }
 
   // If we don't have a function type, just build one from nothing.
@@ -10199,7 +10203,8 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
 }
 
 static void MakeObjCStringLiteralFixItHint(Sema& SemaRef, QualType DstType,
-                                           Expr *SrcExpr, FixItHint &Hint) {
+                                           Expr *SrcExpr, FixItHint &Hint,
+                                           bool &IsNSString) {
   if (!SemaRef.getLangOpts().ObjC1)
     return;
 
@@ -10213,6 +10218,7 @@ static void MakeObjCStringLiteralFixItHint(Sema& SemaRef, QualType DstType,
     const ObjCInterfaceDecl *ID = PT->getInterfaceDecl();
     if (!ID || !ID->getIdentifier()->isStr("NSString"))
       return;
+    IsNSString = true;
   }
 
   // Ignore any parens, implicit casts (should only be
@@ -10246,6 +10252,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
   ConversionFixItGenerator ConvHints;
   bool MayHaveConvFixit = false;
   bool MayHaveFunctionDiff = false;
+  bool IsNSString = false;
 
   switch (ConvTy) {
   case Compatible:
@@ -10263,7 +10270,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
     MayHaveConvFixit = true;
     break;
   case IncompatiblePointer:
-    MakeObjCStringLiteralFixItHint(*this, DstType, SrcExpr, Hint);
+    MakeObjCStringLiteralFixItHint(*this, DstType, SrcExpr, Hint, IsNSString);
     DiagKind = diag::ext_typecheck_convert_incompatible_pointer;
     CheckInferredResultType = DstType->isObjCObjectPointerType() &&
       SrcType->isObjCObjectPointerType();
@@ -10274,6 +10281,8 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
       SrcType = SrcType.getUnqualifiedType();
       DstType = DstType.getUnqualifiedType();
     }
+    else if (IsNSString && !Hint.isNull())
+      DiagKind = diag::warn_missing_atsign_prefix;
     MayHaveConvFixit = true;
     break;
   case IncompatiblePointerSign:
@@ -12200,11 +12209,8 @@ ExprResult RebuildUnknownAnyExpr::VisitCallExpr(CallExpr *E) {
 
   // Rebuild the function type, replacing the result type with DestType.
   if (const FunctionProtoType *Proto = dyn_cast<FunctionProtoType>(FnType))
-    DestType =
-      S.Context.getFunctionType(DestType,
-                                ArrayRef<QualType>(Proto->arg_type_begin(),
-                                                   Proto->getNumArgs()),
-                                Proto->getExtProtoInfo());
+    DestType = S.Context.getFunctionType(DestType, Proto->getArgTypes(),
+                                         Proto->getExtProtoInfo());
   else
     DestType = S.Context.getFunctionNoProtoType(DestType,
                                                 FnType->getExtInfo());
