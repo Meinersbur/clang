@@ -2499,7 +2499,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, Decl *OldD, Scope *S) {
         //    -- Member function declarations with the same name and the
         //       same parameter types cannot be overloaded if any of them
         //       is a static member function declaration.
-        if (OldMethod->isStatic() || NewMethod->isStatic()) {
+        if (OldMethod->isStatic() != NewMethod->isStatic()) {
           Diag(New->getLocation(), diag::err_ovl_static_nonstatic_member);
           Diag(Old->getLocation(), PrevDiag) << Old << Old->getType();
           return true;
@@ -4354,21 +4354,22 @@ TryToFixInvalidVariablyModifiedTypeSourceInfo(TypeSourceInfo *TInfo,
 }
 
 /// \brief Register the given locally-scoped extern "C" declaration so
-/// that it can be found later for redeclarations
+/// that it can be found later for redeclarations. We include any extern "C"
+/// declaration that is not visible in the translation unit here, not just
+/// function-scope declarations.
 void
-Sema::RegisterLocallyScopedExternCDecl(NamedDecl *ND,
-                                       const LookupResult &Previous,
-                                       Scope *S) {
-  assert(ND->getLexicalDeclContext()->isFunctionOrMethod() &&
-         "Decl is not a locally-scoped decl!");
+Sema::RegisterLocallyScopedExternCDecl(NamedDecl *ND, Scope *S) {
+  assert(
+      !ND->getLexicalDeclContext()->getRedeclContext()->isTranslationUnit() &&
+      "Decl is not a locally-scoped decl!");
   // Note that we have a locally-scoped external with this name.
   LocallyScopedExternCDecls[ND->getDeclName()] = ND;
 }
 
-llvm::DenseMap<DeclarationName, NamedDecl *>::iterator
-Sema::findLocallyScopedExternCDecl(DeclarationName Name) {
+NamedDecl *Sema::findLocallyScopedExternCDecl(DeclarationName Name) {
   if (ExternalSource) {
     // Load locally-scoped external decls from the external source.
+    // FIXME: This is inefficient. Maybe add a DeclContext for extern "C" decls?
     SmallVector<NamedDecl *, 4> Decls;
     ExternalSource->ReadLocallyScopedExternCDecls(Decls);
     for (unsigned I = 0, N = Decls.size(); I != N; ++I) {
@@ -4378,8 +4379,9 @@ Sema::findLocallyScopedExternCDecl(DeclarationName Name) {
         LocallyScopedExternCDecls[Decls[I]->getDeclName()] = Decls[I];
     }
   }
-  
-  return LocallyScopedExternCDecls.find(Name);
+
+  NamedDecl *D = LocallyScopedExternCDecls.lookup(Name);
+  return D ? cast<NamedDecl>(D->getMostRecentDecl()) : 0;
 }
 
 /// \brief Diagnose function specifiers on a declaration of an identifier that
@@ -4727,6 +4729,17 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     SC = SC_None;
   }
 
+  if (getLangOpts().CPlusPlus11 && SCSpec == DeclSpec::SCS_register &&
+      !D.getAsmLabel() && !getSourceManager().isInSystemMacro(
+                              D.getDeclSpec().getStorageClassSpecLoc())) {
+    // In C++11, the 'register' storage class specifier is deprecated.
+    // Suppress the warning in system macros, it's used in macros in some
+    // popular C system headers, such as in glibc's htonl() macro.
+    Diag(D.getDeclSpec().getStorageClassSpecLoc(),
+         diag::warn_deprecated_register)
+      << FixItHint::CreateRemoval(D.getDeclSpec().getStorageClassSpecLoc());
+  }
+
   IdentifierInfo *II = Name.getAsIdentifierInfo();
   if (!II) {
     Diag(D.getIdentifierLoc(), diag::err_bad_variable_name)
@@ -4740,7 +4753,6 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     // C99 6.9p2: The storage-class specifiers auto and register shall not
     // appear in the declaration specifiers in an external declaration.
     if (SC == SC_Auto || SC == SC_Register) {
-
       // If this is a register variable with an asm label specified, then this
       // is a GNU extension.
       if (SC == SC_Register && D.getAsmLabel())
@@ -4750,7 +4762,7 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       D.setInvalidType();
     }
   }
-  
+
   if (getLangOpts().OpenCL) {
     // Set up the special work-group-local storage class for variables in the
     // OpenCL __local address space.
@@ -4795,10 +4807,30 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   } else {
     if (DC->isRecord() && !CurContext->isRecord()) {
       // This is an out-of-line definition of a static data member.
-      if (SC == SC_Static) {
+      switch (SC) {
+      case SC_None:
+        break;
+      case SC_Static:
         Diag(D.getDeclSpec().getStorageClassSpecLoc(),
              diag::err_static_out_of_line)
           << FixItHint::CreateRemoval(D.getDeclSpec().getStorageClassSpecLoc());
+        break;
+      case SC_Auto:
+      case SC_Register:
+      case SC_Extern:
+        // [dcl.stc] p2: The auto or register specifiers shall be applied only
+        // to names of variables declared in a block or to function parameters.
+        // [dcl.stc] p6: The extern specifier cannot be used in the declaration
+        // of class members
+
+        Diag(D.getDeclSpec().getStorageClassSpecLoc(),
+             diag::err_storage_class_for_static_member)
+          << FixItHint::CreateRemoval(D.getDeclSpec().getStorageClassSpecLoc());
+        break;
+      case SC_PrivateExtern:
+        llvm_unreachable("C storage class in c++!");
+      case SC_OpenCLWorkGroupLocal:
+        llvm_unreachable("OpenCL storage class in c++!");
       }
     }
     if (SC == SC_Static && CurContext->isRecord()) {
@@ -5038,11 +5070,17 @@ Sema::ActOnVariableDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   ProcessPragmaWeak(S, NewVD);
   checkAttributesAfterMerging(*this, *NewVD);
 
-  // If this is a locally-scoped extern C variable, update the map of
-  // such variables.
-  if (CurContext->isFunctionOrMethod() && NewVD->isExternC() &&
-      !NewVD->isInvalidDecl())
-    RegisterLocallyScopedExternCDecl(NewVD, Previous, S);
+  // If this is the first declaration of an extern C variable that is not
+  // declared directly in the translation unit, update the map of such
+  // variables.
+  if (!CurContext->getRedeclContext()->isTranslationUnit() &&
+      !NewVD->getPreviousDecl() && !NewVD->isInvalidDecl() &&
+      // FIXME: We only check isExternC if we're in an extern C context,
+      // to avoid computing and caching an 'externally visible' flag which
+      // could change if the variable's type is not visible.
+      (!getLangOpts().CPlusPlus || NewVD->isInExternCContext()) &&
+      NewVD->isExternC())
+    RegisterLocallyScopedExternCDecl(NewVD, S);
 
   return NewVD;
 }
@@ -5350,10 +5388,9 @@ bool Sema::CheckVariableDeclaration(VarDecl *NewVD,
   // not in scope.
   bool PreviousWasHidden = false;
   if (Previous.empty() && mayConflictWithNonVisibleExternC(NewVD)) {
-    llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-      = findLocallyScopedExternCDecl(NewVD->getDeclName());
-    if (Pos != LocallyScopedExternCDecls.end()) {
-      Previous.addDecl(Pos->second);
+    if (NamedDecl *ExternCPrev =
+            findLocallyScopedExternCDecl(NewVD->getDeclName())) {
+      Previous.addDecl(ExternCPrev);
       PreviousWasHidden = true;
     }
   }
@@ -5895,23 +5932,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     Diag(D.getDeclSpec().getThreadStorageClassSpecLoc(),
          diag::err_invalid_thread)
       << DeclSpec::getSpecifierName(TSCS);
-
-  // Do not allow returning a objc interface by-value.
-  if (R->getAs<FunctionType>()->getResultType()->isObjCObjectType()) {
-    Diag(D.getIdentifierLoc(),
-         diag::err_object_cannot_be_passed_returned_by_value) << 0
-    << R->getAs<FunctionType>()->getResultType()
-    << FixItHint::CreateInsertion(D.getIdentifierLoc(), "*");
-
-    QualType T = R->getAs<FunctionType>()->getResultType();
-    T = Context.getObjCObjectPointerType(T);
-    if (const FunctionProtoType *FPT = dyn_cast<FunctionProtoType>(R)) {
-      FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
-      R = Context.getFunctionType(T, FPT->getArgTypes(), EPI);
-    }
-    else if (isa<FunctionNoProtoType>(R))
-      R = Context.getFunctionNoProtoType(T);
-  }
 
   bool isFriend = false;
   FunctionTemplateDecl *FunctionTemplate = 0;
@@ -6605,11 +6625,13 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // marking the function.
   AddCFAuditedAttribute(NewFD);
 
-  // If this is a locally-scoped extern C function, update the
-  // map of such names.
-  if (CurContext->isFunctionOrMethod() && NewFD->isExternC()
-      && !NewFD->isInvalidDecl())
-    RegisterLocallyScopedExternCDecl(NewFD, Previous, S);
+  // If this is the first declaration of an extern C variable that is not
+  // declared directly in the translation unit, update the map of such
+  // variables.
+  if (!CurContext->getRedeclContext()->isTranslationUnit() &&
+      !NewFD->getPreviousDecl() && NewFD->isExternC() &&
+      !NewFD->isInvalidDecl())
+    RegisterLocallyScopedExternCDecl(NewFD, S);
 
   // Set this FunctionDecl's range up to the right paren.
   NewFD->setRangeEnd(D.getSourceRange().getEnd());
@@ -6716,10 +6738,9 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
   if (Previous.empty() && mayConflictWithNonVisibleExternC(NewFD)) {
     // Since we did not find anything by this name, look for a non-visible
     // extern "C" declaration with the same name.
-    llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-      = findLocallyScopedExternCDecl(NewFD->getDeclName());
-    if (Pos != LocallyScopedExternCDecls.end())
-      Previous.addDecl(Pos->second);
+    if (NamedDecl *ExternCPrev =
+            findLocallyScopedExternCDecl(NewFD->getDeclName()))
+      Previous.addDecl(ExternCPrev);
   }
 
   // Filter out any non-conflicting previous declarations.
@@ -8687,7 +8708,8 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
 
   // Builtin functions cannot be defined.
   if (unsigned BuiltinID = FD->getBuiltinID()) {
-    if (!Context.BuiltinInfo.isPredefinedLibFunction(BuiltinID)) {
+    if (!Context.BuiltinInfo.isPredefinedLibFunction(BuiltinID) &&
+        !Context.BuiltinInfo.isPredefinedRuntimeFunction(BuiltinID)) {
       Diag(FD->getLocation(), diag::err_builtin_definition) << FD;
       FD->setInvalidDecl();
     }
@@ -9069,12 +9091,10 @@ NamedDecl *Sema::ImplicitlyDefineFunction(SourceLocation Loc,
   // function, see whether there was a locally-scoped declaration of
   // this name as a function or variable. If so, use that
   // (non-visible) declaration, and complain about it.
-  llvm::DenseMap<DeclarationName, NamedDecl *>::iterator Pos
-    = findLocallyScopedExternCDecl(&II);
-  if (Pos != LocallyScopedExternCDecls.end()) {
-    Diag(Loc, diag::warn_use_out_of_scope_declaration) << Pos->second;
-    Diag(Pos->second->getLocation(), diag::note_previous_declaration);
-    return Pos->second;
+  if (NamedDecl *ExternCPrev = findLocallyScopedExternCDecl(&II)) {
+    Diag(Loc, diag::warn_use_out_of_scope_declaration) << ExternCPrev;
+    Diag(ExternCPrev->getLocation(), diag::note_previous_declaration);
+    return ExternCPrev;
   }
 
   // Extension in C99.  Legal in C90, but warn about it.
@@ -11242,32 +11262,34 @@ void Sema::ActOnFields(Scope* S,
     // Check if the structure/union declaration is a language extension.
     if (!getLangOpts().CPlusPlus) {
       bool ZeroSize = true;
-      bool UnnamedOnly = true;
-      unsigned UnnamedCnt = 0;
+      bool IsEmpty = true;
+      unsigned NonBitFields = 0;
       for (RecordDecl::field_iterator I = Record->field_begin(),
-                                      E = Record->field_end(); UnnamedOnly && I != E; ++I) {
+                                      E = Record->field_end();
+           (NonBitFields == 0 || ZeroSize) && I != E; ++I) {
+        IsEmpty = false;
         if (I->isUnnamedBitfield()) {
-          UnnamedCnt++;
           if (I->getBitWidthValue(Context) > 0)
             ZeroSize = false;
         } else {
-          UnnamedOnly = ZeroSize = false;
+          ++NonBitFields;
+          QualType FieldType = I->getType();
+          if (FieldType->isIncompleteType() ||
+              !Context.getTypeSizeInChars(FieldType).isZero())
+            ZeroSize = false;
         }
       }
 
       // Empty structs are an extension in C (C99 6.7.2.1p7), but are allowed in
       // C++.
-      if (ZeroSize) {
-        if (UnnamedCnt == 0)
-          Diag(RecLoc, diag::warn_empty_struct_union_compat) << Record->isUnion();
-        else
-          Diag(RecLoc, diag::warn_zero_size_struct_union_compat) << Record->isUnion();
-      }
+      if (ZeroSize)
+        Diag(RecLoc, diag::warn_zero_size_struct_union_compat) << IsEmpty
+            << Record->isUnion() << (NonBitFields > 1);
 
       // Structs without named members are extension in C (C99 6.7.2.1p7), but
       // are accepted by GCC.
-      if (UnnamedOnly) {
-        if (UnnamedCnt == 0)
+      if (NonBitFields == 0) {
+        if (IsEmpty)
           Diag(RecLoc, diag::ext_empty_struct_union) << Record->isUnion();
         else
           Diag(RecLoc, diag::ext_no_named_members_in_struct_union) << Record->isUnion();

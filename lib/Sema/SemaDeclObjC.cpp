@@ -459,6 +459,23 @@ ActOnStartClassInterface(SourceLocation AtInterfaceLoc,
 
   // Create a declaration to describe this @interface.
   ObjCInterfaceDecl* PrevIDecl = dyn_cast_or_null<ObjCInterfaceDecl>(PrevDecl);
+
+  if (PrevIDecl && PrevIDecl->getIdentifier() != ClassName) {
+    // A previous decl with a different name is because of
+    // @compatibility_alias, for example:
+    // \code
+    //   @class NewImage;
+    //   @compatibility_alias OldImage NewImage;
+    // \endcode
+    // A lookup for 'OldImage' will return the 'NewImage' decl.
+    //
+    // In such a case use the real declaration name, instead of the alias one,
+    // otherwise we will break IdentifierResolver and redecls-chain invariants.
+    // FIXME: If necessary, add a bit to indicate that this ObjCInterfaceDecl
+    // has been aliased.
+    ClassName = PrevIDecl->getIdentifier();
+  }
+
   ObjCInterfaceDecl *IDecl
     = ObjCInterfaceDecl::Create(Context, CurContext, AtInterfaceLoc, ClassName,
                                 PrevIDecl, ClassLoc);
@@ -1938,9 +1955,27 @@ Sema::ActOnForwardClassDeclaration(SourceLocation AtClassLoc,
     // Create a declaration to describe this forward declaration.
     ObjCInterfaceDecl *PrevIDecl
       = dyn_cast_or_null<ObjCInterfaceDecl>(PrevDecl);
+
+    IdentifierInfo *ClassName = IdentList[i];
+    if (PrevIDecl && PrevIDecl->getIdentifier() != ClassName) {
+      // A previous decl with a different name is because of
+      // @compatibility_alias, for example:
+      // \code
+      //   @class NewImage;
+      //   @compatibility_alias OldImage NewImage;
+      // \endcode
+      // A lookup for 'OldImage' will return the 'NewImage' decl.
+      //
+      // In such a case use the real declaration name, instead of the alias one,
+      // otherwise we will break IdentifierResolver and redecls-chain invariants.
+      // FIXME: If necessary, add a bit to indicate that this ObjCInterfaceDecl
+      // has been aliased.
+      ClassName = PrevIDecl->getIdentifier();
+    }
+
     ObjCInterfaceDecl *IDecl
       = ObjCInterfaceDecl::Create(Context, CurContext, AtClassLoc,
-                                  IdentList[i], PrevIDecl, IdentLocs[i]);
+                                  ClassName, PrevIDecl, IdentLocs[i]);
     IDecl->setAtEndRange(IdentLocs[i]);
     
     PushOnScopeChains(IDecl, TUScope);
@@ -2295,23 +2330,61 @@ HelperSelectorsForTypoCorrection(
   }
 }
 
+static bool HelperIsMethodInObjCType(Sema &S, Selector Sel,
+                                     QualType ObjectType) {
+  if (ObjectType.isNull())
+    return true;
+  if (S.LookupMethodInObjectType(Sel, ObjectType, true/*Instance method*/))
+    return true;
+  return S.LookupMethodInObjectType(Sel, ObjectType, false/*Class method*/) != 0;
+}
+
 const ObjCMethodDecl *
-Sema::SelectorsForTypoCorrection(Selector Sel) {
+Sema::SelectorsForTypoCorrection(Selector Sel,
+                                 QualType ObjectType) {
   unsigned NumArgs = Sel.getNumArgs();
   SmallVector<const ObjCMethodDecl *, 8> Methods;
+  bool ObjectIsId = true, ObjectIsClass = true;
+  if (ObjectType.isNull())
+    ObjectIsId = ObjectIsClass = false;
+  else if (!ObjectType->isObjCObjectPointerType())
+    return 0;
+  else if (const ObjCObjectPointerType *ObjCPtr =
+           ObjectType->getAsObjCInterfacePointerType()) {
+    ObjectType = QualType(ObjCPtr->getInterfaceType(), 0);
+    ObjectIsId = ObjectIsClass = false;
+  }
+  else if (ObjectType->isObjCIdType() || ObjectType->isObjCQualifiedIdType())
+    ObjectIsClass = false;
+  else if (ObjectType->isObjCClassType() || ObjectType->isObjCQualifiedClassType())
+    ObjectIsId = false;
+  else
+    return 0;
   
   for (GlobalMethodPool::iterator b = MethodPool.begin(),
        e = MethodPool.end(); b != e; b++) {
     // instance methods
     for (ObjCMethodList *M = &b->second.first; M; M=M->getNext())
       if (M->Method &&
-          (M->Method->getSelector().getNumArgs() == NumArgs))
-        Methods.push_back(M->Method);
+          (M->Method->getSelector().getNumArgs() == NumArgs) &&
+          (M->Method->getSelector() != Sel)) {
+        if (ObjectIsId)
+          Methods.push_back(M->Method);
+        else if (!ObjectIsClass &&
+                 HelperIsMethodInObjCType(*this, M->Method->getSelector(), ObjectType))
+          Methods.push_back(M->Method);
+      }
     // class methods
     for (ObjCMethodList *M = &b->second.second; M; M=M->getNext())
       if (M->Method &&
-          (M->Method->getSelector().getNumArgs() == NumArgs))
-        Methods.push_back(M->Method);
+          (M->Method->getSelector().getNumArgs() == NumArgs) &&
+          (M->Method->getSelector() != Sel)) {
+        if (ObjectIsClass)
+          Methods.push_back(M->Method);
+        else if (!ObjectIsId &&
+                 HelperIsMethodInObjCType(*this, M->Method->getSelector(), ObjectType))
+          Methods.push_back(M->Method);
+      }
   }
   
   SmallVector<const ObjCMethodDecl *, 8> SelectedMethods;
@@ -3009,14 +3082,9 @@ Decl *Sema::ActOnMethodDeclaration(
   if (ReturnType) {
     resultDeclType = GetTypeFromParser(ReturnType, &ResultTInfo);
 
-    // Methods cannot return interface types. All ObjC objects are
-    // passed by reference.
-    if (resultDeclType->isObjCObjectType()) {
-      Diag(MethodLoc, diag::err_object_cannot_be_passed_returned_by_value)
-        << 0 << resultDeclType;
+    if (CheckFunctionReturnType(resultDeclType, MethodLoc))
       return 0;
-    }    
-    
+
     HasRelatedResultType = (resultDeclType == Context.getObjCInstanceType());
   } else { // get the type for "id".
     resultDeclType = Context.getObjCIdType();
@@ -3099,14 +3167,8 @@ Decl *Sema::ActOnMethodDeclaration(
     else
       // Perform the default array/function conversions (C99 6.7.5.3p[7,8]).
       ArgType = Context.getAdjustedParameterType(ArgType);
-    if (ArgType->isObjCObjectType()) {
-      Diag(Param->getLocation(),
-           diag::err_object_cannot_be_passed_returned_by_value)
-      << 1 << ArgType;
-      Param->setInvalidDecl();
-    }
+
     Param->setDeclContext(ObjCMethod);
-    
     Params.push_back(Param);
   }
   

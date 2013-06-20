@@ -7,7 +7,7 @@
 // RUN: %clang -### -c -ggdb %s 2>&1 | FileCheck -check-prefix=G %s
 // RUN: %clang -### -c -ggdb1 %s 2>&1 | FileCheck -check-prefix=G %s
 // RUN: %clang -### -c -ggdb3 %s 2>&1 | FileCheck -check-prefix=G %s
-// RUN: %clang -### -c -gdwarf-2 %s 2>&1 | FileCheck -check-prefix=G %s
+// RUN: %clang -### -c -gdwarf-2 %s 2>&1 | FileCheck -check-prefix=G_D2 %s
 //
 // RUN: %clang -### -c -gfoo %s 2>&1 | FileCheck -check-prefix=G_NO %s
 // RUN: %clang -### -c -g -g0 %s 2>&1 | FileCheck -check-prefix=G_NO %s
@@ -21,11 +21,15 @@
 // RUN:             | FileCheck -check-prefix=GLTO_NO %s
 //
 // RUN: %clang -### -c -grecord-gcc-switches -gno-record-gcc-switches \
-// RUN:           -gstrict-dwarf -gno-strict-dwarf %s 2>&1 \
-// RUN:        | not grep "argument unused during compilation"
+// RUN:        -gstrict-dwarf -gno-strict-dwarf -fdebug-types-section \
+// RUN:        -fno-debug-types-section %s 2>&1                       \
+// RUN:        | FileCheck -check-prefix=GIGNORE %s
 //
 // G: "-cc1"
 // G: "-g"
+// 
+// G_D2: "-cc1"
+// G_D2: "-gdwarf-2"
 //
 // G_NO: "-cc1"
 // G_NO-NOT: "-g"
@@ -42,3 +46,5 @@
 //
 // GLTO_NO: "-cc1"
 // GLTO_NO-NOT: "-gline-tables-only"
+//
+// GIGNORE-NOT: "argument unused during compilation"

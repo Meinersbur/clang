@@ -36,15 +36,15 @@ def err_typecheck_converted_constant_expression : Error<
 def err_typecheck_converted_constant_expression_disallowed : Error<
   "conversion from %0 to %1 is not allowed in a converted constant expression">;
 def err_expr_not_cce : Error<
-  "%select{case value|enumerator value|non-type template argument}0 "
+  "%select{case value|enumerator value|non-type template argument|array size}0 "
   "is not a constant expression">;
 def err_cce_narrowing : ExtWarn<
-  "%select{case value|enumerator value|non-type template argument}0 "
+  "%select{case value|enumerator value|non-type template argument|array size}0 "
   "%select{cannot be narrowed from type %2 to %3|"
   "evaluates to %2, which cannot be narrowed to type %3}1">,
   InGroup<CXX11Narrowing>, DefaultError;
 def err_cce_narrowing_sfinae : Error<
-  "%select{case value|enumerator value|non-type template argument}0 "
+  "%select{case value|enumerator value|non-type template argument|array size}0 "
   "%select{cannot be narrowed from type %2 to %3|"
   "evaluates to %2, which cannot be narrowed to type %3}1">;
 def err_ice_not_integral : Error<
@@ -287,6 +287,18 @@ def note_using_decl : Note<"%select{|previous }0using declaration">;
 def warn_access_decl_deprecated : Warning<
   "access declarations are deprecated; use using declarations instead">,
   InGroup<Deprecated>;
+def err_access_decl : Error<
+  "ISO C++11 does not allow access declarations; "
+  "use using declarations instead">;
+def warn_exception_spec_deprecated : Warning<
+  "dynamic exception specifications are deprecated">,
+  InGroup<Deprecated>, DefaultIgnore;
+def note_exception_spec_deprecated : Note<"use '%0' instead">;
+def warn_deprecated_copy_operation : Warning<
+  "definition of implicit copy %select{constructor|assignment operator}1 "
+  "for %0 is deprecated because it has a user-declared "
+  "%select{copy %select{assignment operator|constructor}1|destructor}2">,
+  InGroup<Deprecated>, DefaultIgnore;
 
 def warn_global_constructor : Warning<
   "declaration requires a global constructor">,
@@ -1011,8 +1023,8 @@ def err_access_dtor_base :
     Error<"base class %0 has %select{private|protected}1 destructor">,
     AccessControl;
 def err_access_dtor_vbase :
-    Error<"inherited virtual base class %1 has "
-    "%select{private|protected}2 destructor">,
+    Error<"inherited virtual base class %0 has "
+    "%select{private|protected}1 destructor">,
     AccessControl;
 def err_access_dtor_temp :
     Error<"temporary of type %0 has %select{private|protected}1 destructor">,
@@ -1098,6 +1110,8 @@ def err_explicit_non_ctor_or_conv_function : Error<
 def err_static_not_bitfield : Error<"static member %0 cannot be a bit-field">;
 def err_static_out_of_line : Error<
   "'static' can only be specified inside the class definition">;
+def err_storage_class_for_static_member : Error<
+  "static data member definition cannot specify a storage class">;
 def err_typedef_not_bitfield : Error<"typedef member %0 cannot be a bit-field">;
 def err_not_integral_type_bitfield : Error<
   "bit-field %0 has non-integral type %1">;
@@ -1126,7 +1140,7 @@ def note_bitfield_decl : Note<"bit-field is declared here">;
 def note_previous_decl : Note<"%0 declared here">;
 def note_implicit_param_decl : Note<"%0 is an implicit parameter">;
 def note_member_synthesized_at : Note<
-  "implicit default %select{constructor|copy constructor|move constructor|copy "
+  "implicit %select{default constructor|copy constructor|move constructor|copy "
   "assignment operator|move assignment operator|destructor}0 for %1 first "
   "required here">;
 def note_inhctor_synthesized_at : Note<
@@ -2395,8 +2409,8 @@ def err_param_default_argument_member_template_redecl : Error<
   "of a %select{class template|class template partial specialization|nested "
   "class in a template}0">;
 def err_uninitialized_member_for_assign : Error<
-  "cannot define the implicit default assignment operator for %0, because "
-  "non-static %select{reference|const}1 member %2 can't use default "
+  "cannot define the implicit copy assignment operator for %0, because "
+  "non-static %select{reference|const}1 member %2 can't use copy "
   "assignment operator">;
 def err_uninitialized_member_in_ctor : Error<
   "%select{|implicit default |inheriting }0constructor for %1 must explicitly "
@@ -4299,8 +4313,6 @@ def ext_typecheck_decl_incomplete_type : ExtWarn<
   InGroup<DiagGroup<"tentative-definition-incomplete-type">>;
 def err_tentative_def_incomplete_type : Error<
   "tentative definition has type %0 that is never completed">;
-def err_tentative_def_incomplete_type_arr : Error<
-  "tentative definition has array of type %0 that is never completed">;
 def warn_tentative_incomplete_array : Warning<
   "tentative array definition assumed to have one element">;
 def err_typecheck_incomplete_array_needs_initializer : Error<
@@ -4589,6 +4601,15 @@ def warn_instance_method_on_class_found : Warning<
 def warn_inst_method_not_found : Warning<
   "instance method %objcinstance0 not found (return type defaults to 'id')">,
   InGroup<MethodAccess>;
+def warn_instance_method_not_found_with_typo : Warning<
+  "instance method %objcinstance0 not found (return type defaults to 'id')"
+  "; did you mean %objcinstance2?">, InGroup<MethodAccess>;
+def warn_class_method_not_found_with_typo : Warning<
+  "class method %objcclass0 not found (return type defaults to 'id')"
+  "; did you mean %objcclass2?">, InGroup<MethodAccess>;
+def error_method_not_found_with_typo : Error<
+  "%select{instance|class}1 method %0 not found "
+  "; did you mean %2?">;
 def error_no_super_class_message : Error<
   "no @interface declaration found in class messaging of %0">;
 def error_root_class_cannot_use_super : Error<
@@ -4914,8 +4935,6 @@ let CategoryName = "Lambda Issue" in {
     "lambda expression in default argument cannot capture any entity">;
   def err_lambda_incomplete_result : Error<
     "incomplete result type %0 in lambda expression">;
-  def err_lambda_objc_object_result : Error<
-    "non-pointer Objective-C class type %0 in lambda expression result">;
   def err_noreturn_lambda_has_return_expr : Error<
     "lambda declared 'noreturn' should not return">;
   def warn_maybe_falloff_nonvoid_lambda : Warning<
@@ -5480,10 +5499,8 @@ def ext_empty_struct_union : Extension<
   "empty %select{struct|union}0 is a GNU extension">, InGroup<GNU>;
 def ext_no_named_members_in_struct_union : Extension<
   "%select{struct|union}0 without named members is a GNU extension">, InGroup<GNU>;
-def warn_empty_struct_union_compat : Warning<"empty %select{struct|union}0 "
-  "has size 0 in C, size 1 in C++">, InGroup<CXXCompat>, DefaultIgnore;
-def warn_zero_size_struct_union_compat : Warning<"%select{struct|union}0 "
-  "with only bit-fields of width 0 has size 0 in C, size 1 in C++">,
+def warn_zero_size_struct_union_compat : Warning<"%select{|empty }0"
+  "%select{struct|union}1 has size 0 in C, %select{size 1|non-zero size}2 in C++">,
   InGroup<CXXCompat>, DefaultIgnore;
 } // End of general sema category.
 
@@ -5947,10 +5964,12 @@ def warn_init_ptr_member_to_parameter_addr : Warning<
   "initializing pointer member %0 with the stack address of parameter %1">,
   InGroup<DanglingField>;
 def warn_bind_ref_member_to_temporary : Warning<
-  "binding reference member %0 to a temporary value">,
+  "binding reference %select{|subobject of }1member %0 to a temporary value">,
   InGroup<DanglingField>;
 def note_ref_or_ptr_member_declared_here : Note<
   "%select{reference|pointer}0 member declared here">;
+def note_ref_subobject_of_member_declared_here : Note<
+  "member with reference subobject declared here">;
 
 // For non-floating point, expressions of the form x == x or x != x
 // should result in a warning, since these always evaluate to a constant.

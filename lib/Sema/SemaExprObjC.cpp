@@ -1232,8 +1232,22 @@ bool Sema::CheckMessageArgumentTypes(QualType ReceiverType,
       DiagID = isClassMessage ? diag::warn_class_method_not_found
                               : diag::warn_inst_method_not_found;
     if (!getLangOpts().DebuggerSupport) {
-      Diag(SelLoc, DiagID)
-        << Sel << isClassMessage << SourceRange(SelectorLocs.front(), 
+      const ObjCMethodDecl *OMD = SelectorsForTypoCorrection(Sel, ReceiverType);
+      if (OMD && !OMD->isInvalidDecl()) {
+        if (getLangOpts().ObjCAutoRefCount)
+          DiagID = diag::error_method_not_found_with_typo;
+        else
+          DiagID = isClassMessage ? diag::warn_class_method_not_found_with_typo
+                                  : diag::warn_instance_method_not_found_with_typo;
+        Selector MatchedSel = OMD->getSelector();
+        SourceRange SelectorRange(SelectorLocs.front(), SelectorLocs.back());
+        Diag(SelLoc, DiagID)
+          << Sel<< isClassMessage << MatchedSel
+          << FixItHint::CreateReplacement(SelectorRange, MatchedSel.getAsString());
+      }
+      else
+        Diag(SelLoc, DiagID)
+          << Sel << isClassMessage << SourceRange(SelectorLocs.front(), 
                                                 SelectorLocs.back());
       // Find the class to which we are sending this message.
       if (ReceiverType->isObjCObjectPointerType()) {

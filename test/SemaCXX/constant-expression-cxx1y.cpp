@@ -725,3 +725,68 @@ namespace modify_temporary_during_construction {
   static_assert(a.y == 54, "");
   constexpr int k = a.temporary++; // expected-error {{constant expression}} expected-note {{outside the expression that created the temporary}}
 }
+
+namespace std {
+  typedef decltype(sizeof(int)) size_t;
+
+  template <class _E>
+  class initializer_list
+  {
+    const _E* __begin_;
+    size_t    __size_;
+
+    constexpr initializer_list(const _E* __b, size_t __s)
+      : __begin_(__b),
+        __size_(__s)
+    {}
+
+  public:
+    typedef _E        value_type;
+    typedef const _E& reference;
+    typedef const _E& const_reference;
+    typedef size_t    size_type;
+
+    typedef const _E* iterator;
+    typedef const _E* const_iterator;
+
+    constexpr initializer_list() : __begin_(nullptr), __size_(0) {}
+
+    constexpr size_t    size()  const {return __size_;}
+    constexpr const _E* begin() const {return __begin_;}
+    constexpr const _E* end()   const {return __begin_ + __size_;}
+  };
+}
+
+namespace InitializerList {
+  constexpr int sum(std::initializer_list<int> ints) {
+    int total = 0;
+    for (int n : ints) total += n;
+    return total;
+  }
+  static_assert(sum({1, 2, 3, 4, 5}) == 15, "");
+}
+
+namespace StmtExpr {
+  constexpr int f(int k) {
+    switch (k) {
+    case 0:
+      return 0;
+
+      ({
+        case 1: // expected-note {{not supported}}
+          return 1;
+      });
+    }
+  }
+  static_assert(f(1) == 1, ""); // expected-error {{constant expression}} expected-note {{in call}}
+
+  constexpr int g() { // expected-error {{never produces a constant}}
+    return ({ int n; n; }); // expected-note {{object of type 'int' is not initialized}}
+  }
+
+  // FIXME: We should handle the void statement expression case.
+  constexpr int h() { // expected-error {{never produces a constant}}
+    ({ if (true) {} }); // expected-note {{not supported}}
+    return 0;
+  }
+}

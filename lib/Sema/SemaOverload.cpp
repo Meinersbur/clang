@@ -43,8 +43,15 @@ CreateFunctionRefExpr(Sema &S, FunctionDecl *Fn, NamedDecl *FoundDecl,
                       SourceLocation Loc = SourceLocation(), 
                       const DeclarationNameLoc &LocInfo = DeclarationNameLoc()){
   if (S.DiagnoseUseOfDecl(FoundDecl, Loc))
+    return ExprError(); 
+  // If FoundDecl is different from Fn (such as if one is a template
+  // and the other a specialization), make sure DiagnoseUseOfDecl is 
+  // called on both.
+  // FIXME: This would be more comprehensively addressed by modifying
+  // DiagnoseUseOfDecl to accept both the FoundDecl and the decl
+  // being used.
+  if (FoundDecl != Fn && S.DiagnoseUseOfDecl(Fn, Loc))
     return ExprError();
-
   DeclRefExpr *DRE = new (S.Context) DeclRefExpr(Fn, false, Fn->getType(),
                                                  VK_LValue, Loc, LocInfo);
   if (HadMultipleCandidates)
@@ -2596,48 +2603,15 @@ void Sema::HandleFunctionTypeMismatch(PartialDiagnostic &PDiag,
 
 /// FunctionArgTypesAreEqual - This routine checks two function proto types
 /// for equality of their argument types. Caller has already checked that
-/// they have same number of arguments. This routine assumes that Objective-C
-/// pointer types which only differ in their protocol qualifiers are equal.
-/// If the parameters are different, ArgPos will have the parameter index
-/// of the first different parameter.
+/// they have same number of arguments.  If the parameters are different,
+/// ArgPos will have the parameter index of the first different parameter.
 bool Sema::FunctionArgTypesAreEqual(const FunctionProtoType *OldType,
                                     const FunctionProtoType *NewType,
                                     unsigned *ArgPos) {
-  if (!getLangOpts().ObjC1) {
-    for (FunctionProtoType::arg_type_iterator O = OldType->arg_type_begin(),
-         N = NewType->arg_type_begin(),
-         E = OldType->arg_type_end(); O && (O != E); ++O, ++N) {
-      if (!Context.hasSameType(*O, *N)) {
-        if (ArgPos) *ArgPos = O - OldType->arg_type_begin();
-        return false;
-      }
-    }
-    return true;
-  }
-
   for (FunctionProtoType::arg_type_iterator O = OldType->arg_type_begin(),
        N = NewType->arg_type_begin(),
        E = OldType->arg_type_end(); O && (O != E); ++O, ++N) {
-    QualType ToType = (*O);
-    QualType FromType = (*N);
-    if (!Context.hasSameType(ToType, FromType)) {
-      if (const PointerType *PTTo = ToType->getAs<PointerType>()) {
-        if (const PointerType *PTFr = FromType->getAs<PointerType>())
-          if ((PTTo->getPointeeType()->isObjCQualifiedIdType() &&
-               PTFr->getPointeeType()->isObjCQualifiedIdType()) ||
-              (PTTo->getPointeeType()->isObjCQualifiedClassType() &&
-               PTFr->getPointeeType()->isObjCQualifiedClassType()))
-            continue;
-      }
-      else if (const ObjCObjectPointerType *PTTo =
-                 ToType->getAs<ObjCObjectPointerType>()) {
-        if (const ObjCObjectPointerType *PTFr =
-              FromType->getAs<ObjCObjectPointerType>())
-          if (Context.hasSameUnqualifiedType(
-                PTTo->getObjectType()->getBaseType(),
-                PTFr->getObjectType()->getBaseType()))
-            continue;
-      }
+    if (!Context.hasSameType(*O, *N)) {
       if (ArgPos) *ArgPos = O - OldType->arg_type_begin();
       return false;
     }
@@ -9766,6 +9740,19 @@ void Sema::AddOverloadedCallCandidates(UnresolvedLookupExpr *ULE,
                                          CandidateSet, PartialOverloading);
 }
 
+/// Determine whether a declaration with the specified name could be moved into
+/// a different namespace.
+static bool canBeDeclaredInNamespace(const DeclarationName &Name) {
+  switch (Name.getCXXOverloadedOperator()) {
+  case OO_New: case OO_Array_New:
+  case OO_Delete: case OO_Array_Delete:
+    return false;
+
+  default:
+    return true;
+  }
+}
+
 /// Attempt to recover from an ill-formed use of a non-dependent name in a
 /// template, where the non-dependent name was declared after the template
 /// was defined. This is common in code written for a compilers which do not
@@ -9818,22 +9805,24 @@ DiagnoseTwoPhaseLookup(Sema &SemaRef, SourceLocation FnLoc,
                                                  AssociatedNamespaces,
                                                  AssociatedClasses);
       Sema::AssociatedNamespaceSet SuggestedNamespaces;
-      DeclContext *Std = SemaRef.getStdNamespace();
-      for (Sema::AssociatedNamespaceSet::iterator
-             it = AssociatedNamespaces.begin(),
-             end = AssociatedNamespaces.end(); it != end; ++it) {
-        // Never suggest declaring a function within namespace 'std'.
-        if (Std && Std->Encloses(*it))
-          continue;
-        
-        // Never suggest declaring a function within a namespace with a reserved
-        // name, like __gnu_cxx.
-        NamespaceDecl *NS = dyn_cast<NamespaceDecl>(*it);
-        if (NS &&
-            NS->getQualifiedNameAsString().find("__") != std::string::npos)
-          continue;
+      if (canBeDeclaredInNamespace(R.getLookupName())) {
+        DeclContext *Std = SemaRef.getStdNamespace();
+        for (Sema::AssociatedNamespaceSet::iterator
+               it = AssociatedNamespaces.begin(),
+               end = AssociatedNamespaces.end(); it != end; ++it) {
+          // Never suggest declaring a function within namespace 'std'.
+          if (Std && Std->Encloses(*it))
+            continue;
 
-        SuggestedNamespaces.insert(*it);
+          // Never suggest declaring a function within a namespace with a
+          // reserved name, like __gnu_cxx.
+          NamespaceDecl *NS = dyn_cast<NamespaceDecl>(*it);
+          if (NS &&
+              NS->getQualifiedNameAsString().find("__") != std::string::npos)
+            continue;
+
+          SuggestedNamespaces.insert(*it);
+        }
       }
 
       SemaRef.Diag(R.getNameLoc(), diag::err_not_found_by_two_phase_lookup)
@@ -10986,6 +10975,15 @@ Sema::BuildCallToMemberFunction(Scope *S, Expr *MemExprE,
       CheckUnresolvedMemberAccess(UnresExpr, Best->FoundDecl);
       if (DiagnoseUseOfDecl(Best->FoundDecl, UnresExpr->getNameLoc()))
         return ExprError();
+      // If FoundDecl is different from Method (such as if one is a template
+      // and the other a specialization), make sure DiagnoseUseOfDecl is 
+      // called on both.
+      // FIXME: This would be more comprehensively addressed by modifying
+      // DiagnoseUseOfDecl to accept both the FoundDecl and the decl
+      // being used.
+      if (Method != FoundDecl.getDecl() && 
+                      DiagnoseUseOfDecl(Method, UnresExpr->getNameLoc()))
+        return ExprError();
       break;
 
     case OR_No_Viable_Function:
@@ -11231,7 +11229,8 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
     CheckMemberOperatorAccess(LParenLoc, Object.get(), 0, Best->FoundDecl);
     if (DiagnoseUseOfDecl(Best->FoundDecl, LParenLoc))
       return ExprError();
-
+    assert(Conv == Best->FoundDecl.getDecl() && 
+             "Found Decl & conversion-to-functionptr should be same, right?!");
     // We selected one of the surrogate functions that converts the
     // object parameter to a function pointer. Perform the conversion
     // on the object argument, then let ActOnCallExpr finish the job.

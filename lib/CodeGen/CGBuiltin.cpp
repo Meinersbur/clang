@@ -1346,10 +1346,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     StringRef Str = cast<StringLiteral>(AnnotationStrExpr)->getString();
     return RValue::get(EmitAnnotationCall(F, AnnVal, Str, E->getExprLoc()));
   }
+  case Builtin::BI__builtin_addcb:
   case Builtin::BI__builtin_addcs:
   case Builtin::BI__builtin_addc:
   case Builtin::BI__builtin_addcl:
   case Builtin::BI__builtin_addcll:
+  case Builtin::BI__builtin_subcb:
   case Builtin::BI__builtin_subcs:
   case Builtin::BI__builtin_subc:
   case Builtin::BI__builtin_subcl:
@@ -1383,12 +1385,14 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     llvm::Intrinsic::ID IntrinsicId;
     switch (BuiltinID) {
     default: llvm_unreachable("Unknown multiprecision builtin id.");
+    case Builtin::BI__builtin_addcb:
     case Builtin::BI__builtin_addcs:
     case Builtin::BI__builtin_addc:
     case Builtin::BI__builtin_addcl:
     case Builtin::BI__builtin_addcll:
       IntrinsicId = llvm::Intrinsic::uadd_with_overflow;
       break;
+    case Builtin::BI__builtin_subcb:
     case Builtin::BI__builtin_subcs:
     case Builtin::BI__builtin_subc:
     case Builtin::BI__builtin_subcl:

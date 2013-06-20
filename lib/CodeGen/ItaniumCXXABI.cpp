@@ -134,6 +134,9 @@ public:
                                    ReturnValueSlot ReturnValue,
                                    llvm::Value *This);
 
+  void EmitVirtualInheritanceTables(llvm::GlobalVariable::LinkageTypes Linkage,
+                                    const CXXRecordDecl *RD);
+
   StringRef GetPureVirtualCallName() { return "__cxa_pure_virtual"; }
   StringRef GetDeletedVirtualCallName() { return "__cxa_deleted_virtual"; }
 
@@ -884,6 +887,13 @@ RValue ItaniumCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
 
   return CGF.EmitCXXMemberCall(Dtor, CallLoc, Callee, ReturnValue, This,
                                /*ImplicitParam=*/0, QualType(), 0, 0);
+}
+
+void ItaniumCXXABI::EmitVirtualInheritanceTables(
+    llvm::GlobalVariable::LinkageTypes Linkage, const CXXRecordDecl *RD) {
+  CodeGenVTables &VTables = CGM.getVTables();
+  llvm::GlobalVariable *VTT = VTables.GetAddrOfVTT(RD);
+  VTables.EmitVTTDefinition(VTT, Linkage, RD);
 }
 
 void ARMCXXABI::EmitReturnFromThunk(CodeGenFunction &CGF,

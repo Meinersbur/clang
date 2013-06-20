@@ -12,23 +12,25 @@
 #include "ToolChains.h"
 #include "clang/Basic/Version.h"
 #include "clang/Driver/Action.h"
-#include "clang/Driver/Arg.h"
-#include "clang/Driver/ArgList.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Job.h"
-#include "clang/Driver/OptTable.h"
-#include "clang/Driver/Option.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Option/Arg.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Option/OptTable.h"
+#include "llvm/Option/Option.h"
+#include "llvm/Option/OptSpecifier.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/PathV1.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
@@ -40,6 +42,7 @@
 
 using namespace clang::driver;
 using namespace clang;
+using namespace llvm::opt;
 
 Driver::Driver(StringRef ClangExecutable,
                StringRef DefaultTargetTriple,
@@ -579,10 +582,9 @@ void Driver::PrintOptions(const ArgList &Args) const {
 }
 
 void Driver::PrintHelp(bool ShowHidden) const {
-  getOpts().PrintHelp(llvm::outs(), Name.c_str(), DriverTitle.c_str(),
-                      /*Include*/0,
-                      /*Exclude*/options::NoDriverOption |
-                      (ShowHidden ? 0 : options::HelpHidden));
+  getOpts().PrintHelp(
+      llvm::outs(), Name.c_str(), DriverTitle.c_str(), /*Include*/ 0,
+      /*Exclude*/ options::NoDriverOption | (ShowHidden ? 0 : HelpHidden));
 }
 
 void Driver::PrintVersion(const Compilation &C, raw_ostream &OS) const {
@@ -1577,13 +1579,16 @@ std::string Driver::GetProgramPath(const char *Name,
     if (!llvm::sys::fs::is_directory(*it, IsDirectory) && IsDirectory) {
       llvm::sys::Path P(*it);
       P.appendComponent(TargetSpecificExecutable);
-      if (P.canExecute()) return P.str();
+      if (llvm::sys::fs::can_execute(P.str()))
+        return P.str();
       P.eraseComponent();
       P.appendComponent(Name);
-      if (P.canExecute()) return P.str();
+      if (llvm::sys::fs::can_execute(P.str()))
+        return P.str();
     } else {
       llvm::sys::Path P(*it + Name);
-      if (P.canExecute()) return P.str();
+      if (llvm::sys::fs::can_execute(P.str()))
+        return P.str();
     }
   }
 
@@ -1592,19 +1597,20 @@ std::string Driver::GetProgramPath(const char *Name,
          it = List.begin(), ie = List.end(); it != ie; ++it) {
     llvm::sys::Path P(*it);
     P.appendComponent(TargetSpecificExecutable);
-    if (P.canExecute()) return P.str();
+    if (llvm::sys::fs::can_execute(P.str()))
+      return P.str();
     P.eraseComponent();
     P.appendComponent(Name);
-    if (P.canExecute()) return P.str();
+    if (llvm::sys::fs::can_execute(P.str()))
+      return P.str();
   }
 
   // If all else failed, search the path.
-  llvm::sys::Path
-      P(llvm::sys::Program::FindProgramByName(TargetSpecificExecutable));
+  llvm::sys::Path P(llvm::sys::FindProgramByName(TargetSpecificExecutable));
   if (!P.empty())
     return P.str();
 
-  P = llvm::sys::Path(llvm::sys::Program::FindProgramByName(Name));
+  P = llvm::sys::Path(llvm::sys::FindProgramByName(Name));
   if (!P.empty())
     return P.str();
 

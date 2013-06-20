@@ -1132,6 +1132,12 @@ static bool CheckLiteralType(EvalInfo &Info, const Expr *E,
 /// check that the expression is of literal type.
 static bool CheckConstantExpression(EvalInfo &Info, SourceLocation DiagLoc,
                                     QualType Type, const APValue &Value) {
+  if (Value.isUninit()) {
+    Info.Diag(DiagLoc, diag::note_constexpr_uninitialized)
+      << true << Type;
+    return false;
+  }
+
   // Core issue 1454: For a literal constant expression of array or class type,
   // each subobject of its value shall have been initialized by a constant
   // expression.
@@ -2883,6 +2889,13 @@ static bool EvaluateDecl(EvalInfo &Info, const Decl *D) {
     Result.set(VD, Info.CurrentCall->Index);
     APValue &Val = Info.CurrentCall->Temporaries[VD];
 
+    if (!VD->getInit()) {
+      Info.Diag(D->getLocStart(), diag::note_constexpr_uninitialized)
+        << false << VD->getType();
+      Val = APValue();
+      return false;
+    }
+
     if (!EvaluateInPlace(Val, Info, Result, VD->getInit())) {
       // Wipe out any partially-computed value, to allow tracking that this
       // evaluation failed.
@@ -2967,7 +2980,10 @@ static EvalStmtResult EvaluateSwitch(APValue &Result, EvalInfo &Info,
   case ESR_Returned:
     return ESR;
   case ESR_CaseNotFound:
-    llvm_unreachable("couldn't find switch case");
+    // This can only happen if the switch case is nested within a statement
+    // expression. We have no intention of supporting that.
+    Info.Diag(Found->getLocStart(), diag::note_constexpr_stmt_expr_unsupported);
+    return ESR_Failed;
   }
   llvm_unreachable("Invalid EvalStmtResult!");
 }
@@ -3848,6 +3864,40 @@ public:
     return DerivedSuccess(RVal, UO);
   }
 
+  RetTy VisitStmtExpr(const StmtExpr *E) {
+    // We will have checked the full-expressions inside the statement expression
+    // when they were completed, and don't need to check them again now.
+    if (Info.getIntOverflowCheckMode())
+      return Error(E);
+
+    const CompoundStmt *CS = E->getSubStmt();
+    for (CompoundStmt::const_body_iterator BI = CS->body_begin(),
+                                           BE = CS->body_end();
+         /**/; ++BI) {
+      if (BI + 1 == BE) {
+        const Expr *FinalExpr = dyn_cast<Expr>(*BI);
+        if (!FinalExpr) {
+          Info.Diag((*BI)->getLocStart(),
+                    diag::note_constexpr_stmt_expr_unsupported);
+          return false;
+        }
+        return this->Visit(FinalExpr);
+      }
+
+      APValue ReturnValue;
+      EvalStmtResult ESR = EvaluateStmt(ReturnValue, Info, *BI);
+      if (ESR != ESR_Succeeded) {
+        // FIXME: If the statement-expression terminated due to 'return',
+        // 'break', or 'continue', it would be nice to propagate that to
+        // the outer statement evaluation rather than bailing out.
+        if (ESR != ESR_Failed)
+          Info.Diag((*BI)->getLocStart(),
+                    diag::note_constexpr_stmt_expr_unsupported);
+        return false;
+      }
+    }
+  }
+
   /// Visit a value which is evaluated, but whose value is ignored.
   void VisitIgnoredValue(const Expr *E) {
     EvaluateIgnoredValue(Info, E);
@@ -4093,6 +4143,7 @@ bool LValueExprEvaluator::VisitMaterializeTemporaryExpr(
   APValue *Value;
   if (E->getStorageDuration() == SD_Static) {
     Value = Info.Ctx.getMaterializedTemporaryValue(E, true);
+    *Value = APValue();
     Result.set(E);
   } else {
     Value = &Info.CurrentCall->Temporaries[E];
@@ -4576,6 +4627,7 @@ namespace {
     bool VisitCastExpr(const CastExpr *E);
     bool VisitInitListExpr(const InitListExpr *E);
     bool VisitCXXConstructExpr(const CXXConstructExpr *E);
+    bool VisitCXXStdInitializerListExpr(const CXXStdInitializerListExpr *E);
   };
 }
 
@@ -4691,10 +4743,6 @@ bool RecordExprEvaluator::VisitCastExpr(const CastExpr *E) {
 }
 
 bool RecordExprEvaluator::VisitInitListExpr(const InitListExpr *E) {
-  // Cannot constant-evaluate std::initializer_list inits.
-  if (E->initializesStdInitializerList())
-    return false;
-
   const RecordDecl *RD = E->getType()->castAs<RecordType>()->getDecl();
   if (RD->isInvalidDecl()) return false;
   const ASTRecordLayout &Layout = Info.Ctx.getASTRecordLayout(RD);
@@ -4808,6 +4856,58 @@ bool RecordExprEvaluator::VisitCXXConstructExpr(const CXXConstructExpr *E) {
   return HandleConstructorCall(E->getExprLoc(), This, Args,
                                cast<CXXConstructorDecl>(Definition), Info,
                                Result);
+}
+
+bool RecordExprEvaluator::VisitCXXStdInitializerListExpr(
+    const CXXStdInitializerListExpr *E) {
+  const ConstantArrayType *ArrayType =
+      Info.Ctx.getAsConstantArrayType(E->getSubExpr()->getType());
+
+  LValue Array;
+  if (!EvaluateLValue(E->getSubExpr(), Array, Info))
+    return false;
+
+  // Get a pointer to the first element of the array.
+  Array.addArray(Info, E, ArrayType);
+
+  // FIXME: Perform the checks on the field types in SemaInit.
+  RecordDecl *Record = E->getType()->castAs<RecordType>()->getDecl();
+  RecordDecl::field_iterator Field = Record->field_begin();
+  if (Field == Record->field_end())
+    return Error(E);
+
+  // Start pointer.
+  if (!Field->getType()->isPointerType() ||
+      !Info.Ctx.hasSameType(Field->getType()->getPointeeType(),
+                            ArrayType->getElementType()))
+    return Error(E);
+
+  // FIXME: What if the initializer_list type has base classes, etc?
+  Result = APValue(APValue::UninitStruct(), 0, 2);
+  Array.moveInto(Result.getStructField(0));
+
+  if (++Field == Record->field_end())
+    return Error(E);
+
+  if (Field->getType()->isPointerType() &&
+      Info.Ctx.hasSameType(Field->getType()->getPointeeType(),
+                           ArrayType->getElementType())) {
+    // End pointer.
+    if (!HandleLValueArrayAdjustment(Info, E, Array,
+                                     ArrayType->getElementType(),
+                                     ArrayType->getSize().getZExtValue()))
+      return false;
+    Array.moveInto(Result.getStructField(1));
+  } else if (Info.Ctx.hasSameType(Field->getType(), Info.Ctx.getSizeType()))
+    // Length.
+    Result.getStructField(1) = APValue(APSInt(ArrayType->getSize()));
+  else
+    return Error(E);
+
+  if (++Field != Record->field_end())
+    return Error(E);
+
+  return true;
 }
 
 static bool EvaluateRecord(const Expr *E, const LValue &This,
@@ -5645,8 +5745,36 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
   case Builtin::BI__builtin_classify_type:
     return Success(EvaluateBuiltinClassifyType(E), E);
 
+  // FIXME: BI__builtin_clrsb
+  // FIXME: BI__builtin_clrsbl
+  // FIXME: BI__builtin_clrsbll
+
+  case Builtin::BI__builtin_clz:
+  case Builtin::BI__builtin_clzl:
+  case Builtin::BI__builtin_clzll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+    if (!Val)
+      return Error(E);
+
+    return Success(Val.countLeadingZeros(), E);
+  }
+
   case Builtin::BI__builtin_constant_p:
     return Success(EvaluateBuiltinConstantP(Info.Ctx, E->getArg(0)), E);
+
+  case Builtin::BI__builtin_ctz:
+  case Builtin::BI__builtin_ctzl:
+  case Builtin::BI__builtin_ctzll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+    if (!Val)
+      return Error(E);
+
+    return Success(Val.countTrailingZeros(), E);
+  }
 
   case Builtin::BI__builtin_eh_return_data_regno: {
     int Operand = E->getArg(0)->EvaluateKnownConstInt(Info.Ctx).getZExtValue();
@@ -5656,6 +5784,57 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
   case Builtin::BI__builtin_expect:
     return Visit(E->getArg(0));
+
+  case Builtin::BI__builtin_ffs:
+  case Builtin::BI__builtin_ffsl:
+  case Builtin::BI__builtin_ffsll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+
+    unsigned N = Val.countTrailingZeros();
+    return Success(N == Val.getBitWidth() ? 0 : N + 1, E);
+  }
+
+  case Builtin::BI__builtin_fpclassify: {
+    APFloat Val(0.0);
+    if (!EvaluateFloat(E->getArg(5), Val, Info))
+      return false;
+    unsigned Arg;
+    switch (Val.getCategory()) {
+    case APFloat::fcNaN: Arg = 0; break;
+    case APFloat::fcInfinity: Arg = 1; break;
+    case APFloat::fcNormal: Arg = Val.isDenormal() ? 3 : 2; break;
+    case APFloat::fcZero: Arg = 4; break;
+    }
+    return Visit(E->getArg(Arg));
+  }
+
+  case Builtin::BI__builtin_isinf_sign: {
+    APFloat Val(0.0);
+    return EvaluateFloat(E->getArg(0), Val, Info) &&
+           Success(Val.isInfinity() ? (Val.isNegative() ? -1 : 1) : 0, E);
+  }
+
+  case Builtin::BI__builtin_parity:
+  case Builtin::BI__builtin_parityl:
+  case Builtin::BI__builtin_parityll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+
+    return Success(Val.countPopulation() % 2, E);
+  }
+
+  case Builtin::BI__builtin_popcount:
+  case Builtin::BI__builtin_popcountl:
+  case Builtin::BI__builtin_popcountll: {
+    APSInt Val;
+    if (!EvaluateInteger(E->getArg(0), Val, Info))
+      return false;
+
+    return Success(Val.countPopulation(), E);
+  }
 
   case Builtin::BIstrlen:
     // A call to strlen is not a constant expression.
@@ -6858,6 +7037,10 @@ bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
       Result.changeSign();
     return true;
 
+  // FIXME: Builtin::BI__builtin_powi
+  // FIXME: Builtin::BI__builtin_powif
+  // FIXME: Builtin::BI__builtin_powil
+
   case Builtin::BI__builtin_copysign:
   case Builtin::BI__builtin_copysignf:
   case Builtin::BI__builtin_copysignl: {
@@ -7762,6 +7945,7 @@ static ICEDiag CheckICE(const Expr* E, ASTContext &Ctx) {
   case Expr::UnresolvedLookupExprClass:
   case Expr::DependentScopeDeclRefExprClass:
   case Expr::CXXConstructExprClass:
+  case Expr::CXXStdInitializerListExprClass:
   case Expr::CXXBindTemporaryExprClass:
   case Expr::ExprWithCleanupsClass:
   case Expr::CXXTemporaryObjectExprClass:
