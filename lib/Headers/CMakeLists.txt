@@ -42,6 +42,7 @@ set(files
   cpuid.h
   unwind.h
   module.map
+  qpxintrin.h
   )
 
 set(output_dir ${LLVM_BINARY_DIR}/lib/clang/${CLANG_VERSION}/include)
