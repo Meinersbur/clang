@@ -136,37 +136,33 @@ int test_duplicate_brief2(int);
 int test_duplicate_brief3(int);
 
 
-// expected-warning@+5 {{duplicated command '\return'}} expected-note@+1 {{previous command '\return' here}}
 /// \return Aaa
 ///
 /// Bbb
 ///
 /// \return Ccc
-int test_duplicate_returns1(int);
+int test_multiple_returns1(int);
 
-// expected-warning@+5 {{duplicated command '\returns'}} expected-note@+1 {{previous command '\returns' here}}
 /// \returns Aaa
 ///
 /// Bbb
 ///
 /// \returns Ccc
-int test_duplicate_returns2(int);
+int test_multiple_returns2(int);
 
-// expected-warning@+5 {{duplicated command '\result'}} expected-note@+1 {{previous command '\result' here}}
 /// \result Aaa
 ///
 /// Bbb
 ///
 /// \result Ccc
-int test_duplicate_returns3(int);
+int test_multiple_returns3(int);
 
-// expected-warning@+5 {{duplicated command '\return'}} expected-note@+1 {{previous command '\returns' (an alias of '\return') here}}
 /// \returns Aaa
 ///
 /// Bbb
 ///
 /// \return Ccc
-int test_duplicate_returns4(int);
+int test_multiple_returns4(int);
 
 
 // expected-warning@+1 {{'\param' command used in a comment that is not attached to a function declaration}}

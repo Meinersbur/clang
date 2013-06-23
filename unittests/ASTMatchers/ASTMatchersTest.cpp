@@ -2250,10 +2250,9 @@ TEST(AstMatcherPMacro, Works) {
 }
 
 AST_POLYMORPHIC_MATCHER_P(
-    polymorphicHas, internal::Matcher<Decl>, AMatcher) {
-  TOOLING_COMPILE_ASSERT((llvm::is_same<NodeType, Decl>::value) ||
-                         (llvm::is_same<NodeType, Stmt>::value),
-                         assert_node_type_is_accessible);
+    polymorphicHas,
+    AST_POLYMORPHIC_SUPPORTED_TYPES_2(Decl, Stmt),
+    internal::Matcher<Decl>, AMatcher) {
   return Finder->matchesChildOf(
       Node, AMatcher, Builder,
       ASTMatchFinder::TK_IgnoreImplicitCastsAndParentheses,
@@ -4079,6 +4078,95 @@ TEST(MatchFinder, InterceptsEndOfTranslationUnit) {
   OwningPtr<FrontendActionFactory> Factory(newFrontendActionFactory(&Finder));
   ASSERT_TRUE(tooling::runToolOnCode(Factory->create(), "int x;"));
   EXPECT_TRUE(VerifyCallback.Called);
+}
+
+TEST(EqualsBoundNodeMatcher, QualType) {
+  EXPECT_TRUE(matches(
+      "int i = 1;", varDecl(hasType(qualType().bind("type")),
+                            hasInitializer(ignoringParenImpCasts(
+                                hasType(qualType(equalsBoundNode("type"))))))));
+  EXPECT_TRUE(notMatches("int i = 1.f;",
+                         varDecl(hasType(qualType().bind("type")),
+                                 hasInitializer(ignoringParenImpCasts(hasType(
+                                     qualType(equalsBoundNode("type"))))))));
+}
+
+TEST(EqualsBoundNodeMatcher, NonMatchingTypes) {
+  EXPECT_TRUE(notMatches(
+      "int i = 1;", varDecl(namedDecl(hasName("i")).bind("name"),
+                            hasInitializer(ignoringParenImpCasts(
+                                hasType(qualType(equalsBoundNode("type"))))))));
+}
+
+TEST(EqualsBoundNodeMatcher, Stmt) {
+  EXPECT_TRUE(
+      matches("void f() { if(true) {} }",
+              stmt(allOf(ifStmt().bind("if"),
+                         hasParent(stmt(has(stmt(equalsBoundNode("if")))))))));
+
+  EXPECT_TRUE(notMatches(
+      "void f() { if(true) { if (true) {} } }",
+      stmt(allOf(ifStmt().bind("if"), has(stmt(equalsBoundNode("if")))))));
+}
+
+TEST(EqualsBoundNodeMatcher, Decl) {
+  EXPECT_TRUE(matches(
+      "class X { class Y {}; };",
+      decl(allOf(recordDecl(hasName("::X::Y")).bind("record"),
+                 hasParent(decl(has(decl(equalsBoundNode("record")))))))));
+
+  EXPECT_TRUE(notMatches("class X { class Y {}; };",
+                         decl(allOf(recordDecl(hasName("::X")).bind("record"),
+                                    has(decl(equalsBoundNode("record")))))));
+}
+
+TEST(EqualsBoundNodeMatcher, Type) {
+  EXPECT_TRUE(matches(
+      "class X { int a; int b; };",
+      recordDecl(
+          has(fieldDecl(hasName("a"), hasType(type().bind("t")))),
+          has(fieldDecl(hasName("b"), hasType(type(equalsBoundNode("t"))))))));
+
+  EXPECT_TRUE(notMatches(
+      "class X { int a; double b; };",
+      recordDecl(
+          has(fieldDecl(hasName("a"), hasType(type().bind("t")))),
+          has(fieldDecl(hasName("b"), hasType(type(equalsBoundNode("t"))))))));
+}
+
+TEST(EqualsBoundNodeMatcher, UsingForEachDescendant) {
+
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "int f() {"
+      "  if (1) {"
+      "    int i = 9;"
+      "  }"
+      "  int j = 10;"
+      "  {"
+      "    float k = 9.0;"
+      "  }"
+      "  return 0;"
+      "}",
+      // Look for variable declarations within functions whose type is the same
+      // as the function return type.
+      functionDecl(returns(qualType().bind("type")),
+                   forEachDescendant(varDecl(hasType(
+                       qualType(equalsBoundNode("type")))).bind("decl"))),
+      // Only i and j should match, not k.
+      new VerifyIdIsBoundTo<VarDecl>("decl", 2)));
+}
+
+TEST(EqualsBoundNodeMatcher, FiltersMatchedCombinations) {
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "void f() {"
+      "  int x;"
+      "  double d;"
+      "  x = d + x - d + x;"
+      "}",
+      functionDecl(
+          hasName("f"), forEachDescendant(varDecl().bind("d")),
+          forEachDescendant(declRefExpr(to(decl(equalsBoundNode("d")))))),
+      new VerifyIdIsBoundTo<VarDecl>("d", 5)));
 }
 
 } // end namespace ast_matchers

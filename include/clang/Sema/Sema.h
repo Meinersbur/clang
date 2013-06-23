@@ -3083,8 +3083,8 @@ public:
                             bool (*IsPlausibleResult)(QualType) = 0);
 
   /// \brief Figure out if an expression could be turned into a call.
-  bool isExprCallable(const Expr &E, QualType &ZeroArgCallReturnTy,
-                      UnresolvedSetImpl &NonTemplateOverloads);
+  bool tryExprAsCall(Expr &E, QualType &ZeroArgCallReturnTy,
+                     UnresolvedSetImpl &NonTemplateOverloads);
 
   /// \brief Conditionally issue a diagnostic based on the current
   /// evaluation context.
@@ -7461,8 +7461,9 @@ private:
                          const FunctionProtoType *Proto);
   bool CheckObjCMethodCall(ObjCMethodDecl *Method, SourceLocation loc,
                            ArrayRef<const Expr *> Args);
-  bool CheckBlockCall(NamedDecl *NDecl, CallExpr *TheCall,
-                      const FunctionProtoType *Proto);
+  bool CheckPointerCall(NamedDecl *NDecl, CallExpr *TheCall,
+                        const FunctionProtoType *Proto);
+  bool CheckOtherCall(CallExpr *TheCall, const FunctionProtoType *Proto);
   void CheckConstructorCall(FunctionDecl *FDecl,
                             ArrayRef<const Expr *> Args,
                             const FunctionProtoType *Proto,
@@ -7612,6 +7613,7 @@ private:
   Scope *CurScope;
 
   mutable IdentifierInfo *Ident_super;
+  mutable IdentifierInfo *Ident___float128;
 
 protected:
   friend class Parser;
@@ -7631,6 +7633,7 @@ public:
   Scope *getCurScope() const { return CurScope; }
 
   IdentifierInfo *getSuperIdentifier() const;
+  IdentifierInfo *getFloat128Identifier() const;
 
   Decl *getObjCDeclContext() const;
 
