@@ -19,7 +19,7 @@
 #include "clang/AST/CanonicalType.h"
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/Decl.h"
-#include "clang/AST/LambdaMangleContext.h"
+#include "clang/AST/MangleNumberingContext.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RawCommentList.h"
@@ -82,6 +82,7 @@ class ASTContext : public RefCountedBase<ASTContext> {
   mutable llvm::FoldingSet<ExtQuals> ExtQualNodes;
   mutable llvm::FoldingSet<ComplexType> ComplexTypes;
   mutable llvm::FoldingSet<PointerType> PointerTypes;
+  mutable llvm::FoldingSet<DecayedType> DecayedTypes;
   mutable llvm::FoldingSet<BlockPointerType> BlockPointerTypes;
   mutable llvm::FoldingSet<LValueReferenceType> LValueReferenceTypes;
   mutable llvm::FoldingSet<RValueReferenceType> RValueReferenceTypes;
@@ -337,9 +338,11 @@ class ASTContext : public RefCountedBase<ASTContext> {
   typedef llvm::TinyPtrVector<const CXXMethodDecl*> CXXMethodVector;
   llvm::DenseMap<const CXXMethodDecl *, CXXMethodVector> OverriddenMethods;
 
-  /// \brief Mapping from each declaration context to its corresponding lambda 
-  /// mangling context.
-  llvm::DenseMap<const DeclContext *, LambdaMangleContext> LambdaMangleContexts;
+  /// \brief Mapping from each declaration context to its corresponding
+  /// mangling numbering context (used for constructs like lambdas which
+  /// need to be consistently numbered for the mangler).
+  llvm::DenseMap<const DeclContext *, MangleNumberingContext>
+      MangleNumberingContexts;
 
   llvm::DenseMap<const DeclContext *, unsigned> UnnamedMangleContexts;
   llvm::DenseMap<const TagDecl *, unsigned> UnnamedMangleNumbers;
@@ -633,31 +636,6 @@ public:
 
   void setInstantiatedFromUnnamedFieldDecl(FieldDecl *Inst, FieldDecl *Tmpl);
   
-  /// \brief Return \c true if \p FD is a zero-length bitfield which follows
-  /// the non-bitfield \p LastFD.
-  bool ZeroBitfieldFollowsNonBitfield(const FieldDecl *FD, 
-                                      const FieldDecl *LastFD) const;
-
-  /// \brief Return \c true if \p FD is a zero-length bitfield which follows
-  /// the bitfield \p LastFD.
-  bool ZeroBitfieldFollowsBitfield(const FieldDecl *FD,
-                                   const FieldDecl *LastFD) const;
-  
-  /// \brief Return \c true if \p FD is a bitfield which follows the bitfield
-  /// \p LastFD.
-  bool BitfieldFollowsBitfield(const FieldDecl *FD,
-                               const FieldDecl *LastFD) const;
-  
-  /// \brief Return \c true if \p FD is not a bitfield which follows the
-  /// bitfield \p LastFD.
-  bool NonBitfieldFollowsBitfield(const FieldDecl *FD,
-                                  const FieldDecl *LastFD) const;
-  
-  /// \brief Return \c true if \p FD is a bitfield which follows the
-  /// non-bitfield \p LastFD.
-  bool BitfieldFollowsNonBitfield(const FieldDecl *FD,
-                                  const FieldDecl *LastFD) const;
-
   // Access to the set of methods overridden by the given C++ method.
   typedef CXXMethodVector::const_iterator overridden_cxx_method_iterator;
   overridden_cxx_method_iterator
@@ -887,6 +865,14 @@ public:
   QualType getPointerType(QualType T) const;
   CanQualType getPointerType(CanQualType T) const {
     return CanQualType::CreateUnsafe(getPointerType((QualType) T));
+  }
+
+  /// \brief Return the uniqued reference to the decayed version of the given
+  /// type.  Can only be called on array and function types which decay to
+  /// pointer types.
+  QualType getDecayedType(QualType T) const;
+  CanQualType getDecayedType(CanQualType T) const {
+    return CanQualType::CreateUnsafe(getDecayedType((QualType) T));
   }
 
   /// \brief Return the uniqued reference to the atomic type for the specified
@@ -1934,7 +1920,6 @@ public:
   bool isObjCSelType(QualType T) const {
     return T == getObjCSelType();
   }
-  bool QualifiedIdConformsQualifiedId(QualType LHS, QualType RHS);
   bool ObjCQualifiedIdTypesAreCompatible(QualType LHS, QualType RHS,
                                          bool ForCompare);
 
@@ -2104,9 +2089,10 @@ public:
   void addUnnamedTag(const TagDecl *Tag);
   int getUnnamedTagManglingNumber(const TagDecl *Tag) const;
 
-  /// \brief Retrieve the lambda mangling number for a lambda expression.
-  unsigned getLambdaManglingNumber(CXXMethodDecl *CallOperator);
-  
+  /// \brief Retrieve the context for computing mangling numbers in the given
+  /// DeclContext.
+  MangleNumberingContext &getManglingNumberContext(DeclContext *DC);
+
   /// \brief Used by ParmVarDecl to store on the side the
   /// index of the parameter when it exceeds the size of the normal bitfield.
   void setParameterIndex(const ParmVarDecl *D, unsigned index);

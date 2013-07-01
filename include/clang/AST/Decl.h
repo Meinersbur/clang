@@ -931,10 +931,6 @@ public:
     return const_cast<VarDecl*>(this)->getActingDefinition();
   }
 
-  /// \brief Determine whether this is a tentative definition of a
-  /// variable in C.
-  bool isTentativeDefinitionNow() const;
-
   /// \brief Get the real (not just tentative) definition for this declaration.
   VarDecl *getDefinition(ASTContext &);
   const VarDecl *getDefinition(ASTContext &C) const {
@@ -1022,20 +1018,6 @@ public:
   }
 
   void setInit(Expr *I);
-
-  /// \brief Determine whether this variable is a reference that
-  /// extends the lifetime of its temporary initializer.
-  ///
-  /// A reference extends the lifetime of its temporary initializer if
-  /// it's initializer is an rvalue that would normally go out of scope
-  /// at the end of the initializer (a full expression). In such cases,
-  /// the reference itself takes ownership of the temporary, which will
-  /// be destroyed when the reference goes out of scope. For example:
-  ///
-  /// \code
-  /// const int &r = 1.0; // creates a temporary of type 'int'
-  /// \endcode
-  bool extendsLifetimeOfTemporary() const;
 
   /// \brief Determine whether this variable's value can be used in a
   /// constant expression, according to the relevant language standard.
@@ -1337,11 +1319,7 @@ public:
     ParmVarDeclBits.HasInheritedDefaultArg = I;
   }
 
-  QualType getOriginalType() const {
-    if (getTypeSourceInfo())
-      return getTypeSourceInfo()->getType();
-    return getType();
-  }
+  QualType getOriginalType() const;
 
   /// \brief Determine whether this parameter is actually a function
   /// parameter pack.
@@ -3137,13 +3115,17 @@ private:
   Capture *Captures;
   unsigned NumCaptures;
 
+  unsigned ManglingNumber;
+  Decl *ManglingContextDecl;
+
 protected:
   BlockDecl(DeclContext *DC, SourceLocation CaretLoc)
     : Decl(Block, DC, CaretLoc), DeclContext(Block),
       IsVariadic(false), CapturesCXXThis(false),
       BlockMissingReturnType(true), IsConversionFromLambda(false),
       ParamInfo(0), NumParams(0), Body(0),
-      SignatureAsWritten(0), Captures(0), NumCaptures(0) {}
+      SignatureAsWritten(0), Captures(0), NumCaptures(0),
+      ManglingNumber(0), ManglingContextDecl(0) {}
 
 public:
   static BlockDecl *Create(ASTContext &C, DeclContext *DC, SourceLocation L); 
@@ -3212,6 +3194,18 @@ public:
                    const Capture *begin,
                    const Capture *end,
                    bool capturesCXXThis);
+
+   unsigned getBlockManglingNumber() const {
+     return ManglingNumber;
+   }
+   Decl *getBlockManglingContextDecl() const {
+     return ManglingContextDecl;    
+   }
+
+  void setBlockMangling(unsigned Number, Decl *Ctx) {
+    ManglingNumber = Number;
+    ManglingContextDecl = Ctx;
+  }
 
   virtual SourceRange getSourceRange() const LLVM_READONLY;
 

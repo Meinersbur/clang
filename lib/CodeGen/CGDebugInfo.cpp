@@ -369,8 +369,7 @@ llvm::DIType CGDebugInfo::CreateType(const BuiltinType *BT) {
   case BuiltinType::Dependent:
     llvm_unreachable("Unexpected builtin type");
   case BuiltinType::NullPtr:
-    return DBuilder.
-      createNullPtrType(BT->getName(CGM.getLangOpts()));
+    return DBuilder.createNullPtrType();
   case BuiltinType::Void:
     return llvm::DIType();
   case BuiltinType::ObjCClass:
@@ -915,10 +914,6 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
     // Field number for non-static fields.
     unsigned fieldNo = 0;
 
-    // Bookkeeping for an ms struct, which ignores certain fields.
-    bool IsMsStruct = record->isMsStruct(CGM.getContext());
-    const FieldDecl *LastFD = 0;
-
     // Static and non-static members should appear in the same order as
     // the corresponding declarations in the source program.
     for (RecordDecl::decl_iterator I = record->decls_begin(),
@@ -926,13 +921,6 @@ CollectRecordFields(const RecordDecl *record, llvm::DIFile tunit,
       if (const VarDecl *V = dyn_cast<VarDecl>(*I))
         CollectRecordStaticField(V, elements, RecordTy);
       else if (FieldDecl *field = dyn_cast<FieldDecl>(*I)) {
-        if (IsMsStruct) {
-          // Zero-length bitfields following non-bitfield members are
-          // completely ignored; we don't even count them.
-          if (CGM.getContext().ZeroBitfieldFollowsNonBitfield((field), LastFD))
-            continue;
-          LastFD = field;
-        }
         CollectRecordNormalField(field, layout.getFieldOffset(fieldNo),
                                  tunit, elements, RecordTy);
 
@@ -1803,7 +1791,7 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumDecl *ED) {
        Enum != EnumEnd; ++Enum) {
     Enumerators.push_back(
       DBuilder.createEnumerator(Enum->getName(),
-                                Enum->getInitVal().getZExtValue()));
+                                Enum->getInitVal().getSExtValue()));
   }
 
   // Return a CompositeType for the enum itself.
@@ -2069,6 +2057,10 @@ llvm::DIType CGDebugInfo::CreateTypeNode(QualType Ty, llvm::DIFile Unit,
     return CreateType(cast<ComplexType>(Ty));
   case Type::Pointer:
     return CreateType(cast<PointerType>(Ty), Unit);
+  case Type::Decayed:
+    // Decayed types are just pointers in LLVM and DWARF.
+    return CreateType(
+        cast<PointerType>(cast<DecayedType>(Ty)->getDecayedType()), Unit);
   case Type::BlockPointer:
     return CreateType(cast<BlockPointerType>(Ty), Unit);
   case Type::Typedef:

@@ -828,6 +828,7 @@ void CXXNameMangler::mangleUnresolvedPrefix(NestedNameSpecifier *qualifier,
     switch (type->getTypeClass()) {
     case Type::Builtin:
     case Type::Complex:
+    case Type::Decayed:
     case Type::Pointer:
     case Type::BlockPointer:
     case Type::LValueReference:
@@ -1415,12 +1416,22 @@ void CXXNameMangler::manglePrefix(const DeclContext *DC, bool NoFunction) {
     return;
 
   if (const BlockDecl *Block = dyn_cast<BlockDecl>(DC)) {
-    manglePrefix(getEffectiveParentContext(DC), NoFunction);    
-    SmallString<64> Name;
-    llvm::raw_svector_ostream NameStream(Name);
-    Context.mangleBlock(Block, NameStream);
-    NameStream.flush();
-    Out << Name.size() << Name;
+    // Reflect the lambda mangling rules, except that we don't have an
+    // actual function declaration.
+    if (NoFunction)
+      return;
+
+    manglePrefix(getEffectiveParentContext(DC), NoFunction);
+    // If we have a block mangling number, use it.
+    unsigned Number = Block->getBlockManglingNumber();
+    // Otherwise, just make up a number. It doesn't matter what it is because
+    // the symbol in question isn't externally visible.
+    if (!Number)
+      Number = Context.getBlockId(Block, false);
+    Out << "Ub";
+    if (Number > 1)
+      Out << Number - 2;
+    Out << '_';
     return;
   } else if (isa<CapturedDecl>(DC)) {
     // Skip CapturedDecl context.

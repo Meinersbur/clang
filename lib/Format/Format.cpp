@@ -248,6 +248,8 @@ static unsigned getLengthToMatchingParen(const FormatToken &Tok) {
   return End->TotalLength - Tok.TotalLength + 1;
 }
 
+namespace {
+
 class UnwrappedLineFormatter {
 public:
   UnwrappedLineFormatter(const FormatStyle &Style, SourceManager &SourceMgr,
@@ -266,8 +268,8 @@ public:
     State.Column = FirstIndent;
     State.NextToken = RootToken;
     State.Stack.push_back(
-        ParenState(FirstIndent, FirstIndent, /*AvoidBinPacking=*/ false,
-                   /*NoLineBreak=*/ false));
+        ParenState(FirstIndent, FirstIndent, /*AvoidBinPacking=*/false,
+                   /*NoLineBreak=*/false));
     State.LineContainsContinuedForLoopSection = false;
     State.ParenLevel = 0;
     State.StartOfStringLiteral = 0;
@@ -276,7 +278,7 @@ public:
     State.IgnoreStackForComparison = false;
 
     // The first token has already been indented and thus consumed.
-    moveStateToNextToken(State, /*DryRun=*/ false);
+    moveStateToNextToken(State, /*DryRun=*/false);
 
     // If everything fits on a single line, just put it there.
     unsigned ColumnLimit = Style.ColumnLimit;
@@ -480,7 +482,7 @@ private:
   /// \brief Appends the next token to \p State and updates information
   /// necessary for indentation.
   ///
-  /// Puts the token on the current line if \p Newline is \c true and adds a
+  /// Puts the token on the current line if \p Newline is \c false and adds a
   /// line break and necessary indentation otherwise.
   ///
   /// If \p DryRun is \c false, also creates and stores the required
@@ -804,9 +806,10 @@ private:
   ///
   /// \returns An extra penalty if a token was broken, otherwise 0.
   ///
-  /// Note that the penalty of the token protruding the allowed line length is
-  /// already handled in \c addNextStateToQueue; the returned penalty will only
-  /// cover the cost of the additional line breaks.
+  /// The returned penalty will cover the cost of the additional line breaks and
+  /// column limit violation in all lines except for the last one. The penalty
+  /// for the column limit violation in the last line (and in single line
+  /// tokens) is handled in \c addNextStateToQueue.
   unsigned breakProtrudingToken(const FormatToken &Current, LineState &State,
                                 bool DryRun) {
     llvm::OwningPtr<BreakableToken> Token;
@@ -852,8 +855,13 @@ private:
       while (RemainingTokenColumns > RemainingSpace) {
         BreakableToken::Split Split =
             Token->getSplit(LineIndex, TailOffset, getColumnLimit());
-        if (Split.first == StringRef::npos)
+        if (Split.first == StringRef::npos) {
+          // The last line's penalty is handled in addNextStateToQueue().
+          if (LineIndex < EndIndex - 1)
+            Penalty += Style.PenaltyExcessCharacter *
+                       (RemainingTokenColumns - RemainingSpace);
           break;
+        }
         assert(Split.first != 0);
         unsigned NewRemainingTokenColumns = Token->getLineLengthAfterSplit(
             LineIndex, TailOffset + Split.first + Split.second,
@@ -955,8 +963,8 @@ private:
         // State already examined with lower penalty.
         continue;
 
-      addNextStateToQueue(Penalty, Node, /*NewLine=*/ false);
-      addNextStateToQueue(Penalty, Node, /*NewLine=*/ true);
+      addNextStateToQueue(Penalty, Node, /*NewLine=*/false);
+      addNextStateToQueue(Penalty, Node, /*NewLine=*/true);
     }
 
     if (Queue.empty())
@@ -1639,6 +1647,8 @@ private:
   encoding::Encoding Encoding;
 };
 
+} // end anonymous namespace
+
 tooling::Replacements reformat(const FormatStyle &Style, Lexer &Lex,
                                SourceManager &SourceMgr,
                                std::vector<CharSourceRange> Ranges) {
@@ -1660,7 +1670,8 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
   SourceMgr.overrideFileContents(Entry, Buf);
   FileID ID =
       SourceMgr.createFileID(Entry, SourceLocation(), clang::SrcMgr::C_User);
-  Lexer Lex(ID, SourceMgr.getBuffer(ID), SourceMgr, getFormattingLangOpts());
+  Lexer Lex(ID, SourceMgr.getBuffer(ID), SourceMgr,
+            getFormattingLangOpts(Style.Standard));
   SourceLocation StartOfFile = SourceMgr.getLocForStartOfFile(ID);
   std::vector<CharSourceRange> CharRanges;
   for (unsigned i = 0, e = Ranges.size(); i != e; ++i) {
@@ -1671,10 +1682,10 @@ tooling::Replacements reformat(const FormatStyle &Style, StringRef Code,
   return reformat(Style, Lex, SourceMgr, CharRanges);
 }
 
-LangOptions getFormattingLangOpts() {
+LangOptions getFormattingLangOpts(FormatStyle::LanguageStandard Standard) {
   LangOptions LangOpts;
   LangOpts.CPlusPlus = 1;
-  LangOpts.CPlusPlus11 = 1;
+  LangOpts.CPlusPlus11 = Standard == FormatStyle::LS_Cpp03 ? 0 : 1;
   LangOpts.LineComment = 1;
   LangOpts.Bool = 1;
   LangOpts.ObjC1 = 1;

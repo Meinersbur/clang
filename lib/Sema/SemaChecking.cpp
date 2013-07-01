@@ -5283,6 +5283,8 @@ namespace {
 /// \brief Visitor for expressions which looks for unsequenced operations on the
 /// same object.
 class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
+  typedef EvaluatedExprVisitor<SequenceChecker> Base;
+
   /// \brief A tree of sequenced regions within an expression. Two regions are
   /// unsequenced if one is an ancestor or a descendent of the other. When we
   /// finish processing an expression with sequencing, such as a comma
@@ -5356,7 +5358,7 @@ class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
     /// A read of an object. Multiple unsequenced reads are OK.
     UK_Use,
     /// A modification of an object which is sequenced before the value
-    /// computation of the expression, such as ++n.
+    /// computation of the expression, such as ++n in C++.
     UK_ModAsValue,
     /// A modification of an object which is not sequenced before the value
     /// computation of the expression, such as n++.
@@ -5527,9 +5529,8 @@ class SequenceChecker : public EvaluatedExprVisitor<SequenceChecker> {
 public:
   SequenceChecker(Sema &S, Expr *E,
                   llvm::SmallVectorImpl<Expr*> &WorkList)
-    : EvaluatedExprVisitor<SequenceChecker>(S.Context), SemaRef(S),
-      Region(Tree.root()), ModAsSideEffect(0), WorkList(WorkList),
-      EvalTracker(0) {
+    : Base(S.Context), SemaRef(S), Region(Tree.root()),
+      ModAsSideEffect(0), WorkList(WorkList), EvalTracker(0) {
     Visit(E);
   }
 
@@ -5539,7 +5540,7 @@ public:
 
   void VisitExpr(Expr *E) {
     // By default, just recurse to evaluated subexpressions.
-    EvaluatedExprVisitor<SequenceChecker>::VisitStmt(E);
+    Base::VisitStmt(E);
   }
 
   void VisitCastExpr(CastExpr *E) {
@@ -5606,7 +5607,12 @@ public:
 
     Visit(BO->getRHS());
 
-    notePostMod(O, BO, UK_ModAsValue);
+    // C++11 [expr.ass]p1:
+    //   the assignment is sequenced [...] before the value computation of the
+    //   assignment expression.
+    // C11 6.5.16/3 has no such rule.
+    notePostMod(O, BO, SemaRef.getLangOpts().CPlusPlus ? UK_ModAsValue
+                                                       : UK_ModAsSideEffect);
   }
   void VisitCompoundAssignOperator(CompoundAssignOperator *CAO) {
     VisitBinAssign(CAO);
@@ -5621,7 +5627,10 @@ public:
 
     notePreMod(O, UO);
     Visit(UO->getSubExpr());
-    notePostMod(O, UO, UK_ModAsValue);
+    // C++11 [expr.pre.incr]p1:
+    //   the expression ++x is equivalent to x+=1
+    notePostMod(O, UO, SemaRef.getLangOpts().CPlusPlus ? UK_ModAsValue
+                                                       : UK_ModAsSideEffect);
   }
 
   void VisitUnaryPostInc(UnaryOperator *UO) { VisitUnaryPostIncDec(UO); }
@@ -5682,8 +5691,10 @@ public:
   // be chosen.
   void VisitAbstractConditionalOperator(AbstractConditionalOperator *CO) {
     EvaluationTracker Eval(*this);
-    SequencedSubexpression Sequenced(*this);
-    Visit(CO->getCond());
+    {
+      SequencedSubexpression Sequenced(*this);
+      Visit(CO->getCond());
+    }
 
     bool Result;
     if (Eval.evaluate(CO->getCond(), Result))
@@ -5694,7 +5705,23 @@ public:
     }
   }
 
+  void VisitCallExpr(CallExpr *CE) {
+    // C++11 [intro.execution]p15:
+    //   When calling a function [...], every value computation and side effect
+    //   associated with any argument expression, or with the postfix expression
+    //   designating the called function, is sequenced before execution of every
+    //   expression or statement in the body of the function [and thus before
+    //   the value computation of its result].
+    SequencedSubexpression Sequenced(*this);
+    Base::VisitCallExpr(CE);
+
+    // FIXME: CXXNewExpr and CXXDeleteExpr implicitly call functions.
+  }
+
   void VisitCXXConstructExpr(CXXConstructExpr *CCE) {
+    // This is a call, so all subexpressions are sequenced before the result.
+    SequencedSubexpression Sequenced(*this);
+
     if (!CCE->isListInitialization())
       return VisitExpr(CCE);
 
@@ -5767,7 +5794,8 @@ void Sema::CheckBitFieldInitialization(SourceLocation InitLoc,
 /// takes care of any checks that cannot be performed on the
 /// declaration itself, e.g., that the types of each of the function
 /// parameters are complete.
-bool Sema::CheckParmsForFunctionDef(ParmVarDecl **P, ParmVarDecl **PEnd,
+bool Sema::CheckParmsForFunctionDef(ParmVarDecl *const *P,
+                                    ParmVarDecl *const *PEnd,
                                     bool CheckParameterNames) {
   bool HasInvalidParm = false;
   for (; P != PEnd; ++P) {

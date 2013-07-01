@@ -29,9 +29,9 @@
 #include "llvm/Option/OptTable.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/PathV1.h"
 #include "llvm/Support/system_error.h"
 #include <sys/stat.h>
 using namespace clang;
@@ -399,6 +399,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.FunctionSections = Args.hasArg(OPT_ffunction_sections);
   Opts.DataSections = Args.hasArg(OPT_fdata_sections);
 
+  Opts.VectorizeBB = Args.hasArg(OPT_vectorize_slp_aggressive);
+  Opts.VectorizeLoop = Args.hasArg(OPT_vectorize_loops);
+  Opts.VectorizeSLP = Args.hasArg(OPT_vectorize_slp);
+
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
   Opts.SanitizeRecover = !Args.hasArg(OPT_fno_sanitize_recover);
@@ -741,6 +745,7 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
   Opts.FixAndRecompile = Args.hasArg(OPT_fixit_recompile);
   Opts.FixToTemporaries = Args.hasArg(OPT_fixit_to_temp);
   Opts.ASTDumpFilter = Args.getLastArgValue(OPT_ast_dump_filter);
+  Opts.ASTDumpLookups = Args.hasArg(OPT_ast_dump_lookups);
   Opts.UseGlobalModuleIndex = !Args.hasArg(OPT_fno_modules_global_index);
   Opts.GenerateGlobalModuleIndex = Opts.UseGlobalModuleIndex;
   
@@ -840,16 +845,14 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
 
 std::string CompilerInvocation::GetResourcesPath(const char *Argv0,
                                                  void *MainAddr) {
-  llvm::sys::Path P = llvm::sys::Path::GetMainExecutable(Argv0, MainAddr);
+  SmallString<128> P(llvm::sys::fs::getMainExecutable(Argv0, MainAddr));
 
-  if (!P.isEmpty()) {
-    P.eraseComponent();  // Remove /clang from foo/bin/clang
-    P.eraseComponent();  // Remove /bin   from foo/bin
+  if (!P.empty()) {
+    llvm::sys::path::remove_filename(P); // Remove /clang from foo/bin/clang
+    llvm::sys::path::remove_filename(P); // Remove /bin   from foo/bin
 
     // Get foo/lib/clang/<version>/include
-    P.appendComponent("lib");
-    P.appendComponent("clang");
-    P.appendComponent(CLANG_VERSION_STRING);
+    llvm::sys::path::append(P, "lib", "clang", CLANG_VERSION_STRING);
   }
 
   return P.str();

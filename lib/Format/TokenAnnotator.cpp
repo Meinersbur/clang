@@ -20,6 +20,8 @@
 namespace clang {
 namespace format {
 
+namespace {
+
 /// \brief A parser that gathers additional information about tokens.
 ///
 /// The \c TokenAnnotator tries to match parenthesis and square brakets and
@@ -30,7 +32,7 @@ public:
   AnnotatingParser(AnnotatedLine &Line, IdentifierInfo &Ident_in)
       : Line(Line), CurrentToken(Line.First), KeywordVirtualFound(false),
         NameFound(false), Ident_in(Ident_in) {
-    Contexts.push_back(Context(tok::unknown, 1, /*IsExpression=*/ false));
+    Contexts.push_back(Context(tok::unknown, 1, /*IsExpression=*/false));
   }
 
 private:
@@ -315,7 +317,7 @@ private:
     case tok::kw_while:
       if (CurrentToken != NULL && CurrentToken->is(tok::l_paren)) {
         next();
-        if (!parseParens(/*LookForDecls=*/ true))
+        if (!parseParens(/*LookForDecls=*/true))
           return false;
       }
       break;
@@ -637,9 +639,8 @@ private:
         // there is also an identifier before the ().
         if (LeftOfParens && (LeftOfParens->Tok.getIdentifierInfo() == NULL ||
                              LeftOfParens->is(tok::kw_return)) &&
-            LeftOfParens->Type != TT_TemplateCloser &&
-            LeftOfParens->Type != TT_ObjCMethodExpr && Current.Next &&
-            (Current.Next->is(tok::identifier)))
+            LeftOfParens->Type != TT_TemplateCloser && Current.Next &&
+            Current.Next->is(tok::identifier))
           IsCast = true;
         if (IsCast && !ParensAreEmpty)
           Current.Type = TT_CastRParen;
@@ -866,6 +867,8 @@ private:
   FormatToken *Current;
 };
 
+} // end anonymous namespace
+
 void TokenAnnotator::annotate(AnnotatedLine &Line) {
   AnnotatingParser Parser(Line, Ident_in);
   Line.Type = Parser.parseLine();
@@ -1062,6 +1065,8 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
     return !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren);
   if (Left.is(tok::less) || Right.isOneOf(tok::greater, tok::less))
     return false;
+  if (Right.is(tok::ellipsis))
+    return false;
   if (Right.Type == TT_PointerOrReference)
     return Left.Tok.isLiteral() ||
            ((Left.Type != TT_PointerOrReference) && Left.isNot(tok::l_paren) &&
@@ -1070,7 +1075,7 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
       (Left.Type != TT_PointerOrReference || Style.PointerBindsToType))
     return true;
   if (Left.Type == TT_PointerOrReference)
-    return Right.Tok.isLiteral() ||
+    return Right.Tok.isLiteral() || Right.Type == TT_BlockComment ||
            ((Right.Type != TT_PointerOrReference) &&
             Right.isNot(tok::l_paren) && Style.PointerBindsToType &&
             Left.Previous &&
@@ -1107,9 +1112,9 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
   if (Left.isOneOf(tok::identifier, tok::greater, tok::r_square) &&
       Right.is(tok::l_brace) && Right.getNextNoneComment())
     return false;
-  if (Right.is(tok::ellipsis))
-    return false;
   if (Left.is(tok::period) || Right.is(tok::period))
+    return false;
+  if (Left.Type == TT_BlockComment && Left.TokenText.endswith("=*/"))
     return false;
   return true;
 }

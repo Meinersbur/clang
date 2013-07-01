@@ -108,6 +108,11 @@ void ASTTypeWriter::VisitPointerType(const PointerType *T) {
   Code = TYPE_POINTER;
 }
 
+void ASTTypeWriter::VisitDecayedType(const DecayedType *T) {
+  Writer.AddTypeRef(T->getOriginalType(), Record);
+  Code = TYPE_DECAYED;
+}
+
 void ASTTypeWriter::VisitBlockPointerType(const BlockPointerType *T) {
   Writer.AddTypeRef(T->getPointeeType(), Record);
   Code = TYPE_BLOCK_POINTER;
@@ -446,6 +451,9 @@ void TypeLocWriter::VisitComplexTypeLoc(ComplexTypeLoc TL) {
 }
 void TypeLocWriter::VisitPointerTypeLoc(PointerTypeLoc TL) {
   Writer.AddSourceLocation(TL.getStarLoc(), Record);
+}
+void TypeLocWriter::VisitDecayedTypeLoc(DecayedTypeLoc TL) {
+  // nothing to do
 }
 void TypeLocWriter::VisitBlockPointerTypeLoc(BlockPointerTypeLoc TL) {
   Writer.AddSourceLocation(TL.getCaretLoc(), Record);
@@ -5046,7 +5054,7 @@ void ASTWriter::AddCXXDefinitionData(const CXXRecordDecl *D, RecordDataImpl &Rec
   AddUnresolvedSet(Data.Conversions, Record);
   AddUnresolvedSet(Data.VisibleConversions, Record);
   // Data.Definition is the owning decl, no need to write it. 
-  AddDeclRef(Data.FirstFriend, Record);
+  AddDeclRef(D->getFirstFriend(), Record);
   
   // Add lambda-specific data.
   if (Data.IsLambda) {

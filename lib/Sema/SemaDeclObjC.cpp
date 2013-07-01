@@ -324,14 +324,14 @@ void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
   PushOnScopeChains(MDecl->getSelfDecl(), FnBodyScope);
   PushOnScopeChains(MDecl->getCmdDecl(), FnBodyScope);
 
+  // The ObjC parser requires parameter names so there's no need to check.
+  CheckParmsForFunctionDef(MDecl->param_begin(), MDecl->param_end(),
+                           /*CheckParameterNames=*/false);
+
   // Introduce all of the other parameters into this scope.
   for (ObjCMethodDecl::param_iterator PI = MDecl->param_begin(),
        E = MDecl->param_end(); PI != E; ++PI) {
     ParmVarDecl *Param = (*PI);
-    if (!Param->isInvalidDecl() &&
-        RequireCompleteType(Param->getLocation(), Param->getType(),
-                            diag::err_typecheck_decl_incomplete_type))
-          Param->setInvalidDecl();
     if (!Param->isInvalidDecl() &&
         getLangOpts().ObjCAutoRefCount &&
         !HasExplicitOwnershipAttr(*this, Param))
@@ -1140,6 +1140,19 @@ void Sema::CheckImplementationIvars(ObjCImplementationDecl *ImpDecl,
         Diag(ClsIvar->getLocation(), diag::note_previous_definition);
         continue;
       }
+      // Check class extensions (unnamed categories) for duplicate ivars.
+      for (ObjCInterfaceDecl::visible_extensions_iterator
+           Ext = IDecl->visible_extensions_begin(),
+           ExtEnd = IDecl->visible_extensions_end();
+         Ext != ExtEnd; ++Ext) {
+        ObjCCategoryDecl *CDecl = *Ext;
+        if (const ObjCIvarDecl *ClsExtIvar = 
+            CDecl->getIvarDecl(ImplIvar->getIdentifier())) {
+          Diag(ImplIvar->getLocation(), diag::err_duplicate_ivar_declaration); 
+          Diag(ClsExtIvar->getLocation(), diag::note_previous_definition);
+          continue;
+        }
+      }
       // Instance ivar to Implementation's DeclContext.
       ImplIvar->setLexicalDeclContext(ImpDecl);
       IDecl->makeDeclVisibleInContext(ImplIvar);
@@ -1485,8 +1498,8 @@ static bool checkMethodFamilyMismatch(Sema &S, ObjCMethodDecl *impl,
     reasonSelector = R_NonObjectReturn;
   }
 
-  S.Diag(impl->getLocation(), errorID) << familySelector << reasonSelector;
-  S.Diag(decl->getLocation(), noteID) << familySelector << reasonSelector;
+  S.Diag(impl->getLocation(), errorID) << int(familySelector) << int(reasonSelector);
+  S.Diag(decl->getLocation(), noteID) << int(familySelector) << int(reasonSelector);
 
   return true;
 }

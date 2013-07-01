@@ -30,6 +30,8 @@ public:
   virtual FormatToken *setPosition(unsigned Position) = 0;
 };
 
+namespace {
+
 class ScopedDeclarationState {
 public:
   ScopedDeclarationState(UnwrappedLine &Line, std::vector<bool> &Stack,
@@ -114,6 +116,8 @@ private:
   FormatToken *Token;
 };
 
+} // end anonymous namespace
+
 class ScopedLineState {
 public:
   ScopedLineState(UnwrappedLineParser &Parser,
@@ -145,6 +149,8 @@ private:
   UnwrappedLine *PreBlockLine;
 };
 
+namespace {
+
 class IndexedTokenSource : public FormatTokenSource {
 public:
   IndexedTokenSource(ArrayRef<FormatToken *> Tokens)
@@ -169,6 +175,8 @@ private:
   ArrayRef<FormatToken *> Tokens;
   int Position;
 };
+
+} // end anonymous namespace
 
 UnwrappedLineParser::UnwrappedLineParser(const FormatStyle &Style,
                                          ArrayRef<FormatToken *> Tokens,
@@ -200,7 +208,7 @@ void UnwrappedLineParser::parseFile() {
   ScopedDeclarationState DeclarationState(
       *Line, DeclarationScopeStack,
       /*MustBeDeclaration=*/ !Line->InPPDirective);
-  parseLevel(/*HasOpeningBrace=*/ false);
+  parseLevel(/*HasOpeningBrace=*/false);
   // Make sure to format the remaining tokens.
   flushComments(true);
   addUnwrappedLine();
@@ -216,7 +224,7 @@ void UnwrappedLineParser::parseLevel(bool HasOpeningBrace) {
     case tok::l_brace:
       // FIXME: Add parameter whether this can happen - if this happens, we must
       // be in a non-declaration context.
-      parseBlock(/*MustBeDeclaration=*/ false);
+      parseBlock(/*MustBeDeclaration=*/false);
       addUnwrappedLine();
       break;
     case tok::r_brace:
@@ -247,7 +255,14 @@ void UnwrappedLineParser::calculateBraceTypes() {
   SmallVector<unsigned, 8> LBraceStack;
   assert(Tok->Tok.is(tok::l_brace));
   do {
-    FormatToken *NextTok = Tokens->getNextToken();
+    // Get next none-comment token.
+    FormatToken *NextTok;
+    unsigned ReadTokens = 0;
+    do {
+      NextTok = Tokens->getNextToken();
+      ++ReadTokens;
+    } while (NextTok->is(tok::comment));
+
     switch (Tok->Tok.getKind()) {
     case tok::l_brace:
       LBraceStack.push_back(Position);
@@ -285,7 +300,7 @@ void UnwrappedLineParser::calculateBraceTypes() {
       break;
     }
     Tok = NextTok;
-    ++Position;
+    Position += ReadTokens;
   } while (Tok->Tok.isNot(tok::eof));
   // Assume other blocks for all unclosed opening braces.
   for (unsigned i = 0, e = LBraceStack.size(); i != e; ++i) {
@@ -305,7 +320,7 @@ void UnwrappedLineParser::parseBlock(bool MustBeDeclaration,
   ScopedDeclarationState DeclarationState(*Line, DeclarationScopeStack,
                                           MustBeDeclaration);
   Line->Level += AddLevels;
-  parseLevel(/*HasOpeningBrace=*/ true);
+  parseLevel(/*HasOpeningBrace=*/true);
 
   if (!FormatTok->Tok.is(tok::r_brace)) {
     Line->Level -= AddLevels;
@@ -525,7 +540,7 @@ void UnwrappedLineParser::parseStructuralElement() {
     if (FormatTok->Tok.is(tok::string_literal)) {
       nextToken();
       if (FormatTok->Tok.is(tok::l_brace)) {
-        parseBlock(/*MustBeDeclaration=*/ true, 0);
+        parseBlock(/*MustBeDeclaration=*/true, 0);
         addUnwrappedLine();
         return;
       }
@@ -571,7 +586,7 @@ void UnwrappedLineParser::parseStructuralElement() {
         if (Style.BreakBeforeBraces == FormatStyle::BS_Linux ||
             Style.BreakBeforeBraces == FormatStyle::BS_Stroustrup)
           addUnwrappedLine();
-        parseBlock(/*MustBeDeclaration=*/ false);
+        parseBlock(/*MustBeDeclaration=*/false);
         addUnwrappedLine();
         return;
       }
@@ -706,9 +721,9 @@ void UnwrappedLineParser::parseParens() {
         {
           ScopedLineState LineState(*this);
           ScopedDeclarationState DeclarationState(*Line, DeclarationScopeStack,
-                                                  /*MustBeDeclaration=*/ false);
+                                                  /*MustBeDeclaration=*/false);
           Line->Level += 1;
-          parseLevel(/*HasOpeningBrace=*/ true);
+          parseLevel(/*HasOpeningBrace=*/true);
           Line->Level -= 1;
         }
         nextToken();
@@ -734,7 +749,7 @@ void UnwrappedLineParser::parseIfThenElse() {
     parseParens();
   bool NeedsUnwrappedLine = false;
   if (FormatTok->Tok.is(tok::l_brace)) {
-    parseBlock(/*MustBeDeclaration=*/ false);
+    parseBlock(/*MustBeDeclaration=*/false);
     NeedsUnwrappedLine = true;
   } else {
     addUnwrappedLine();
@@ -745,7 +760,7 @@ void UnwrappedLineParser::parseIfThenElse() {
   if (FormatTok->Tok.is(tok::kw_else)) {
     nextToken();
     if (FormatTok->Tok.is(tok::l_brace)) {
-      parseBlock(/*MustBeDeclaration=*/ false);
+      parseBlock(/*MustBeDeclaration=*/false);
       addUnwrappedLine();
     } else if (FormatTok->Tok.is(tok::kw_if)) {
       parseIfThenElse();
@@ -769,7 +784,7 @@ void UnwrappedLineParser::parseNamespace() {
     if (Style.BreakBeforeBraces == FormatStyle::BS_Linux)
       addUnwrappedLine();
 
-    parseBlock(/*MustBeDeclaration=*/ true, 0);
+    parseBlock(/*MustBeDeclaration=*/true, 0);
     // Munch the semicolon after a namespace. This is more common than one would
     // think. Puttin the semicolon into its own line is very ugly.
     if (FormatTok->Tok.is(tok::semi))
@@ -786,7 +801,7 @@ void UnwrappedLineParser::parseForOrWhileLoop() {
   if (FormatTok->Tok.is(tok::l_paren))
     parseParens();
   if (FormatTok->Tok.is(tok::l_brace)) {
-    parseBlock(/*MustBeDeclaration=*/ false);
+    parseBlock(/*MustBeDeclaration=*/false);
     addUnwrappedLine();
   } else {
     addUnwrappedLine();
@@ -800,7 +815,7 @@ void UnwrappedLineParser::parseDoWhile() {
   assert(FormatTok->Tok.is(tok::kw_do) && "'do' expected");
   nextToken();
   if (FormatTok->Tok.is(tok::l_brace)) {
-    parseBlock(/*MustBeDeclaration=*/ false);
+    parseBlock(/*MustBeDeclaration=*/false);
   } else {
     addUnwrappedLine();
     ++Line->Level;
@@ -826,7 +841,7 @@ void UnwrappedLineParser::parseLabel() {
   if (Line->Level > 1 || (!Line->InPPDirective && Line->Level > 0))
     --Line->Level;
   if (CommentsBeforeNextToken.empty() && FormatTok->Tok.is(tok::l_brace)) {
-    parseBlock(/*MustBeDeclaration=*/ false);
+    parseBlock(/*MustBeDeclaration=*/false);
     if (FormatTok->Tok.is(tok::kw_break))
       parseStructuralElement(); // "break;" after "}" goes on the same line.
   }
@@ -849,7 +864,7 @@ void UnwrappedLineParser::parseSwitch() {
   if (FormatTok->Tok.is(tok::l_paren))
     parseParens();
   if (FormatTok->Tok.is(tok::l_brace)) {
-    parseBlock(/*MustBeDeclaration=*/ false, Style.IndentCaseLabels ? 2 : 1);
+    parseBlock(/*MustBeDeclaration=*/false, Style.IndentCaseLabels ? 2 : 1);
     addUnwrappedLine();
   } else {
     addUnwrappedLine();
@@ -948,7 +963,7 @@ void UnwrappedLineParser::parseRecord() {
     if (Style.BreakBeforeBraces == FormatStyle::BS_Linux)
       addUnwrappedLine();
 
-    parseBlock(/*MustBeDeclaration=*/ true);
+    parseBlock(/*MustBeDeclaration=*/true);
   }
   // We fall through to parsing a structural element afterwards, so
   // class A {} n, m;
@@ -991,7 +1006,7 @@ void UnwrappedLineParser::parseObjCInterfaceOrImplementation() {
 
   // If instance variables are present, keep the '{' on the first line too.
   if (FormatTok->Tok.is(tok::l_brace))
-    parseBlock(/*MustBeDeclaration=*/ true);
+    parseBlock(/*MustBeDeclaration=*/true);
 
   // With instance variables, this puts '}' on its own line.  Without instance
   // variables, this ends the @interface line.
@@ -1027,7 +1042,6 @@ void UnwrappedLineParser::addUnwrappedLine() {
                                             E = Line->Tokens.end();
          I != E; ++I) {
       llvm::dbgs() << (*I)->Tok.getName() << " ";
-
     }
     llvm::dbgs() << "\n";
   });

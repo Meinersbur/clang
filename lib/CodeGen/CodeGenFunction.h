@@ -798,10 +798,6 @@ private:
   CGDebugInfo *DebugInfo;
   bool DisableDebugInfo;
 
-  /// If the current function returns 'this', use the field to keep track of
-  /// the callee that returns 'this'.
-  llvm::Value *CalleeWithThisReturn;
-
   /// DidCallStackSave - Whether llvm.stacksave has been called. Used to avoid
   /// calling llvm.stacksave for multiple VLAs in the same scope.
   bool DidCallStackSave;
@@ -1991,7 +1987,6 @@ public:
   LValue EmitInitListLValue(const InitListExpr *E);
   LValue EmitConditionalOperatorLValue(const AbstractConditionalOperator *E);
   LValue EmitCastLValue(const CastExpr *E);
-  LValue EmitNullInitializationLValue(const CXXScalarValueInitExpr *E);
   LValue EmitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   LValue EmitOpaqueValueLValue(const OpaqueValueExpr *e);
 

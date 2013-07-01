@@ -44,7 +44,7 @@ namespace test2 {
 // PR5134
 namespace test3 {
   class Foo {
-    friend const int getInt(int inInt = 0);
+    friend const int getInt(int inInt = 0) {}
 
   };
 }
@@ -134,7 +134,7 @@ namespace test6_3 {
 namespace test7 {
   extern "C" {
     class X {
-      friend int f() { return 42; }
+      friend int test7_f() { return 42; }
     };
   }
 }
