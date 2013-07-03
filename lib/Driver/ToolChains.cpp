@@ -2281,10 +2281,6 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
                       Paths);
     }
   }
-  addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
-  addPathIfExists(SysRoot + "/lib/../" + Multilib, Paths);
-  addPathIfExists(SysRoot + "/usr/lib/" + MultiarchTriple, Paths);
-  addPathIfExists(SysRoot + "/usr/lib/../" + Multilib, Paths);
 
   // Try walking via the GCC triple path in case of biarch or multiarch GCC
   // installations with strange symlinks.
@@ -2304,6 +2300,11 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
       addPathIfExists(LibPath, Paths);
     }
   }
+  addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
+  addPathIfExists(SysRoot + "/lib/../" + Multilib, Paths);
+  addPathIfExists(SysRoot + "/usr/lib/" + MultiarchTriple, Paths);
+  addPathIfExists(SysRoot + "/usr/lib/../" + Multilib, Paths);
+
   addPathIfExists(SysRoot + "/lib", Paths);
   addPathIfExists(SysRoot + "/usr/lib", Paths);
 
