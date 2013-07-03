@@ -1736,6 +1736,8 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
     case llvm::Triple::Minix:
       TC = new toolchains::Minix(*this, Target, Args);
       break;
+    case llvm::Triple::CNK:
+      // fall through: same as Linux
     case llvm::Triple::Linux:
       if (Target.getArch() == llvm::Triple::hexagon)
         TC = new toolchains::Hexagon_TC(*this, Target, Args);

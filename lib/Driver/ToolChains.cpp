@@ -2179,6 +2179,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
   // targeting x86_64, but it is a bi-arch GCC installation, it can also be
   // used to target i386.
   // FIXME: This seems unlikely to be Linux-specific.
+  // This is needed for the BG/P as well.
   ToolChain::path_list &PPaths = getProgramPaths();
   PPaths.push_back(Twine(GCCInstallation.getParentLibPath() + "/../" +
                          GCCInstallation.getTriple().str() + "/bin").str());
@@ -2503,6 +2504,23 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   addSystemInclude(DriverArgs, CC1Args, Base + "/" + TargetArchDir + Suffix
                    + MultiLibSuffix);
   return true;
+}
+
+void Linux::AddCXXStdlibLibArgs(const ArgList &Args,
+                                 ArgStringList &CmdArgs) const {
+  if (GetCXXStdlibType(Args) == ToolChain::CST_Libcxx) {
+    CmdArgs.push_back("-lc++");
+
+    // For static linking, we also need to explicitly link to libstdc++
+    // for the cxxabi exception objects.
+    if (!Args.hasArg(options::OPT_static))
+      return;
+
+    CmdArgs.push_back("-lrt");
+    CmdArgs.push_back("-lpthread");
+  }
+
+  CmdArgs.push_back("-lstdc++");
 }
 
 void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,

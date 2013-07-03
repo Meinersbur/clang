@@ -6244,7 +6244,23 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
           Args.hasArg(options::OPT_pthreads) || OpenMP)
         CmdArgs.push_back("-lpthread");
 
+      // FIXME: This is BG/Q specific...
+      // For compatibility with the vendor compilers, link
+      // with libdl by default.
+      if (Args.hasArg(options::OPT_static)) {
+        CmdArgs.push_back("-ldl");
+      }
+
       CmdArgs.push_back("-lc");
+
+      // FIXME: This is BG/Q specific...
+      // (libc, etc. pulls in some of these things)
+      if (Args.hasArg(options::OPT_static)) {
+        CmdArgs.push_back("-lnss_files");
+        CmdArgs.push_back("-lnss_dns");
+        CmdArgs.push_back("-lresolv");
+        CmdArgs.push_back("-lm");
+      }
 
       if (Args.hasArg(options::OPT_static))
         CmdArgs.push_back("--end-group");

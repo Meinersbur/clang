@@ -1385,7 +1385,7 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
 static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
                                   FileManager &FileMgr,
-                                  DiagnosticsEngine &Diags) {
+                                  DiagnosticsEngine &Diags, InputKind DashX) {
   using namespace options;
   Opts.ImplicitPCHInclude = Args.getLastArgValue(OPT_include_pch);
   Opts.ImplicitPTHInclude = Args.getLastArgValue(OPT_include_pth);
@@ -1447,6 +1447,15 @@ static void ParsePreprocessorArgs(PreprocessorOptions &Opts, ArgList &Args,
   // Include 'altivec.h' if -faltivec option present
   if (Args.hasArg(OPT_faltivec))
     Opts.Includes.push_back("altivec.h");
+
+  // FIXME: Should be check target arch. also?
+  if (Args.getLastArgValue(OPT_target_cpu) == "a2q" &&
+      !Args.hasArg(OPT_mno_qpx)) {
+    if (DashX == IK_C || DashX == IK_CXX ||
+        DashX == IK_ObjC || DashX == IK_ObjCXX ||
+        DashX == IK_OpenCL || DashX == IK_CUDA)
+      Opts.Includes.push_back("qpxintrin.h");
+  }
 
   for (arg_iterator it = Args.filtered_begin(OPT_remap_file),
          ie = Args.filtered_end(); it != ie; ++it) {
@@ -1602,7 +1611,8 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
   // ParsePreprocessorArgs and remove the FileManager 
   // parameters from the function and the "FileManager.h" #include.
   FileManager FileMgr(Res.getFileSystemOpts());
-  ParsePreprocessorArgs(Res.getPreprocessorOpts(), *Args, FileMgr, Diags);
+  ParsePreprocessorArgs(Res.getPreprocessorOpts(), *Args, FileMgr, Diags,
+                        DashX);
   ParsePreprocessorOutputArgs(Res.getPreprocessorOutputOpts(), *Args,
                               Res.getFrontendOpts().ProgramAction);
   ParseTargetArgs(Res.getTargetOpts(), *Args);

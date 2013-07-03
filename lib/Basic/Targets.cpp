@@ -330,6 +330,30 @@ public:
   }
 };
 
+// CNK target
+template<typename Target>
+class CNKTargetInfo : public OSTargetInfo<Target> {
+protected:
+  virtual void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
+                            MacroBuilder &Builder) const {
+    // CNK defines; list based off of gcc output
+    DefineStd(Builder, "unix", Opts);
+    DefineStd(Builder, "cnk", Opts);
+    Builder.defineMacro("__gnu_cnk__");
+    Builder.defineMacro("__ELF__");
+    if (Opts.POSIXThreads)
+      Builder.defineMacro("_REENTRANT");
+    if (Opts.CPlusPlus)
+      Builder.defineMacro("_GNU_SOURCE");
+  }
+public:
+  CNKTargetInfo(const llvm::Triple& Triple)
+    : OSTargetInfo<Target>(Triple) {
+    this->UserLabelPrefix = "";
+    this->WIntType = TargetInfo::UnsignedInt;
+  }
+};
+
 // NetBSD Target
 template<typename Target>
 class NetBSDTargetInfo : public OSTargetInfo<Target> {
@@ -637,21 +661,24 @@ public:
 
   /// \brief Flags for architecture specific defines.
   typedef enum {
-    ArchDefineNone  = 0,
-    ArchDefineName  = 1 << 0, // <name> is substituted for arch name.
-    ArchDefinePpcgr = 1 << 1,
-    ArchDefinePpcsq = 1 << 2,
-    ArchDefine440   = 1 << 3,
-    ArchDefine603   = 1 << 4,
-    ArchDefine604   = 1 << 5,
-    ArchDefinePwr4  = 1 << 6,
-    ArchDefinePwr5  = 1 << 7,
-    ArchDefinePwr5x = 1 << 8,
-    ArchDefinePwr6  = 1 << 9,
-    ArchDefinePwr6x = 1 << 10,
-    ArchDefinePwr7  = 1 << 11,
-    ArchDefineA2    = 1 << 12,
-    ArchDefineA2q   = 1 << 13
+    ArchDefineNone   = 0,
+    ArchDefineName   = 1 << 0, // <name> is substituted for arch name.
+    ArchDefinePpcgr  = 1 << 1,
+    ArchDefinePpcsq  = 1 << 2,
+    ArchDefine440    = 1 << 3,
+    ArchDefine440fp2 = 1 << 4,
+    ArchDefine450    = 1 << 5,
+    ArchDefine450fp2 = 1 << 6,
+    ArchDefine603    = 1 << 7,
+    ArchDefine604    = 1 << 8,
+    ArchDefinePwr4   = 1 << 9,
+    ArchDefinePwr5   = 1 << 10,
+    ArchDefinePwr5x  = 1 << 11,
+    ArchDefinePwr6   = 1 << 12,
+    ArchDefinePwr6x  = 1 << 13,
+    ArchDefinePwr7   = 1 << 14,
+    ArchDefineA2     = 1 << 15,
+    ArchDefineA2q    = 1 << 16
   } ArchDefineTypes;
 
   // Note: GCC recognizes the following additional cpus:
@@ -662,7 +689,9 @@ public:
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
       .Case("generic", true)
       .Case("440", true)
+      .Case("440fp2", true)
       .Case("450", true)
+      .Case("450fp2", true)
       .Case("601", true)
       .Case("602", true)
       .Case("603", true)
@@ -886,8 +915,11 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
 
   // CPU identification.
   ArchDefineTypes defs = (ArchDefineTypes)llvm::StringSwitch<int>(CPU)
-    .Case("440",   ArchDefineName)
-    .Case("450",   ArchDefineName | ArchDefine440)
+    .Case("440",   ArchDefine440)
+    .Case("440fp2",ArchDefine440  | ArchDefine440fp2)
+    .Case("450",   ArchDefine450  | ArchDefine440)
+    .Case("450fp2",ArchDefine450  | ArchDefine440 | ArchDefine440fp2
+                     | ArchDefine450fp2)
     .Case("601",   ArchDefineName)
     .Case("602",   ArchDefineName | ArchDefinePpcgr)
     .Case("603",   ArchDefineName | ArchDefinePpcgr)
@@ -942,6 +974,16 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("_ARCH_PPCSQ");
   if (defs & ArchDefine440)
     Builder.defineMacro("_ARCH_440");
+  if (defs & ArchDefine440fp2) {
+    Builder.defineMacro("_ARCH_440FP2");
+    Builder.defineMacro("_ARCH_440D");
+  }
+  if (defs & ArchDefine450)
+    Builder.defineMacro("_ARCH_450");
+  if (defs & ArchDefine450fp2) {
+    Builder.defineMacro("_ARCH_450FP2");
+    Builder.defineMacro("_ARCH_450D");
+  }
   if (defs & ArchDefine603)
     Builder.defineMacro("_ARCH_603");
   if (defs & ArchDefine604)
@@ -964,12 +1006,26 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("_ARCH_A2Q");
     Builder.defineMacro("_ARCH_QP");
   }
+  if (defs & ArchDefineA2)
+    Builder.defineMacro("_ARCH_A2");
+  if (defs & ArchDefineA2q) {
+    Builder.defineMacro("_ARCH_A2Q");
+    Builder.defineMacro("_ARCH_QP");
+  }
 
-  if (getTriple().getVendor() == llvm::Triple::BGQ) {
-    Builder.defineMacro("__bg__");
-    Builder.defineMacro("__THW_BLUEGENE__");
+  bool isBG = false;
+  if (getTriple().getVendor() == llvm::Triple::BGP) {
+    isBG = true;
+    Builder.defineMacro("__bgp__");
+    Builder.defineMacro("__TOS_BGP__");
+  } else if (getTriple().getVendor() == llvm::Triple::BGQ) {
+    isBG = true;
     Builder.defineMacro("__bgq__");
     Builder.defineMacro("__TOS_BGQ__");
+  }
+  if (isBG) {
+    Builder.defineMacro("__bg__");
+    Builder.defineMacro("__THW_BLUEGENE__");
   }
 
   // FIXME: The following are not yet generated here by Clang, but are
@@ -5327,6 +5383,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
     switch (os) {
     case llvm::Triple::Linux:
       return new LinuxTargetInfo<PPC32TargetInfo>(Triple);
+    case llvm::Triple::CNK:
+      return new CNKTargetInfo<PPC32TargetInfo>(Triple);
     case llvm::Triple::FreeBSD:
       return new FreeBSDTargetInfo<PPC32TargetInfo>(Triple);
     case llvm::Triple::NetBSD:
