@@ -32,7 +32,7 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ValueHandle.h"
-#include "llvm/Transforms/Utils/BlackList.h"
+#include "llvm/Transforms/Utils/SpecialCaseList.h"
 
 namespace llvm {
   class Module;
@@ -413,7 +413,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   GlobalDecl initializedGlobalDecl;
 
-  llvm::BlackList SanitizerBlacklist;
+  llvm::SpecialCaseList SanitizerBlacklist;
 
   const SanitizerOptions &SanOpts;
 
@@ -975,7 +975,7 @@ public:
   /// annotations are emitted during finalization of the LLVM code.
   void AddGlobalAnnotations(const ValueDecl *D, llvm::GlobalValue *GV);
 
-  const llvm::BlackList &getSanitizerBlacklist() const {
+  const llvm::SpecialCaseList &getSanitizerBlacklist() const {
     return SanitizerBlacklist;
   }
 
