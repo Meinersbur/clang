@@ -959,6 +959,10 @@ BUILTIN(__builtin_smul_overflow, "bSiCSiCSi*", "n")
 BUILTIN(__builtin_smull_overflow, "bSLiCSLiCSLi*", "n")
 BUILTIN(__builtin_smulll_overflow, "bSLLiCSLLiCSLLi*", "n")
 
+// Clang builtins (not available in GCC).
+BUILTIN(__builtin_addressof, "v*v&", "nct")
+
+// Molly builtins
 #include "BuiltinsMolly.def"
 
 #undef BUILTIN
