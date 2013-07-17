@@ -250,17 +250,22 @@ ClassImplementsAllMethodsAndProperties(ASTContext &Ctx,
       if (Property->getPropertyImplementation() == ObjCPropertyDecl::Optional)
         continue;
       DeclContext::lookup_const_result R = IDecl->lookup(Property->getDeclName());
-      if (R.size() == 0)
-        return false;
-      for (unsigned I = 0, N = R.size(); I != N; ++I) {
-        if (ObjCPropertyDecl *ClassProperty = dyn_cast<ObjCPropertyDecl>(R[0])) {
-          if (ClassProperty->getPropertyAttributes()
-              != Property->getPropertyAttributes())
-            return false;
-          if (!Ctx.hasSameType(ClassProperty->getType(), Property->getType()))
-            return false;
-        }
+      if (R.size() == 0) {
+        // Relax the rule and look into class's implementation for a synthesize
+        // or dynamic declaration. Class is implementing a property coming from
+        // another protocol. This still makes the target protocol as conforming.
+        if (!ImpDecl->FindPropertyImplDecl(
+                                  Property->getDeclName().getAsIdentifierInfo()))
+          return false;
       }
+      else if (ObjCPropertyDecl *ClassProperty = dyn_cast<ObjCPropertyDecl>(R[0])) {
+          if ((ClassProperty->getPropertyAttributes()
+              != Property->getPropertyAttributes()) ||
+              !Ctx.hasSameType(ClassProperty->getType(), Property->getType()))
+            return false;
+      }
+      else
+        return false;
     }
   // At this point, all required properties in this protocol conform to those
   // declared in the class.
@@ -324,8 +329,29 @@ void ObjCMigrateASTConsumer::migrateProtocolConformance(ASTContext &Ctx,
   
   if (ConformingProtocols.empty())
     return;
+  
+  // Further reduce number of conforming protocols. If protocol P1 is in the list
+  // protocol P2 (P2<P1>), No need to include P1.
+  llvm::SmallVector<ObjCProtocolDecl*, 8> MinimalConformingProtocols;
+  for (unsigned i = 0, e = ConformingProtocols.size(); i != e; i++) {
+    bool DropIt = false;
+    ObjCProtocolDecl *TargetPDecl = ConformingProtocols[i];
+    for (unsigned i1 = 0, e1 = ConformingProtocols.size(); i1 != e1; i1++) {
+      ObjCProtocolDecl *PDecl = ConformingProtocols[i1];
+      if (PDecl == TargetPDecl)
+        continue;
+      if (PDecl->lookupProtocolNamed(
+            TargetPDecl->getDeclName().getAsIdentifierInfo())) {
+        DropIt = true;
+        break;
+      }
+    }
+    if (!DropIt)
+      MinimalConformingProtocols.push_back(TargetPDecl);
+  }
   edit::Commit commit(*Editor);
-  edit::rewriteToObjCInterfaceDecl(IDecl, ConformingProtocols, *NSAPIObj, commit);
+  edit::rewriteToObjCInterfaceDecl(IDecl, MinimalConformingProtocols,
+                                   *NSAPIObj, commit);
   Editor->commit(commit);
 }
 
