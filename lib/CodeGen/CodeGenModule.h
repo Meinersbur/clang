@@ -757,7 +757,8 @@ public:
   /// given type.
   llvm::GlobalValue *GetAddrOfCXXDestructor(const CXXDestructorDecl *dtor,
                                             CXXDtorType dtorType,
-                                            const CGFunctionInfo *fnInfo = 0);
+                                            const CGFunctionInfo *fnInfo = 0,
+                                            llvm::FunctionType *fnType = 0);
 
   /// getBuiltinLibFunction - Given a builtin id for a function like
   /// "__builtin_fabsf", return a Function* for "fabsf".
@@ -985,6 +986,10 @@ public:
     DeferredVTables.push_back(RD);
   }
 
+  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
+  /// declarations are emitted lazily.
+  void EmitGlobal(GlobalDecl D);
+
 private:
   llvm::GlobalValue *GetGlobalValue(StringRef Ref);
 
@@ -1016,10 +1021,6 @@ private:
                              llvm::Function *F,
                              bool IsIncompleteFunction);
 
-  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
-  /// declarations are emitted lazily.
-  void EmitGlobal(GlobalDecl D);
-
   void EmitGlobalDefinition(GlobalDecl D);
 
   void EmitGlobalFunctionDefinition(GlobalDecl GD);
@@ -1044,10 +1045,6 @@ private:
   /// EmitCXXConstructor - Emit a single constructor with the given type from
   /// a C++ constructor Decl.
   void EmitCXXConstructor(const CXXConstructorDecl *D, CXXCtorType Type);
-
-  /// EmitCXXDestructors - Emit destructors (base, complete) from a
-  /// C++ destructor Decl.
-  void EmitCXXDestructors(const CXXDestructorDecl *D);
 
   /// EmitCXXDestructor - Emit a single destructor with the given type from
   /// a C++ destructor Decl.

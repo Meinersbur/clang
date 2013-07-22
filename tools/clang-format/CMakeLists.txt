@@ -6,6 +6,5 @@ add_clang_executable(clang-format
   LINK_LIBS clangFormat clangTooling clangBasic clangRewriteFrontend
   )
 
-install(TARGETS clang-format
-  RUNTIME DESTINATION bin)
-
+install(TARGETS clang-format RUNTIME DESTINATION bin)
+install(PROGRAMS git-clang-format DESTINATION bin)

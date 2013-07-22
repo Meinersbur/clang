@@ -3626,6 +3626,8 @@ def warn_typecheck_zero_static_array_size : Warning<
 def err_array_size_non_int : Error<"size of array has non-integer type %0">;
 def err_init_element_not_constant : Error<
   "initializer element is not a compile-time constant">;
+def ext_aggregate_init_not_constant : Extension<
+  "initializer for aggregate is not a compile-time constant">, InGroup<C99>;
 def err_local_cant_init : Error<
   "'__local' variable cannot have an initializer">;
 def err_block_extern_cant_init : Error<
@@ -5613,6 +5615,10 @@ def warn_initializer_out_of_order : Warning<
   "%select{field|base class}0 %1 will be initialized after "
   "%select{field|base}2 %3">,
   InGroup<Reorder>, DefaultIgnore;
+def warn_abstract_vbase_init_ignored : Warning<
+  "initializer for virtual base class %0 of abstract class %1 "
+  "will never be used">,
+  InGroup<DiagGroup<"abstract-vbase-init">>, DefaultIgnore;
 
 def err_base_init_does_not_name_class : Error<
   "constructor initializer %0 does not name a class">;
