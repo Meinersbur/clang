@@ -687,11 +687,11 @@ llvm::StructType *CodeGenTypes::ConvertRecordDeclType(const RecordDecl *RD) {
     while (!DeferredRecords.empty())
       ConvertRecordDeclType(DeferredRecords.pop_back_val());
 
-  // BEGIN Molly
+#ifdef MOLLY
   if (auto cxxRecord = dyn_cast<CXXRecordDecl>(RD)) {
     getMollyGen().annotateFieldType(cxxRecord, Ty);
   }
-  // END Molly
+#endif /* MOLLY */
 
   return Ty;
 }

@@ -13,6 +13,7 @@ namespace llvm {
   class MDNode;
   class Module;
   class Type;
+  class Value;
 } // namespace llvm
 
 namespace clang {
@@ -34,13 +35,23 @@ namespace clang {
 
     //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
     class FieldTypeMetadata {
+    protected:
+      llvm::Value *makeValueFromType(llvm::Type *ty);
+      llvm::Type *extractTypeFromValue(llvm::Value *val);
+
     public:
       FieldTypeMetadata();
-      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, llvm::ArrayRef<int> dims);
+      FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, uint64_t eltSize, llvm::ArrayRef<int> dims);
 
       const clang::CXXRecordDecl *clangDecl;
       llvm::StructType *llvmType;
+
+      // Future versions may have different element types depending on coordinate (e.g. at one level there is a struct)
+      // In this case, we'd add a isl_set that defines for which elements it is valid
       llvm::Type *llvmEltType;
+      // In principle, the element size should be enough, but maybe we can do some more optimizations if we know the exact type. It also saves us from too much casting
+      uint64_t eltSize; // In bytes
+
       llvm::SmallVector<int, 4> dimLengths;
 
       llvm::Function *funcGetLocal;

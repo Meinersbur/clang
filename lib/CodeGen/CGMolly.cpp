@@ -27,6 +27,7 @@ FieldTypeMetadata::FieldTypeMetadata() {
   this->clangDecl = NULL;
   this->llvmType = NULL;
   this->llvmEltType = NULL;
+  this->eltSize = -1;
 
   this->funcGetLocal = NULL;
   this->funcSetLocal = NULL;
@@ -38,12 +39,13 @@ FieldTypeMetadata::FieldTypeMetadata() {
 }
 
 
-FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, llvm::ArrayRef<int> dims) {
+FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, uint64_t eltSize, llvm::ArrayRef<int> dims) {
   assert(clangDecl);
   assert(llvmType);
   this->clangDecl = clangDecl;
   this->llvmType = llvmType;
   this->llvmEltType = llvmEltType;
+  this->eltSize = eltSize;
   dimLengths.append(dims.begin(), dims.end());
 
   this->funcGetLocal = NULL;
@@ -54,6 +56,27 @@ FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm
   this->funcSetMaster = NULL;
   this->funcIslocal = NULL;
 }
+
+
+llvm::Value *FieldTypeMetadata::makeValueFromType(llvm::Type *ty) {
+  // Types cannot be directly inserted into an MDNode
+  // Instead we create a dummy function with a return type that is a pointer to the type to be represented
+ 
+  //auto &llvmContext = ty->getContext();
+  auto funcTy = llvm::FunctionType::get(llvm::PointerType::getUnqual(ty) ,false); 
+  auto func = Function::Create(funcTy, GlobalValue::PrivateLinkage, "TypeRepresentative");
+return func;
+}
+
+
+llvm::Type *FieldTypeMetadata::extractTypeFromValue(llvm::Value *val) {
+  auto funcTy = cast<llvm::FunctionType>(val->getType()->getPointerElementType());
+  assert(funcTy->getNumParams() == 0);
+  auto ptrTy = funcTy->getReturnType();
+  assert(ptrTy->isPointerTy());
+  return ptrTy->getPointerElementType();
+}
+
 
 
 llvm::MDNode *FieldTypeMetadata::buildMetadata() {
@@ -80,8 +103,9 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
     /*[ 8]*/funcSetBroadcast,
     /*[ 9]*/funcGetMaster,
     /*[10]*/funcSetMaster,
-    /*[11]*/funcIslocal
-    ///*[12]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), llvmEltType-> )
+    /*[11]*/funcIslocal,
+    /*[12]*/makeValueFromType(llvmEltType),
+    /*[13]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), eltSize)
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
   return fieldNode;
@@ -110,12 +134,17 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
     auto len = lenMD->getLimitedValue();
     dimLengths.push_back(len);
   }
-  funcGetLocal = NULL; funcSetLocal = NULL;
+  funcGetLocal = cast_or_null<llvm::Function>(metadata->getOperand(5)); 
+  funcSetLocal = cast_or_null<llvm::Function>(metadata->getOperand(6));
   funcGetBroadcast = cast<llvm::Function>(metadata->getOperand(7));
   funcSetBroadcast = cast<llvm::Function>(metadata->getOperand(8));
   funcGetMaster = cast<llvm::Function>(metadata->getOperand(9));
   funcSetMaster = cast<llvm::Function>(metadata->getOperand(10));
   funcIslocal = cast<llvm::Function>(metadata->getOperand(11));
+
+  this->llvmEltType = extractTypeFromValue(metadata->getOperand(12));
+  auto eltSizeMD = dyn_cast<llvm::ConstantInt>(metadata->getOperand(13));
+  this->eltSize = eltSizeMD->getLimitedValue();
 
   //auto llvmEltTyID = dyn_cast<llvm::ConstantInt>(metadata->getOperand(12));
   //auto llvmEltIdMD = dyn_cast<MDString>(metadata->getOperand(12));
@@ -268,8 +297,9 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   auto eltTypedef = cast<TypedefDecl>(findMember(cgm, clangType, "ElementType"));
   auto eltType = clangContext.getTypeDeclType(eltTypedef);
   auto llvmEltType = cgm->getTypes().ConvertType(clangContext.getTypeDeclType(eltTypedef));
-
-  fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, lengths);
+  auto eltSize = cgm->getDataLayout().getTypeAllocSize(llvmEltType);
+ 
+  fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, eltSize, lengths);
   return;
 
 
