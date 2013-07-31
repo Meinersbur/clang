@@ -1580,11 +1580,12 @@ unsigned SourceManager::getFileIDSize(FileID FID) const {
 ///
 /// This routine involves a system call, and therefore should only be used
 /// in non-performance-critical code.
-static Optional<uint64_t> getActualFileUID(const FileEntry *File) {
+static Optional<llvm::sys::fs::UniqueID>
+getActualFileUID(const FileEntry *File) {
   if (!File)
     return None;
 
-  uint64_t ID;
+  llvm::sys::fs::UniqueID ID;
   if (llvm::sys::fs::getUniqueID(File->getName(), ID))
     return None;
 
@@ -1617,7 +1618,7 @@ FileID SourceManager::translateFile(const FileEntry *SourceFile) const {
 
   // First, check the main file ID, since it is common to look for a
   // location in the main file.
-  Optional<uint64_t> SourceFileUID;
+  Optional<llvm::sys::fs::UniqueID> SourceFileUID;
   Optional<StringRef> SourceFileName;
   if (!MainFileID.isInvalid()) {
     bool Invalid = false;
@@ -1640,7 +1641,8 @@ FileID SourceManager::translateFile(const FileEntry *SourceFile) const {
         if (*SourceFileName == llvm::sys::path::filename(MainFile->getName())) {
           SourceFileUID = getActualFileUID(SourceFile);
           if (SourceFileUID) {
-            if (Optional<uint64_t> MainFileUID = getActualFileUID(MainFile)) {
+            if (Optional<llvm::sys::fs::UniqueID> MainFileUID =
+                    getActualFileUID(MainFile)) {
               if (*SourceFileUID == *MainFileUID) {
                 FirstFID = MainFileID;
                 SourceFile = MainFile;
@@ -1703,7 +1705,8 @@ FileID SourceManager::translateFile(const FileEntry *SourceFile) const {
       const FileEntry *Entry =FileContentCache? FileContentCache->OrigEntry : 0;
         if (Entry && 
             *SourceFileName == llvm::sys::path::filename(Entry->getName())) {
-          if (Optional<uint64_t> EntryUID = getActualFileUID(Entry)) {
+          if (Optional<llvm::sys::fs::UniqueID> EntryUID =
+                  getActualFileUID(Entry)) {
             if (*SourceFileUID == *EntryUID) {
               FirstFID = FileID::get(I);
               SourceFile = Entry;
@@ -1731,7 +1734,7 @@ SourceLocation SourceManager::translateLineCol(FileID FID,
   const SLocEntry &Entry = getSLocEntry(FID, &Invalid);
   if (Invalid)
     return SourceLocation();
-  
+
   if (!Entry.isFile())
     return SourceLocation();
 
@@ -1744,7 +1747,7 @@ SourceLocation SourceManager::translateLineCol(FileID FID,
     = const_cast<ContentCache *>(Entry.getFile().getContentCache());
   if (!Content)
     return SourceLocation();
-    
+
   // If this is the first use of line information for this buffer, compute the
   // SourceLineCache for it on demand.
   if (Content->SourceLineCache == 0) {
@@ -1773,10 +1776,7 @@ SourceLocation SourceManager::translateLineCol(FileID FID,
   // Check that the given column is valid.
   while (i < BufLength-1 && i < Col-1 && Buf[i] != '\n' && Buf[i] != '\r')
     ++i;
-  if (i < Col-1)
-    return FileLoc.getLocWithOffset(FilePos + i);
-
-  return FileLoc.getLocWithOffset(FilePos + Col - 1);
+  return FileLoc.getLocWithOffset(FilePos + i);
 }
 
 /// \brief Compute a map of macro argument chunks to their expanded source

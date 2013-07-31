@@ -1765,13 +1765,9 @@ def err_suppress_autosynthesis : Error<
   "to a class declaration">;
 def err_attribute_too_few_arguments : Error<
   "attribute takes at least %0 argument%s0">;
-def err_attribute_missing_parameter_name : Error<
-  "attribute requires unquoted parameter">;
 def err_attribute_invalid_vector_type : Error<"invalid vector element type %0">;
 def err_attribute_bad_neon_vector_size : Error<
   "Neon vector size must be 64 or 128 bits">;
-def err_attribute_argument_not_int : Error<
-  "'%0' attribute requires integer constant">;
 def err_aligned_attribute_argument_not_int : Error<
   "'aligned' attribute requires integer constant">;
 def err_alignas_attribute_wrong_decl_type : Error<
@@ -1790,6 +1786,9 @@ def err_alignas_underaligned : Error<
 def err_attribute_argument_n_type : Error<
   "%0 attribute requires parameter %1 to be %select{int or bool|an integer "
   "constant|a string|an identifier}2">;
+def err_attribute_argument_type : Error<
+  "%0 attribute requires %select{int or bool|an integer "
+  "constant|a string|an identifier}1">;
 def err_attribute_argument_outof_range : Error<
   "init_priority attribute requires integer constant between "
   "101 and 65535 inclusive">;
@@ -1854,8 +1853,6 @@ def err_field_with_address_space : Error<
   "field may not be qualified with an address space">;
 def err_attr_objc_ownership_redundant : Error<
   "the type %0 is already explicitly ownership-qualified">;
-def err_attribute_not_string : Error<
-  "argument to %0 attribute was not a string literal">;
 def err_undeclared_nsnumber : Error<
   "NSNumber must be available to use Objective-C literals">;
 def err_invalid_nsnumber_type : Error<
