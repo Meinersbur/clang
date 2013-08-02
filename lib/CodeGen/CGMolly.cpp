@@ -17,10 +17,63 @@
 #include "llvm/ADT/SmallVector.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/Decl.h"
+#include "clang/CodeGen/MollyRuntimeMetadata.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
 using namespace llvm;
+
+
+
+
+void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule) {
+  auto metadata = llvmModule->getNamedMetadata("llvm.runtime");
+  assert(metadata->getNumOperands()==1);
+  readMetadata(llvmModule, metadata->getOperand(0));
+}
+
+
+void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
+  assert( metadata->getNumOperands()==2);
+  this->tyCombuf = extractTypeFromValue(metadata->getOperand(0));
+  this->tyRank = extractTypeFromValue(metadata->getOperand(1));
+  this->funcCreateSendCombuf = cast<Function>(metadata->getOperand(3));
+   this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
+  this->funcCombufSend = cast<Function>(metadata->getOperand(5));
+  this->funcCombufRecv = cast<Function>(metadata->getOperand(6));
+}
+
+#if 0
+llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
+  auto &llvmContext = tyCombuf->getContext();
+  auto metadata = llvmModule-> getOrInsertNamedMetadata("molly.runtime");
+  assert(metadata->getNumOperands()==0);
+
+  metadata->addOperand(llvm::MDNode::get(llvmContext,  makeValueFromType(tyCombuf));
+}
+#endif
+
+llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
+  auto &llvmContext = tyCombuf->getContext();
+
+  llvm::Value* metadata[] = {
+    /*[ 0]*/makeValueFromType(tyCombuf),
+    /*[ 1]*/makeValueFromType(tyRank),
+    /*[ 2]*/funcCreateSendCombuf,
+    /*[ 3]*/funcCreateRecvCombuf,
+    /*[ 4]*/funcCombufSend,
+    /*[ 5]*/funcCombufRecv
+  };
+  llvm::MDNode *metadataNode = llvm::MDNode::get(llvmContext, metadata);
+  return metadataNode;
+}
+
+
+void MollyRuntimeMetadata::addMetadata(llvm::Module *llvmModule){
+  auto metadata = llvmModule-> getOrInsertNamedMetadata("molly.runtime");
+  assert(metadata->getNumOperands()==0);
+  metadata->addOperand(buildMetadata(llvmModule));
+}
 
 
 FieldTypeMetadata::FieldTypeMetadata() {
@@ -36,6 +89,7 @@ FieldTypeMetadata::FieldTypeMetadata() {
   this->funcGetMaster = NULL;
   this->funcSetMaster = NULL;
   this->funcIslocal = NULL;
+  this->funcPtrLocal = nullptr;
 }
 
 
@@ -55,28 +109,28 @@ FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm
   this->funcGetMaster = NULL;
   this->funcSetMaster = NULL;
   this->funcIslocal = NULL;
+  this->funcPtrLocal = nullptr;
 }
 
 
-llvm::Value *FieldTypeMetadata::makeValueFromType(llvm::Type *ty) {
+llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty) {
   // Types cannot be directly inserted into an MDNode
   // Instead we create a dummy function with a return type that is a pointer to the type to be represented
- 
+
   //auto &llvmContext = ty->getContext();
   auto funcTy = llvm::FunctionType::get(llvm::PointerType::getUnqual(ty) ,false); 
   auto func = Function::Create(funcTy, GlobalValue::PrivateLinkage, "TypeRepresentative");
-return func;
+  return func;
 }
 
 
-llvm::Type *FieldTypeMetadata::extractTypeFromValue(llvm::Value *val) {
+llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
   auto funcTy = cast<llvm::FunctionType>(val->getType()->getPointerElementType());
   assert(funcTy->getNumParams() == 0);
   auto ptrTy = funcTy->getReturnType();
   assert(ptrTy->isPointerTy());
   return ptrTy->getPointerElementType();
 }
-
 
 
 llvm::MDNode *FieldTypeMetadata::buildMetadata() {
@@ -105,7 +159,8 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
     /*[10]*/funcSetMaster,
     /*[11]*/funcIslocal,
     /*[12]*/makeValueFromType(llvmEltType),
-    /*[13]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), eltSize)
+    /*[13]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), eltSize),
+    /*[14]*/funcPtrLocal
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
   return fieldNode;
@@ -117,7 +172,7 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   assert(magic->getString() == "field");
 
   auto clangNameMD = dyn_cast<MDString>(metadata->getOperand(1));
-  auto clangName = clangNameMD->getString();
+  clangTypeName = clangNameMD->getString();
 
   auto llvmNameMD = dyn_cast<MDString>(metadata->getOperand(2));
   auto llvmName = llvmNameMD->getString();
@@ -146,6 +201,8 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   auto eltSizeMD = dyn_cast<llvm::ConstantInt>(metadata->getOperand(13));
   this->eltSize = eltSizeMD->getLimitedValue();
 
+  funcPtrLocal = cast<llvm::Function>(metadata->getOperand(14));
+
   //auto llvmEltTyID = dyn_cast<llvm::ConstantInt>(metadata->getOperand(12));
   //auto llvmEltIdMD = dyn_cast<MDString>(metadata->getOperand(12));
   //Type::get
@@ -170,44 +227,6 @@ static NamedDecl *findMember(CodeGenModule *cgm, const clang::CXXRecordDecl *cxx
   assert(lures.size() == 1);
   auto named = lures[0];
   return named;
-}
-
-
-static Function *findTemplateMethod(CodeGenModule *cgm, const clang::CXXRecordDecl *cxxRecord, const char *funcname) {
-#if 0
-  auto astContext = &cgm->getContext();
-  auto ident = &astContext->Idents.get(funcname);
-  auto declname = astContext->DeclarationNames.getIdentifier(ident);
-  auto lures = cxxRecord->lookup(declname); // Does this also lookup in base classes?
-  if (lures.empty())
-    return NULL;
-  assert(lures.size() == 1);
-  auto named = lures[0];
-
-
-  if (auto tmpl = dyn_cast<FunctionTemplateDecl>(named)) {
-    auto tmplfunc = cast<CXXMethodDecl>(tmpl->getTemplatedDecl());
-
-    tmpl->findSpecialization( 
-
-      //cgm->Sema->DeduceTemplateArguments
-      // Sema->MarkFunctionReferenced
-      //PendingLocalImplicitInstantiations
-      //PendingInstantiations
-      //InstantiateFunctionDefinition
-      // PerformPendingInstantiations
-  } 
-
-
-
-
-  // This part is actually more complicated to get a function type for methods; for our special case, this should be enough
-  auto FInfo = &cgm->getTypes().arrangeCXXMethodDeclaration(clangreffunc);
-  auto Ty = cgm->getTypes().GetFunctionType(*FInfo);
-
-  auto refFunc = cgm->GetAddrOfFunction(clangreffunc, Ty);
-  return cast<Function>(refFunc);
-#endif
 }
 
 
@@ -298,61 +317,13 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   auto eltType = clangContext.getTypeDeclType(eltTypedef);
   auto llvmEltType = cgm->getTypes().ConvertType(clangContext.getTypeDeclType(eltTypedef));
   auto eltSize = cgm->getDataLayout().getTypeAllocSize(llvmEltType);
- 
+
   fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, eltSize, lengths);
   return;
 
 
   // Get the metadata node
   llvm::NamedMDNode *fieldsMetadata = cgm->getModule().getOrInsertNamedMetadata("molly.fields");
-
-  // Create metadata info
-  //llvm::MDNode *lengthsNode = llvm::MDNode::get(llvmContext, lengthsAsVals);
-
-  //CXXBasePaths paths;
-  //paths.setOrigin(cxxRecord);
-
-#if 0
-  auto ptrMember = findMember(cgm, cxxRecord, "ptr");
-  auto ptrTempl = cast<FunctionTemplateDecl>(ptrMember);
-  void *insertpos;
-  SmallVector<TemplateArgument, 4>  ptrParamList;
-  for (auto i=dims-dims;i<dims;i+=1) {
-    TemplateArgument intparam(clangContext.IntTy);
-    ptrParamList.push_back(intparam);
-  }
-  TemplateArgument ptrArgs(ptrParamList.data(), ptrParamList.size());
-  auto ptrSpez = ptrTempl->findSpecialization(&ptrArgs, lengths.size(),insertpos);
-  assert(ptrSpez && "Member not generated");
-  auto ptrFunc = clangFunction2llvmFunction(cgm, ptrSpez);
-  if (ptrFunc) {
-    addAddtribute(&llvmContext, ptrFunc, "molly_ptr");
-  }
-#endif
-#if 0
-  auto refFunc = findMethod(cgm, cxxRecord, "ref"); 
-  if (refFunc) { 
-    addAddtribute(&llvmContext, refFunc, "molly_ref");
-    assert(refFunc->getAttributes().hasAttribute(AttributeSet::FunctionIndex, "molly_ref"));
-  }
-
-  auto ptrFunc = findMethod(cgm, cxxRecord, "ptr"); 
-  if (ptrFunc) { 
-    addAddtribute(&llvmContext, ptrFunc, "molly_ptr");
-  }
-
-
-  //refFunc->hasExternalLinkage();
-  //refFunc->setLinkage(GlobalValue::ExternalLinkage); // Avoid not being emitted
-  auto islocalFunc = findMethod(cgm, cxxRecord, "isLocal"); 
-  //islocalFunc->setLinkage(GlobalValue::ExternalLinkage);
-  if (islocalFunc) 
-    addAddtribute(&llvmContext, islocalFunc, "molly_islocal");
-
-  auto getrankofFunc = findMethod(cgm, cxxRecord, "getRankOf"); 
-  if (getrankofFunc) 
-    addAddtribute(&llvmContext, getrankofFunc, "molly_getrankof");
-#endif
 
   llvm::Value* metadata[] = {
     llvm::MDString::get(llvmContext, "field"), // Just for testing
@@ -364,8 +335,6 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
     NULL
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
-  //assert(fieldDeclToMetadata.find(clangType) == fieldDeclToMetadata.end());
-  //fieldDeclToMetadata[clangType] = fieldNode;
 
   // Append the the metadata to the module, so this metadata does not get optimized away as unused
   fieldsMetadata->addOperand(fieldNode);
@@ -384,9 +353,9 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
 
   if (clangFunc->hasAttr<MollyInlineAttr>()) {
     ab.addAttribute("molly_inline");
-    DEBUG(dbgs() << "    Inlinable Func:" << clangFunc->getNameAsString() << "\n");
+    //DEBUG(dbgs() << "    Inlinable Func:" << clangFunc->getNameAsString() << "\n");
   } else {
-    DEBUG(dbgs() << "NOT Inlinable Func:" << clangFunc->getNameAsString() << "\n");
+    //DEBUG(dbgs() << "NOT Inlinable Func:" << clangFunc->getNameAsString() << "\n");
   }
 
   auto clangFieldDecl = dyn_cast<CXXRecordDecl>(clangFunc->getParent());
@@ -449,9 +418,27 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
       assert(!field->funcIslocal && "Just one function implementation for Molly specials"); 
       field->funcIslocal = llvmFunc; //TODO: Check function signature
     }
+
+    if (clangFunc->hasAttr<MollyPtrLocalAttr>()) {
+      ab.addAttribute("molly_ptrlocalfunc");
+      assert(!field->funcPtrLocal && "Just one function implementation for Molly specials"); 
+      field->funcPtrLocal = llvmFunc;
+    }
   }
 
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
+}
+
+
+clang::FunctionDecl *CodeGenMolly::findGlobalFunction(const char *name) {
+    auto clangContext = &cgm->getContext();
+    auto clangModule = clangContext->getTranslationUnitDecl();
+
+  auto ident = &clangContext->Idents.get(name);
+  auto declName = DeclarationName(ident);
+  auto lookup = clangModule->lookup(declName);
+   assert(!lookup.empty());
+   return cast<FunctionDecl>( *lookup.begin());//FIXME: What if multiple are found?
 }
 
 
@@ -465,6 +452,34 @@ void CodeGenMolly::EmitMetadata() {
 
     fieldsMetadata->addOperand(field->buildMetadata());
   }
+
+  auto module = &cgm->getModule();
+  auto clangContext = &cgm->getContext();
+  auto clangModule = clangContext->getTranslationUnitDecl();
+  //auto declCtx = clangModule->getDeclContext();
+
+  auto x= &clangContext->Idents.get("__molly_combuf_send");
+  auto dn= DeclarationName(x);
+  auto lu = clangModule->lookup(dn);
+  assert(!lu.empty());
+  auto clangCombufSend = cast<FunctionDecl>( *lu.begin());
+  auto llvmCombufSend = clangFunction2llvmFunction(cgm, clangCombufSend);
+
+  auto rankIdent = &clangContext->Idents.get("rank_t");
+  auto rankName = DeclarationName(rankIdent);
+  auto rankLu = clangModule->lookup(rankName);
+   assert(!lu.empty());
+   auto rankClangDecl = *rankLu.begin();
+   auto rankTy = cgm->getTypes().ConvertType(clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl))  ); //FIXME: Accept other type declarations, not just typedef
+
+  MollyRuntimeMetadata rtMetadata;
+  rtMetadata.tyCombuf = llvmCombufSend->front().getType();
+  rtMetadata.tyRank = rankTy;
+  rtMetadata.funcCreateSendCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_sendcombuf_create"));
+    rtMetadata.funcCreateRecvCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_recvcombuf_create"));
+  rtMetadata.funcCombufSend = llvmCombufSend;
+ rtMetadata.funcCombufRecv = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_recv"));
+  rtMetadata.addMetadata(&cgm->getModule());
 }
 
 

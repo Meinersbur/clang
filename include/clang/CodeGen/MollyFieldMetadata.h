@@ -33,16 +33,19 @@ namespace clang {
 namespace clang {
   namespace CodeGen {
 
+    llvm::Value *makeValueFromType(llvm::Type *ty);
+    llvm::Type *extractTypeFromValue(llvm::Value *val);
+
     //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
     class FieldTypeMetadata {
     protected:
-      llvm::Value *makeValueFromType(llvm::Type *ty);
-      llvm::Type *extractTypeFromValue(llvm::Value *val);
+
 
     public:
       FieldTypeMetadata();
       FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, uint64_t eltSize, llvm::ArrayRef<int> dims);
 
+      std::string clangTypeName;
       const clang::CXXRecordDecl *clangDecl;
       llvm::StructType *llvmType;
 
@@ -61,6 +64,7 @@ namespace clang {
       llvm::Function *funcGetMaster;
       llvm::Function *funcSetMaster;
       llvm::Function *funcIslocal;
+      llvm::Function *funcPtrLocal;
 
       llvm::MDNode *buildMetadata();
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);

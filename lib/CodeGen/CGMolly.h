@@ -37,13 +37,11 @@ namespace clang {
       void operator=(const CodeGenMolly &) LLVM_DELETED_FUNCTION;
 
       CodeGenModule *cgm;
-      //llvm::DenseMap<const clang::RecordDecl*, llvm::MDNode*> fieldDeclToMetadata;
       llvm::DenseMap<const clang::CXXRecordDecl*, FieldTypeMetadata*> fieldsFound;
+      clang::FunctionDecl *findGlobalFunction(const char *);
 
     public:
-      CodeGenMolly(CodeGenModule *cgm) {
-        this->cgm = cgm;
-      }
+      CodeGenMolly(CodeGenModule *cgm)  : cgm(cgm) { }
       ~CodeGenMolly();
 
       void annotateFieldType(const clang::CXXRecordDecl *clangType, llvm::StructType *llvmType);
@@ -53,6 +51,7 @@ namespace clang {
 
       void EmitMetadata();
     }; // class CodeGenMolly
+
   } // namespace CodeGen
 } // namespace clang
 #endif /* CLANG_CODEGEN_CGMOLLY_H */

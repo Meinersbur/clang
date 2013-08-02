@@ -448,7 +448,7 @@ def fbracket_depth_EQ : Joined<["-"], "fbracket-depth=">, Group<f_Group>;
 def fsignaling_math : Flag<["-"], "fsignaling-math">, Group<f_Group>;
 def fno_signaling_math : Flag<["-"], "fno-signaling-math">, Group<f_Group>;
 def fsanitize_EQ : CommaJoined<["-"], "fsanitize=">, Group<f_clang_Group>,
-                   Flags<[CC1Option,NoForward]>, MetaVarName<"<check>">,
+                   Flags<[CC1Option]>, MetaVarName<"<check>">,
                    HelpText<"Enable runtime instrumentation for bug detection: "
                             "address (memory errors) | thread (race detection) | "
                             "undefined (miscellaneous undefined behavior)">;
@@ -926,7 +926,7 @@ def mios_simulator_version_min_EQ : Joined<["-"], "mios-simulator-version-min=">
 def mkernel : Flag<["-"], "mkernel">, Group<m_Group>;
 def mlinker_version_EQ : Joined<["-"], "mlinker-version=">,
   Flags<[DriverOption]>;
-def mllvm : Separate<["-"], "mllvm">, Flags<[CC1Option, NoForward]>,
+def mllvm : Separate<["-"], "mllvm">, Flags<[CC1Option]>,
   HelpText<"Additional arguments to forward to LLVM's option processing">;
 def mmacosx_version_min_EQ : Joined<["-"], "mmacosx-version-min=">, Group<m_Group>;
 def mms_bitfields : Flag<["-"], "mms-bitfields">, Group<m_Group>, Flags<[CC1Option]>,
