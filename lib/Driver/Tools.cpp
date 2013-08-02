@@ -3453,9 +3453,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_vectorize, true))
     CmdArgs.push_back("-vectorize-loops");
 
-  // -fno-slp-vectorize is default.
+  // -fslp-vectorize is default.
   if (Args.hasFlag(options::OPT_fslp_vectorize,
-                   options::OPT_fno_slp_vectorize, false))
+                   options::OPT_fno_slp_vectorize, true))
     CmdArgs.push_back("-vectorize-slp");
 
   // -fno-slp-vectorize-aggressive is default.
@@ -3632,6 +3632,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // care to warn the user about.
   Args.ClaimAllArgs(options::OPT_clang_ignored_f_Group);
   Args.ClaimAllArgs(options::OPT_clang_ignored_m_Group);
+
+  // Claim ignored clang-cl options.
+  Args.ClaimAllArgs(options::OPT_cl_ignored_Group);
 
   // Disable warnings for clang -E -use-gold-plugin -emit-llvm foo.c
   Args.ClaimAllArgs(options::OPT_use_gold_plugin);
