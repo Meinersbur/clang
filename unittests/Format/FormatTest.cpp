@@ -5167,6 +5167,11 @@ TEST_F(FormatTest, BreakStringLiterals) {
                    "aaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaa "
                    "aaaaaaaaaaaaaaaaaaaaaa\");",
                    getGoogleStyle()));
+  EXPECT_EQ("llvm::outs() << \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \"\n"
+            "                \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";",
+            format("llvm::outs() << "
+                   "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaa"
+                   "aaaaaaaaaaaaaaaaaaa\";"));
 
   FormatStyle AlignLeft = getLLVMStyleWithColumns(12);
   AlignLeft.AlignEscapedNewlinesLeft = true;
@@ -5446,6 +5451,84 @@ TEST_F(FormatTest, StroustrupBraceBreaking) {
                "  }\n"
                "}\n"
                "}",
+               BreakBeforeBrace);
+}
+
+TEST_F(FormatTest, AllmanBraceBreaking) {
+  FormatStyle BreakBeforeBrace = getLLVMStyle();
+  BreakBeforeBrace.BreakBeforeBraces = FormatStyle::BS_Allman;
+  verifyFormat("namespace a\n"
+               "{\n"
+               "class A\n"
+               "{\n"
+               "  void f()\n"
+               "  {\n"
+               "    if (true)\n"
+               "    {\n"
+               "      a();\n"
+               "      b();\n"
+               "    }\n"
+               "  }\n"
+               "  void g()\n"
+               "  {\n"
+               "    return;\n"
+               "  }\n"
+               "}\n"
+               "}",
+               BreakBeforeBrace);
+
+  verifyFormat("void f()\n"
+               "{\n"
+               "  if (true)\n"
+               "  {\n"
+               "    a();\n"
+               "  }\n"
+               "  else if (false)\n"
+               "  {\n"
+               "    b();\n"
+               "  }\n"
+               "  else\n"
+               "  {\n"
+               "    c();\n"
+               "  }\n"
+               "}\n",
+               BreakBeforeBrace);
+
+  verifyFormat("void f()\n"
+               "{\n"
+               "  for (int i = 0; i < 10; ++i)\n"
+               "  {\n"
+               "    a();\n"
+               "  }\n"
+               "  while (false)\n"
+               "  {\n"
+               "    b();\n"
+               "  }\n"
+               "  do\n"
+               "  {\n"
+               "    c();\n"
+               "  } while (false)\n"
+               "}\n",
+               BreakBeforeBrace);
+
+  verifyFormat("void f(int a)\n"
+               "{\n"
+               "  switch (a)\n"
+               "  {\n"
+               "  case 0:\n"
+               "    break;\n"
+               "  case 1:\n"
+               "  {\n"
+               "    break;\n"
+               "  }\n"
+               "  case 2:\n"
+               "  {\n"
+               "  }\n"
+               "  break;\n"
+               "  default:\n"
+               "    break;\n"
+               "  }\n"
+               "}\n",
                BreakBeforeBrace);
 }
 
