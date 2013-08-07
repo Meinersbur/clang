@@ -24,45 +24,36 @@ using namespace clang::CodeGen;
 using namespace llvm;
 
 
-
-
 void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule) {
-  auto metadata = llvmModule->getNamedMetadata("llvm.runtime");
+  auto metadata = llvmModule->getNamedMetadata("molly.runtime");
   assert(metadata->getNumOperands()==1);
   readMetadata(llvmModule, metadata->getOperand(0));
 }
 
 
 void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
-  assert( metadata->getNumOperands()==2);
-  this->tyCombuf = extractTypeFromValue(metadata->getOperand(0));
-  this->tyRank = extractTypeFromValue(metadata->getOperand(1));
+  this->tyCombufSend = extractTypeFromValue(metadata->getOperand(0));
+  this->tyCombufRecv = extractTypeFromValue(metadata->getOperand(1));
+  this->tyRank = extractTypeFromValue(metadata->getOperand(2));
   this->funcCreateSendCombuf = cast<Function>(metadata->getOperand(3));
-   this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
+  this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
   this->funcCombufSend = cast<Function>(metadata->getOperand(5));
   this->funcCombufRecv = cast<Function>(metadata->getOperand(6));
+  assert( metadata->getNumOperands()==7);
 }
 
-#if 0
-llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
-  auto &llvmContext = tyCombuf->getContext();
-  auto metadata = llvmModule-> getOrInsertNamedMetadata("molly.runtime");
-  assert(metadata->getNumOperands()==0);
-
-  metadata->addOperand(llvm::MDNode::get(llvmContext,  makeValueFromType(tyCombuf));
-}
-#endif
 
 llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
-  auto &llvmContext = tyCombuf->getContext();
+  auto &llvmContext = llvmModule->getContext();
 
   llvm::Value* metadata[] = {
-    /*[ 0]*/makeValueFromType(tyCombuf),
-    /*[ 1]*/makeValueFromType(tyRank),
-    /*[ 2]*/funcCreateSendCombuf,
-    /*[ 3]*/funcCreateRecvCombuf,
-    /*[ 4]*/funcCombufSend,
-    /*[ 5]*/funcCombufRecv
+    /*[ 0]*/makeValueFromType(tyCombufSend),
+    /*[ 1]*/makeValueFromType(tyCombufRecv),
+    /*[ 2]*/makeValueFromType(tyRank),
+    /*[ 3]*/funcCreateSendCombuf,
+    /*[ 4]*/funcCreateRecvCombuf,
+    /*[ 5]*/funcCombufSend,
+    /*[ 6]*/funcCombufRecv
   };
   llvm::MDNode *metadataNode = llvm::MDNode::get(llvmContext, metadata);
   return metadataNode;
@@ -202,11 +193,6 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   this->eltSize = eltSizeMD->getLimitedValue();
 
   funcPtrLocal = cast<llvm::Function>(metadata->getOperand(14));
-
-  //auto llvmEltTyID = dyn_cast<llvm::ConstantInt>(metadata->getOperand(12));
-  //auto llvmEltIdMD = dyn_cast<MDString>(metadata->getOperand(12));
-  //Type::get
-  //llvmEltType = llvmModule->getTypeByName(llvmEltName);
 }
 
 
@@ -231,12 +217,16 @@ static NamedDecl *findMember(CodeGenModule *cgm, const clang::CXXRecordDecl *cxx
 
 
 static Function *clangFunction2llvmFunction(CodeGenModule *cgm, FunctionDecl *clangFunc) {
-  auto method = cast<CXXMethodDecl>(clangFunc);
-  // This part is actually more complicated to get a function type for methods; for our special case, this should be enough
-  auto FInfo = &cgm->getTypes().arrangeCXXMethodDeclaration(method);
-  auto Ty = cgm->getTypes().GetFunctionType(*FInfo);
+  if (isa<CXXMethodDecl>(clangFunc)) {
+    auto method = cast<CXXMethodDecl>(clangFunc);
+    // This part is actually more complicated to get a function type for methods; for our special case, this should be enough
+    auto FInfo = &cgm->getTypes().arrangeCXXMethodDeclaration(method);
+    auto ty = cgm->getTypes().GetFunctionType(*FInfo);
+    auto llvmFunc = cgm->GetAddrOfFunction(clangFunc, ty);
+    return cast<Function>(llvmFunc);
+  }
 
-  auto llvmFunc = cgm->GetAddrOfFunction(clangFunc, Ty);
+  auto llvmFunc = cgm->GetAddrOfFunction(clangFunc);
   return cast<Function>(llvmFunc);
 }
 
@@ -431,14 +421,35 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
 
 
 clang::FunctionDecl *CodeGenMolly::findGlobalFunction(const char *name) {
-    auto clangContext = &cgm->getContext();
-    auto clangModule = clangContext->getTranslationUnitDecl();
+  auto clangContext = &cgm->getContext();
+  auto clangModule = clangContext->getTranslationUnitDecl();
 
   auto ident = &clangContext->Idents.get(name);
   auto declName = DeclarationName(ident);
   auto lookup = clangModule->lookup(declName);
-   assert(!lookup.empty());
-   return cast<FunctionDecl>( *lookup.begin());//FIXME: What if multiple are found?
+  assert(!lookup.empty());
+  return cast<FunctionDecl>( *lookup.begin());//FIXME: What if multiple are found?
+}
+
+
+clang::QualType CodeGenMolly::findMollyType(const char *name) {
+  auto module = &cgm->getModule();
+  auto clangContext = &cgm->getContext();
+  auto clangModule = clangContext->getTranslationUnitDecl();
+
+  auto mollyIdent = &clangContext->Idents.get("molly");
+  auto mollyName = DeclarationName(mollyIdent);
+  auto mollyLu = clangModule->lookup(mollyName);
+  assert(!mollyLu.empty());
+  auto mollyNamespace = cast<NamespaceDecl>(*mollyLu.begin());
+
+  auto rankIdent = &clangContext->Idents.get(name);
+  auto rankName = DeclarationName(rankIdent);
+  auto rankLu = mollyNamespace->lookup(rankName);
+  assert(!rankLu.empty());
+  auto rankClangDecl = *rankLu.begin();
+  auto typedefTy = clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl)) ; //FIXME: Accept other type declarations, not just typedef
+  return typedefTy;
 }
 
 
@@ -453,6 +464,7 @@ void CodeGenMolly::EmitMetadata() {
     fieldsMetadata->addOperand(field->buildMetadata());
   }
 
+#if 0
   auto module = &cgm->getModule();
   auto clangContext = &cgm->getContext();
   auto clangModule = clangContext->getTranslationUnitDecl();
@@ -465,20 +477,28 @@ void CodeGenMolly::EmitMetadata() {
   auto clangCombufSend = cast<FunctionDecl>( *lu.begin());
   auto llvmCombufSend = clangFunction2llvmFunction(cgm, clangCombufSend);
 
+  auto mollyIdent = &clangContext->Idents.get("molly");
+  auto mollyName = DeclarationName(mollyIdent);
+  auto mollyLu = clangModule->lookup(mollyName);
+  assert(!mollyLu.empty());
+  auto mollyNamespace = cast<NamespaceDecl>(*mollyLu.begin());
+
   auto rankIdent = &clangContext->Idents.get("rank_t");
   auto rankName = DeclarationName(rankIdent);
-  auto rankLu = clangModule->lookup(rankName);
-   assert(!lu.empty());
-   auto rankClangDecl = *rankLu.begin();
-   auto rankTy = cgm->getTypes().ConvertType(clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl))  ); //FIXME: Accept other type declarations, not just typedef
+  auto rankLu = mollyNamespace->lookup(rankName);
+  assert(!rankLu.empty());
+  auto rankClangDecl = *rankLu.begin();
+  auto rankTy = cgm->getTypes().ConvertType(clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl))  ); //FIXME: Accept other type declarations, not just typedef
+#endif
 
   MollyRuntimeMetadata rtMetadata;
-  rtMetadata.tyCombuf = llvmCombufSend->front().getType();
-  rtMetadata.tyRank = rankTy;
+  rtMetadata.tyCombufSend =  cgm->getTypes().ConvertType(findMollyType("combufsend_t"));
+  rtMetadata.tyCombufRecv =  cgm->getTypes().ConvertType(findMollyType("combufrecv_t"));
+  rtMetadata.tyRank = cgm->getTypes().ConvertType(findMollyType("rank_t"));
   rtMetadata.funcCreateSendCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_sendcombuf_create"));
-    rtMetadata.funcCreateRecvCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_recvcombuf_create"));
-  rtMetadata.funcCombufSend = llvmCombufSend;
- rtMetadata.funcCombufRecv = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_recv"));
+  rtMetadata.funcCreateRecvCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_recvcombuf_create"));
+  rtMetadata.funcCombufSend = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_send"));
+  rtMetadata.funcCombufRecv = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_recv"));
   rtMetadata.addMetadata(&cgm->getModule());
 }
 

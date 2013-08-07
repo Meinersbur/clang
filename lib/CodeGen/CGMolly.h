@@ -1,11 +1,9 @@
 #ifndef CLANG_CODEGEN_CGMOLLY_H
 #define CLANG_CODEGEN_CGMOLLY_H
 
-#include "llvm/Support/Compiler.h"
-#include "llvm/ADT/DenseMap.h"
-//#include "llvm/ADT/SmallVector.h"
-//#include "llvm/ADT/ArrayRef.h"
-//#include "CGBuilder.h" // typedef CGBuilderTy
+#include <llvm/Support/Compiler.h>
+#include <llvm/ADT/DenseMap.h>
+#include <clang/AST/Type.h>
 
 namespace llvm {
   class StructType;
@@ -39,6 +37,7 @@ namespace clang {
       CodeGenModule *cgm;
       llvm::DenseMap<const clang::CXXRecordDecl*, FieldTypeMetadata*> fieldsFound;
       clang::FunctionDecl *findGlobalFunction(const char *);
+      clang::QualType findMollyType(const char *);
 
     public:
       CodeGenMolly(CodeGenModule *cgm)  : cgm(cgm) { }

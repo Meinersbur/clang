@@ -21,7 +21,8 @@ namespace clang {
     /// This is more difficult to do for functions in MollyFieldMetadata that have variable number of indices
     class MollyRuntimeMetadata {
     public:
-      llvm::Type *tyCombuf;
+      llvm::Type *tyCombufSend;
+       llvm::Type *tyCombufRecv;
       llvm::Type *tyRank;
       llvm::Function *funcCreateSendCombuf;
       llvm::Function *funcCreateRecvCombuf;
@@ -29,7 +30,7 @@ namespace clang {
       llvm::Function *funcCombufRecv;
 
     public:
-      MollyRuntimeMetadata() : tyCombuf(nullptr), tyRank(nullptr), funcCreateSendCombuf(nullptr), funcCreateRecvCombuf(nullptr), funcCombufSend(nullptr), funcCombufRecv(nullptr) {}
+      MollyRuntimeMetadata() : tyCombufSend(nullptr), tyCombufRecv(nullptr), tyRank(nullptr), funcCreateSendCombuf(nullptr), funcCreateRecvCombuf(nullptr), funcCombufSend(nullptr), funcCombufRecv(nullptr) {}
 
       void readMetadata(llvm::Module *llvmModule);
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
