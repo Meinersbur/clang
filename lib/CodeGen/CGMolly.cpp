@@ -18,6 +18,7 @@
 #include "CodeGenFunction.h"
 #include "clang/AST/Decl.h"
 #include "clang/CodeGen/MollyRuntimeMetadata.h"
+#include "clang/AST/GlobalDecl.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
@@ -39,7 +40,9 @@ void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *
   this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
   this->funcCombufSend = cast<Function>(metadata->getOperand(5));
   this->funcCombufRecv = cast<Function>(metadata->getOperand(6));
-  assert( metadata->getNumOperands()==7);
+//this->varSelfCoords = cast<GlobalVariable>(metadata->getOperand(7));
+  this->funcLocalCoord =  cast<Function>(metadata->getOperand(7));
+  assert( metadata->getNumOperands()==8);
 }
 
 
@@ -53,7 +56,9 @@ llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
     /*[ 3]*/funcCreateSendCombuf,
     /*[ 4]*/funcCreateRecvCombuf,
     /*[ 5]*/funcCombufSend,
-    /*[ 6]*/funcCombufRecv
+    /*[ 6]*/funcCombufRecv,
+ //   /*[ 7]*/varSelfCoords
+    /*[ 7]*/funcLocalCoord
   };
   llvm::MDNode *metadataNode = llvm::MDNode::get(llvmContext, metadata);
   return metadataNode;
@@ -432,6 +437,18 @@ clang::FunctionDecl *CodeGenMolly::findGlobalFunction(const char *name) {
 }
 
 
+clang::VarDecl *CodeGenMolly::findGlobalVariable(const char *name) {
+  auto clangContext = &cgm->getContext();
+  auto clangModule = clangContext->getTranslationUnitDecl();
+
+  auto ident = &clangContext->Idents.get(name);
+  auto declName = DeclarationName(ident);
+  auto lookup = clangModule->lookup(declName);
+  assert(!lookup.empty());
+  return cast<VarDecl>(*lookup.begin());
+}
+
+
 clang::QualType CodeGenMolly::findMollyType(const char *name) {
   auto module = &cgm->getModule();
   auto clangContext = &cgm->getContext();
@@ -464,41 +481,20 @@ void CodeGenMolly::EmitMetadata() {
     fieldsMetadata->addOperand(field->buildMetadata());
   }
 
-#if 0
-  auto module = &cgm->getModule();
-  auto clangContext = &cgm->getContext();
-  auto clangModule = clangContext->getTranslationUnitDecl();
-  //auto declCtx = clangModule->getDeclContext();
-
-  auto x= &clangContext->Idents.get("__molly_combuf_send");
-  auto dn= DeclarationName(x);
-  auto lu = clangModule->lookup(dn);
-  assert(!lu.empty());
-  auto clangCombufSend = cast<FunctionDecl>( *lu.begin());
-  auto llvmCombufSend = clangFunction2llvmFunction(cgm, clangCombufSend);
-
-  auto mollyIdent = &clangContext->Idents.get("molly");
-  auto mollyName = DeclarationName(mollyIdent);
-  auto mollyLu = clangModule->lookup(mollyName);
-  assert(!mollyLu.empty());
-  auto mollyNamespace = cast<NamespaceDecl>(*mollyLu.begin());
-
-  auto rankIdent = &clangContext->Idents.get("rank_t");
-  auto rankName = DeclarationName(rankIdent);
-  auto rankLu = mollyNamespace->lookup(rankName);
-  assert(!rankLu.empty());
-  auto rankClangDecl = *rankLu.begin();
-  auto rankTy = cgm->getTypes().ConvertType(clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl))  ); //FIXME: Accept other type declarations, not just typedef
-#endif
-
   MollyRuntimeMetadata rtMetadata;
-  rtMetadata.tyCombufSend =  cgm->getTypes().ConvertType(findMollyType("combufsend_t"));
-  rtMetadata.tyCombufRecv =  cgm->getTypes().ConvertType(findMollyType("combufrecv_t"));
+  rtMetadata.tyCombufSend = cgm->getTypes().ConvertType(findMollyType("combufsend_t"));
+  rtMetadata.tyCombufRecv = cgm->getTypes().ConvertType(findMollyType("combufrecv_t"));
   rtMetadata.tyRank = cgm->getTypes().ConvertType(findMollyType("rank_t"));
   rtMetadata.funcCreateSendCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_sendcombuf_create"));
   rtMetadata.funcCreateRecvCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_recvcombuf_create"));
   rtMetadata.funcCombufSend = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_send"));
   rtMetadata.funcCombufRecv = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_recv"));
+  rtMetadata.funcLocalCoord = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_local_coord"));
+
+  //auto coordsVar = findGlobalVariable("_cart_self_coords");
+  //auto llvmCoordsVar = cgm->GetAddrOfGlobalVar(coordsVar);
+  //rtMetadata.varSelfCoords = cast<GlobalVariable>(llvmCoordsVar);
+
   rtMetadata.addMetadata(&cgm->getModule());
 }
 

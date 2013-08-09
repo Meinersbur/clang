@@ -14,10 +14,12 @@ namespace llvm {
 
 namespace clang {
   class Decl;
+  class VarDecl;
   class RecordDecl;
   class CXXRecordDecl;
   class FunctionDecl;
   class CallExpr;
+  class GlobalDecl;
   namespace CodeGen {
     class CodeGenModule;
     class CodeGenFunction;
@@ -37,6 +39,7 @@ namespace clang {
       CodeGenModule *cgm;
       llvm::DenseMap<const clang::CXXRecordDecl*, FieldTypeMetadata*> fieldsFound;
       clang::FunctionDecl *findGlobalFunction(const char *);
+      clang::VarDecl *findGlobalVariable(const char *name);
       clang::QualType findMollyType(const char *);
 
     public:
