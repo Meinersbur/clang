@@ -1655,7 +1655,7 @@ Sema::DecomposeUnqualifiedId(const UnqualifiedId &Id,
 bool Sema::DiagnoseEmptyLookup(Scope *S, CXXScopeSpec &SS, LookupResult &R,
                                CorrectionCandidateCallback &CCC,
                                TemplateArgumentListInfo *ExplicitTemplateArgs,
-                               llvm::ArrayRef<Expr *> Args) {
+                               ArrayRef<Expr *> Args) {
   DeclarationName Name = R.getLookupName();
 
   unsigned diagnostic = diag::err_undeclared_var_use;
@@ -8377,6 +8377,10 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
     }
     // Increment of bool sets it to true, but is deprecated.
     S.Diag(OpLoc, diag::warn_increment_bool) << Op->getSourceRange();
+  } else if (S.getLangOpts().CPlusPlus && ResType->isEnumeralType()) {
+    // Error on enum increments and decrements in C++ mode
+    S.Diag(OpLoc, diag::err_increment_decrement_enum) << IsInc << ResType;
+    return QualType();
   } else if (ResType->isRealType()) {
     // OK!
   } else if (ResType->isPointerType()) {

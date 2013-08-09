@@ -11,6 +11,7 @@ add_clang_library(clangDriver
   DriverOptions.cpp
   Job.cpp
   Phases.cpp
+  SanitizerArgs.cpp
   Tool.cpp
   ToolChain.cpp
   ToolChains.cpp
