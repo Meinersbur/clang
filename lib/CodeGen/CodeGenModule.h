@@ -413,7 +413,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   GlobalDecl initializedGlobalDecl;
 
-  llvm::SpecialCaseList SanitizerBlacklist;
+  llvm::OwningPtr<llvm::SpecialCaseList> SanitizerBlacklist;
 
   const SanitizerOptions &SanOpts;
 
@@ -977,7 +977,7 @@ public:
   void AddGlobalAnnotations(const ValueDecl *D, llvm::GlobalValue *GV);
 
   const llvm::SpecialCaseList &getSanitizerBlacklist() const {
-    return SanitizerBlacklist;
+    return *SanitizerBlacklist;
   }
 
   const SanitizerOptions &getSanOpts() const { return SanOpts; }
