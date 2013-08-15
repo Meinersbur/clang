@@ -1898,6 +1898,10 @@ def warn_missing_atsign_prefix : Warning<
 def warn_objc_string_literal_comparison : Warning<
   "direct comparison of a string literal has undefined behavior">, 
   InGroup<ObjCStringComparison>;
+def warn_concatenated_nsarray_literal : Warning<
+  "concatenated NSString literal for an NSArray expression - "
+  "possibly missing a comma">,
+  InGroup<ObjCStringConcatenation>;
 def note_objc_literal_comparison_isequal : Note<
   "use 'isEqual:' instead">;
 
@@ -3169,6 +3173,8 @@ def note_function_template_spec_here : Note<
   "in instantiation of function template specialization %q0 requested here">;
 def note_template_static_data_member_def_here : Note<
   "in instantiation of static data member %q0 requested here">;
+def note_template_variable_def_here : Note<
+  "in instantiation of variable template specialization %q0 requested here">;
 def note_template_enum_def_here : Note<
   "in instantiation of enumeration %q0 requested here">;
 def note_template_type_alias_instantiation_here : Note<
@@ -4153,6 +4159,9 @@ def ext_sizeof_alignof_void_type : Extension<
 def err_sizeof_alignof_incomplete_type : Error<
   "invalid application of '%select{sizeof|alignof|vec_step}0' to an "
   "incomplete type %1">;
+def err_sizeof_alignof_function_type : Error<
+  "invalid application of '%select{sizeof|alignof|vec_step}0' to a "
+  "function type">;
 def err_sizeof_alignof_bitfield : Error<
   "invalid application of '%select{sizeof|alignof}0' to bit-field">;
 def err_alignof_member_of_incomplete_type : Error<

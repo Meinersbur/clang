@@ -1734,9 +1734,6 @@ static void addLsanRTLinux(const ToolChain &TC, const ArgList &Args,
 static void addUbsanRTLinux(const ToolChain &TC, const ArgList &Args,
                             ArgStringList &CmdArgs, bool IsCXX,
                             bool HasOtherSanitizerRt) {
-  if (Args.hasArg(options::OPT_shared))
-    return;
-
   // Need a copy of sanitizer_common. This could come from another sanitizer
   // runtime; if we're not including one, include our own copy.
   if (!HasOtherSanitizerRt)
@@ -1855,6 +1852,37 @@ static bool isOptimizationLevelFast(const ArgList &Args) {
   if (Arg *A = Args.getLastArg(options::OPT_O_Group))
     if (A->getOption().matches(options::OPT_Ofast))
       return true;
+  return false;
+}
+
+/// \brief Vectorize at all optimization levels greater than 1 except for -Oz.
+static bool shouldEnableVectorizerAtOLevel(const ArgList &Args) {
+  if (Arg *A = Args.getLastArg(options::OPT_O_Group)) {
+    if (A->getOption().matches(options::OPT_O4) ||
+        A->getOption().matches(options::OPT_Ofast))
+      return true;
+
+    if (A->getOption().matches(options::OPT_O0))
+      return false;
+
+    assert(A->getOption().matches(options::OPT_O) && "Must have a -O flag");
+
+    // Vectorize -O (which really is -O2), -Os.
+    StringRef S(A->getValue());
+    if (S == "s" || S.empty())
+      return true;
+
+    // Don't vectorize -Oz.
+    if (S == "z")
+      return false;
+
+    unsigned OptLevel = 0;
+    if (S.getAsInteger(10, OptLevel))
+      return false;
+
+    return OptLevel > 1;
+  }
+
   return false;
 }
 
@@ -3337,14 +3365,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    false))
     CmdArgs.push_back("-fasm-blocks");
 
-  // If -Ofast is the optimization level, then -fvectorize should be enabled.
-  // This alias option is being used to simplify the hasFlag logic.
-  OptSpecifier VectorizeAliasOption = OFastEnabled ? options::OPT_Ofast :
+  // Enable vectorization per default according to the optimization level
+  // selected. For optimization levels that want vectorization we use the alias
+  // option to simplify the hasFlag logic.
+  bool EnableVec = shouldEnableVectorizerAtOLevel(Args);
+  OptSpecifier VectorizeAliasOption = EnableVec ? options::OPT_O_Group :
     options::OPT_fvectorize;
-
-  // -fvectorize is default.
   if (Args.hasFlag(options::OPT_fvectorize, VectorizeAliasOption,
-                   options::OPT_fno_vectorize, true))
+                   options::OPT_fno_vectorize, EnableVec))
     CmdArgs.push_back("-vectorize-loops");
 
   // -fslp-vectorize is default.
@@ -6563,12 +6591,15 @@ void visualstudio::Link::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back("-nologo");
 
   Args.AddAllArgValues(CmdArgs, options::OPT_l);
+  Args.AddAllArgValues(CmdArgs, options::OPT__SLASH_link);
 
   // Add filenames immediately.
   for (InputInfoList::const_iterator
        it = Inputs.begin(), ie = Inputs.end(); it != ie; ++it) {
     if (it->isFilename())
       CmdArgs.push_back(it->getFilename());
+    else
+      it->getInputArg().renderAsInput(Args, CmdArgs);
   }
 
   const char *Exec =
