@@ -38,7 +38,6 @@ add_clang_library(clangStaticAnalyzerCore
   Store.cpp
   SubEngine.cpp
   SymbolManager.cpp
-  TextPathDiagnostics.cpp
   LINK_LIBS clangBasic clangLex clangAST clangFrontend clangRewriteCore
   )
 

@@ -2505,11 +2505,17 @@ Sema::SpecialMemberOverloadResult *Sema::LookupSpecialMember(CXXRecordDecl *RD,
   // will always be a (possibly implicit) declaration to shadow any others.
   OverloadCandidateSet OCS((SourceLocation()));
   DeclContext::lookup_result R = RD->lookup(Name);
-
   assert(!R.empty() &&
          "lookup for a constructor or assignment operator was empty");
-  for (DeclContext::lookup_iterator I = R.begin(), E = R.end(); I != E; ++I) {
-    Decl *Cand = *I;
+
+  // Copy the candidates as our processing of them may load new declarations
+  // from an external source and invalidate lookup_result.
+  SmallVector<NamedDecl *, 8> Candidates(R.begin(), R.end());
+
+  for (SmallVectorImpl<NamedDecl *>::iterator I = Candidates.begin(),
+                                         E = Candidates.end();
+       I != E; ++I) {
+    NamedDecl *Cand = *I;
 
     if (Cand->isInvalidDecl())
       continue;
@@ -4376,4 +4382,42 @@ bool FunctionCallFilterCCC::ValidateCandidate(const TypoCorrection &candidate) {
       return true;
   }
   return false;
+}
+
+void Sema::diagnoseTypo(const TypoCorrection &Correction,
+                        const PartialDiagnostic &TypoDiag,
+                        bool ErrorRecovery) {
+  diagnoseTypo(Correction, TypoDiag, PDiag(diag::note_previous_decl),
+               ErrorRecovery);
+}
+
+/// \brief Diagnose a successfully-corrected typo. Separated from the correction
+/// itself to allow external validation of the result, etc.
+///
+/// \param Correction The result of performing typo correction.
+/// \param TypoDiag The diagnostic to produce. This will have the corrected
+///        string added to it (and usually also a fixit).
+/// \param PrevNote A note to use when indicating the location of the entity to
+///        which we are correcting. Will have the correction string added to it.
+/// \param ErrorRecovery If \c true (the default), the caller is going to
+///        recover from the typo as if the corrected string had been typed.
+///        In this case, \c PDiag must be an error, and we will attach a fixit
+///        to it.
+void Sema::diagnoseTypo(const TypoCorrection &Correction,
+                        const PartialDiagnostic &TypoDiag,
+                        const PartialDiagnostic &PrevNote,
+                        bool ErrorRecovery) {
+  std::string CorrectedStr = Correction.getAsString(getLangOpts());
+  std::string CorrectedQuotedStr = Correction.getQuoted(getLangOpts());
+  FixItHint FixTypo = FixItHint::CreateReplacement(
+      Correction.getCorrectionRange(), CorrectedStr);
+
+  Diag(Correction.getCorrectionRange().getBegin(), TypoDiag)
+    << CorrectedQuotedStr << (ErrorRecovery ? FixTypo : FixItHint());
+
+  NamedDecl *ChosenDecl =
+      Correction.isKeyword() ? 0 : Correction.getCorrectionDecl();
+  if (PrevNote.getDiagID() && ChosenDecl)
+    Diag(ChosenDecl->getLocation(), PrevNote)
+      << CorrectedQuotedStr << (ErrorRecovery ? FixItHint() : FixTypo);
 }
