@@ -1,6 +1,7 @@
 set(LLVM_LINK_LIBS
   clangBasic
   LLVMOption
+  LLVMTransformUtils
 )
 
 add_clang_library(clangDriver
