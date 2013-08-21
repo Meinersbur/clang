@@ -1,3 +1,13 @@
+set(LLVM_LINK_LIBS
+  clangBasic
+  clangAST
+  clangParse
+  clangFrontend
+  clangRewriteCore
+  clangRewriteFrontend
+  clangStaticAnalyzerCheckers
+)
+
 add_clang_library(clangARCMigrate
   ARCMT.cpp
   ARCMTActions.cpp
@@ -19,7 +29,6 @@ add_clang_library(clangARCMigrate
   TransZeroOutPropsInDealloc.cpp
   TransformActions.cpp
   Transforms.cpp
-  LINK_LIBS clangBasic clangAST clangParse clangFrontend clangRewriteCore clangRewriteFrontend
   )
 
 add_dependencies(clangARCMigrate
