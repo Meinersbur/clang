@@ -2,18 +2,18 @@
 #define CLANG_CODEGEN_MOLLYRUNTIMEMETADATA_H
 
 namespace llvm {
-class Module;
-class MDNode;
-class Function;
-class Type;
-class Value;
+  class Module;
+  class MDNode;
+  class Function;
+  class Type;
+  class Value;
 } // namespace llvm
 
 
 namespace clang {
   namespace CodeGen {
 
-        llvm::Value *makeValueFromType(llvm::Type *ty);
+    llvm::Value *makeValueFromType(llvm::Type *ty);
     llvm::Type *extractTypeFromValue(llvm::Value *val);
 
     /// Captures entry points to Molly's runtime library
@@ -22,7 +22,7 @@ namespace clang {
     class MollyRuntimeMetadata {
     public:
       llvm::Type *tyCombufSend;
-       llvm::Type *tyCombufRecv;
+      llvm::Type *tyCombufRecv;
       llvm::Type *tyRank;
       llvm::Function *funcCreateSendCombuf;
       llvm::Function *funcCreateRecvCombuf;

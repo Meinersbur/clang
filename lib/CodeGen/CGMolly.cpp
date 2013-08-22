@@ -50,9 +50,9 @@ llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
   auto &llvmContext = llvmModule->getContext();
 
   llvm::Value* metadata[] = {
-    /*[ 0]*/makeValueFromType(tyCombufSend),
-    /*[ 1]*/makeValueFromType(tyCombufRecv),
-    /*[ 2]*/makeValueFromType(tyRank),
+    /*[ 0]*/makeValueFromType(tyCombufSend, llvmModule),
+    /*[ 1]*/makeValueFromType(tyCombufRecv, llvmModule),
+    /*[ 2]*/makeValueFromType(tyRank, llvmModule),
     /*[ 3]*/funcCreateSendCombuf,
     /*[ 4]*/funcCreateRecvCombuf,
     /*[ 5]*/funcCombufSend,
@@ -109,18 +109,23 @@ FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm
 }
 
 
-llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty) {
+llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty, llvm::Module *module) {
   // Types cannot be directly inserted into an MDNode
   // Instead we create a dummy function with a return type that is a pointer to the type to be represented
 
-  //auto &llvmContext = ty->getContext();
-  auto funcTy = llvm::FunctionType::get(llvm::PointerType::getUnqual(ty) ,false); 
-  auto func = Function::Create(funcTy, GlobalValue::PrivateLinkage, "TypeRepresentative");
+  auto &llvmContext = module->getContext();
+  auto pty = llvm::PointerType::getUnqual(ty);
+  auto funcTy = llvm::FunctionType::get(pty, false); 
+  auto func = Function::Create(funcTy, GlobalValue::PrivateLinkage, Twine(), module); // "__TypeRepresentative"
+  IRBuilder<> builder(BasicBlock::Create(llvmContext, "Entry", func));
+  builder.CreateRet(Constant::getNullValue(pty)); // Return something to make it a valif function definition
   return func;
 }
 
 
 llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
+ if (!val)
+   return nullptr;
   auto funcTy = cast<llvm::FunctionType>(val->getType()->getPointerElementType());
   assert(funcTy->getNumParams() == 0);
   auto ptrTy = funcTy->getReturnType();
@@ -129,7 +134,7 @@ llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
 }
 
 
-llvm::MDNode *FieldTypeMetadata::buildMetadata() {
+llvm::MDNode *FieldTypeMetadata::buildMetadata(llvm::Module *llvmModule) {
   auto &llvmContext = llvmType->getContext();
 
   // Create metadata info
@@ -154,7 +159,7 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata() {
     /*[ 9]*/funcGetMaster,
     /*[10]*/funcSetMaster,
     /*[11]*/funcIslocal,
-    /*[12]*/makeValueFromType(llvmEltType),
+    /*[12]*/makeValueFromType(llvmEltType, llvmModule),
     /*[13]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), eltSize),
     /*[14]*/funcPtrLocal
   };
@@ -471,14 +476,15 @@ clang::QualType CodeGenMolly::findMollyType(const char *name) {
 
 
 void CodeGenMolly::EmitMetadata() {
-  llvm::NamedMDNode *fieldsMetadata = cgm->getModule().getOrInsertNamedMetadata("molly.fields");
+  auto module = &cgm->getModule();
+  llvm::NamedMDNode *fieldsMetadata = module->getOrInsertNamedMetadata("molly.fields");
 
   for (auto it = fieldsFound.begin(), end = fieldsFound.end(); it!=end; ++it) {
     auto field = it->second;
     if (!field)
       continue;
 
-    fieldsMetadata->addOperand(field->buildMetadata());
+    fieldsMetadata->addOperand(field->buildMetadata(module));
   }
 
   MollyRuntimeMetadata rtMetadata;
