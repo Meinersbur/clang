@@ -1,12 +1,16 @@
-
 set(LLVM_LINK_LIBS
   clangDriver
   clangFrontend
   clangRewriteCore
   clangRewriteFrontend
   clangCodeGen
-  clangARCMigrate
 )
+
+if(CLANG_ENABLE_ARCMT)
+  list(APPEND LLVM_LINK_LIBS
+    clangARCMigrate
+    )
+endif()
 
 if(CLANG_ENABLE_STATIC_ANALYZER)
   list(APPEND LLVM_LINK_LIBS
