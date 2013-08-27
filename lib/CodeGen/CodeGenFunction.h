@@ -953,14 +953,6 @@ public:
 
   CodeGenTypes &getTypes() const { return CGM.getTypes(); }
   ASTContext &getContext() const { return CGM.getContext(); }
-  /// Returns true if DebugInfo is actually initialized.
-  bool maybeInitializeDebugInfo() {
-    if (CGM.getModuleDebugInfo()) {
-      DebugInfo = CGM.getModuleDebugInfo();
-      return true;
-    }
-    return false;
-  }
   CGDebugInfo *getDebugInfo() { 
     if (DisableDebugInfo) 
       return NULL;
@@ -1195,6 +1187,12 @@ public:
   /// GetVTablePtr - Return the Value of the vtable pointer member pointed
   /// to by This.
   llvm::Value *GetVTablePtr(llvm::Value *This, llvm::Type *Ty);
+
+
+  /// CanDevirtualizeMemberFunctionCalls - Checks whether virtual calls on given
+  /// expr can be devirtualized.
+  bool CanDevirtualizeMemberFunctionCall(const Expr *Base,
+                                         const CXXMethodDecl *MD);
 
   /// EnterDtorCleanups - Enter the cleanups necessary to complete the
   /// given phase of destruction for a destructor.  The end result

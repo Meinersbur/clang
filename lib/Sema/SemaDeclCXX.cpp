@@ -1249,8 +1249,7 @@ static bool findCircularInheritance(const CXXRecordDecl *Class,
     if (Queue.empty())
       return false;
 
-    Current = Queue.back();
-    Queue.pop_back();
+    Current = Queue.pop_back_val();
   }
 
   return false;
@@ -11937,19 +11936,14 @@ bool Sema::DefineUsedVTables() {
     // vtable even though we're using it.
     const CXXMethodDecl *KeyFunction = Context.getCurrentKeyFunction(Class);
     if (KeyFunction && !KeyFunction->hasBody()) {
-      switch (KeyFunction->getTemplateSpecializationKind()) {
-      case TSK_Undeclared:
-      case TSK_ExplicitSpecialization:
-      case TSK_ExplicitInstantiationDeclaration:
-        // The key function is in another translation unit.
-        DefineVTable = false;
-        break;
-
-      case TSK_ExplicitInstantiationDefinition:
-      case TSK_ImplicitInstantiation:
-        // We will be instantiating the key function.
-        break;
-      }
+      // The key function is in another translation unit.
+      DefineVTable = false;
+      TemplateSpecializationKind TSK =
+          KeyFunction->getTemplateSpecializationKind();
+      assert(TSK != TSK_ExplicitInstantiationDefinition &&
+             TSK != TSK_ImplicitInstantiation &&
+             "Instantiations don't have key functions");
+      (void)TSK;
     } else if (!KeyFunction) {
       // If we have a class with no key function that is the subject
       // of an explicit instantiation declaration, suppress the
