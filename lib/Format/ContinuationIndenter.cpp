@@ -187,7 +187,9 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
       State.ParenLevel == 0)
     return true;
   if (startsSegmentOfBuilderTypeCall(Current) &&
-      State.Stack.back().CallContinuation != 0)
+      (State.Stack.back().CallContinuation != 0 ||
+       (State.Stack.back().BreakBeforeParameter &&
+        State.Stack.back().ContainsUnwrappedBuilder)))
     return true;
   return false;
 }
@@ -458,7 +460,7 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
   }
 
   // If return returns a binary expression, align after it.
-  if (Current.is(tok::kw_return) && !Current.FakeLParens.empty())
+  if (Current.is(tok::kw_return) && startsBinaryExpression(Current))
     State.Stack.back().LastSpace = State.Column + 7;
 
   // In ObjC method declaration we align on the ":" of parameters, but we need

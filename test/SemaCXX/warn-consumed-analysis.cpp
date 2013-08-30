@@ -19,7 +19,7 @@ class ConsumableClass {
   
   ConsumableClass<T>& operator=(ConsumableClass<T>  &other);
   ConsumableClass<T>& operator=(ConsumableClass<T> &&other);
-  ConsumableClass<T>& operator=(nullptr_t);
+  ConsumableClass<T>& operator=(nullptr_t) CONSUMES;
   
   template <typename U>
   ConsumableClass<T>& operator=(ConsumableClass<U>  &other);
@@ -224,6 +224,18 @@ void testStateChangeInBranch() {
   *var;
 }
 
+void testFunctionParam(ConsumableClass<int> param) {
+  
+  if (param.isValid()) {
+    *param;
+  } else {
+    *param; // expected-warning {{invocation of method 'operator*' on object 'param' while it is in the 'consumed' state}}
+  }
+  
+  param = nullptr;
+  *param; // expected-warning {{invocation of method 'operator*' on object 'param' while it is in the 'consumed' state}}
+}
+
 void testCallingConventions() {
   ConsumableClass<int> var(42);
   
@@ -250,6 +262,10 @@ void testMoveAsignmentish() {
   var0 = static_cast<ConsumableClass<long>&&>(var1);
   
   *var0;
+  *var1; // expected-warning {{invocation of method 'operator*' on object 'var1' while it is in the 'consumed' state}}
+  
+  var1 = ConsumableClass<long>(42);
+  var1 = nullptr;
   *var1; // expected-warning {{invocation of method 'operator*' on object 'var1' while it is in the 'consumed' state}}
 }
 

@@ -599,6 +599,30 @@ llvm::DIType CGDebugInfo::CreateType(const PointerType *Ty,
                                Ty->getPointeeType(), Unit);
 }
 
+/// In C++ mode, types have linkage, so we can rely on the ODR and
+/// on their mangled names, if they're external.
+static SmallString<256>
+getUniqueTagTypeName(const TagType *Ty, CodeGenModule &CGM,
+                     llvm::DICompileUnit TheCU) {
+  SmallString<256> FullName;
+  // FIXME: ODR should apply to ObjC++ exactly the same wasy it does to C++.
+  // For now, only apply ODR with C++.
+  const TagDecl *TD = Ty->getDecl();
+  if (TheCU.getLanguage() != llvm::dwarf::DW_LANG_C_plus_plus ||
+      !TD->isExternallyVisible())
+    return FullName;
+  // Microsoft Mangler does not have support for mangleCXXRTTIName yet.
+  if (CGM.getTarget().getCXXABI().isMicrosoft())
+    return FullName;
+
+  // TODO: This is using the RTTI name. Is there a better way to get
+  // a unique string for a type?
+  llvm::raw_svector_ostream Out(FullName);
+  CGM.getCXXABI().getMangleContext().mangleCXXRTTIName(QualType(Ty, 0), Out);
+  Out.flush();
+  return FullName;
+}
+
 // Creates a forward declaration for a RecordDecl in the given context.
 llvm::DICompositeType
 CGDebugInfo::getOrCreateRecordFwdDecl(const RecordType *Ty,
@@ -621,7 +645,9 @@ CGDebugInfo::getOrCreateRecordFwdDecl(const RecordType *Ty,
   }
 
   // Create the type.
-  return DBuilder.createForwardDecl(Tag, RDName, Ctx, DefUnit, Line);
+  SmallString<256> FullName = getUniqueTagTypeName(Ty, CGM, TheCU);
+  return DBuilder.createForwardDecl(Tag, RDName, Ctx, DefUnit, Line, 0, 0, 0,
+                                    FullName);
 }
 
 // Walk up the context chain and create forward decls for record decls,
@@ -1884,6 +1910,8 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumType *Ty) {
     Align = CGM.getContext().getTypeAlign(ED->getTypeForDecl());
   }
 
+  SmallString<256> FullName = getUniqueTagTypeName(Ty, CGM, TheCU);
+
   // If this is just a forward declaration, construct an appropriately
   // marked node and just return it.
   if (!ED->getDefinition()) {
@@ -1894,7 +1922,7 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumType *Ty) {
     StringRef EDName = ED->getName();
     return DBuilder.createForwardDecl(llvm::dwarf::DW_TAG_enumeration_type,
                                       EDName, EDContext, DefUnit, Line, 0,
-                                      Size, Align);
+                                      Size, Align, FullName);
   }
 
   // Create DIEnumerator elements for each enumerator.
@@ -1920,7 +1948,7 @@ llvm::DIType CGDebugInfo::CreateEnumType(const EnumType *Ty) {
   llvm::DIType DbgTy =
     DBuilder.createEnumerationType(EnumContext, ED->getName(), DefUnit, Line,
                                    Size, Align, EltArray,
-                                   ClassTy);
+                                   ClassTy, FullName);
   return DbgTy;
 }
 
@@ -2270,20 +2298,23 @@ llvm::DICompositeType CGDebugInfo::CreateLimitedType(const RecordType *Ty) {
   uint64_t Align = CGM.getContext().getTypeAlign(Ty);
   llvm::DICompositeType RealDecl;
 
+  SmallString<256> FullName = getUniqueTagTypeName(Ty, CGM, TheCU);
+
   if (RD->isUnion())
     RealDecl = DBuilder.createUnionType(RDContext, RDName, DefUnit, Line,
-                                        Size, Align, 0, llvm::DIArray());
+                                        Size, Align, 0, llvm::DIArray(), 0,
+                                        FullName);
   else if (RD->isClass()) {
     // FIXME: This could be a struct type giving a default visibility different
     // than C++ class type, but needs llvm metadata changes first.
     RealDecl = DBuilder.createClassType(RDContext, RDName, DefUnit, Line,
                                         Size, Align, 0, 0, llvm::DIType(),
                                         llvm::DIArray(), llvm::DIType(),
-                                        llvm::DIArray());
+                                        llvm::DIArray(), FullName);
   } else
     RealDecl = DBuilder.createStructType(RDContext, RDName, DefUnit, Line,
                                          Size, Align, 0, llvm::DIType(),
-                                         llvm::DIArray());
+                                         llvm::DIArray(), 0, 0, FullName);
 
   RegionMap[Ty->getDecl()] = llvm::WeakVH(RealDecl);
   TypeCache[QualType(Ty, 0).getAsOpaquePtr()] = RealDecl;
@@ -3111,14 +3142,31 @@ CGDebugInfo::getOrCreateStaticDataMemberDeclarationOrNull(const VarDecl *D) {
 }
 
 /// EmitGlobalVariable - Emit information about a global variable.
-void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
+/// \param VarOrInit either the global variable itself or the initializer
+/// \param D the global declaration
+void CGDebugInfo::EmitGlobalVariable(llvm::Value *VarOrInit,
                                      const VarDecl *D) {
   assert(DebugKind >= CodeGenOptions::LimitedDebugInfo);
   // Create global variable debug descriptor.
   llvm::DIFile Unit = getOrCreateFile(D->getLocation());
   unsigned LineNo = getLineNumber(D->getLocation());
+  StringRef DeclName = D->getName();
+  StringRef LinkageName;
+  bool IsLocalToUnit = true;
 
-  setLocation(D->getLocation());
+  // For deferred global variables, the current source location is usually
+  // where they are being referenced. Do not change the current source location
+  // to the place where they are declared, lest we get a bogus line table.
+  // FIXME: maybe we do not need to set the source location here at all.
+  if (llvm::GlobalVariable *Var = dyn_cast<llvm::GlobalVariable>(VarOrInit)) {
+    setLocation(D->getLocation());
+    IsLocalToUnit = Var->hasInternalLinkage();
+    if (D->getDeclContext() && !isa<FunctionDecl>(D->getDeclContext())
+        && !isa<ObjCMethodDecl>(D->getDeclContext()))
+      LinkageName = Var->getName();
+    if (LinkageName == DeclName)
+      LinkageName = StringRef();
+  }
 
   QualType T = D->getType();
   if (T->isIncompleteArrayType()) {
@@ -3130,18 +3178,11 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
     T = CGM.getContext().getConstantArrayType(ET, ConstVal,
                                               ArrayType::Normal, 0);
   }
-  StringRef DeclName = D->getName();
-  StringRef LinkageName;
-  if (D->getDeclContext() && !isa<FunctionDecl>(D->getDeclContext())
-      && !isa<ObjCMethodDecl>(D->getDeclContext()))
-    LinkageName = Var->getName();
-  if (LinkageName == DeclName)
-    LinkageName = StringRef();
   llvm::DIDescriptor DContext =
     getContextDescriptor(dyn_cast<Decl>(D->getDeclContext()));
   llvm::DIGlobalVariable GV = DBuilder.createStaticVariable(
       DContext, DeclName, LinkageName, Unit, LineNo, getOrCreateType(T, Unit),
-      Var->hasInternalLinkage(), Var,
+      IsLocalToUnit, VarOrInit,
       getOrCreateStaticDataMemberDeclarationOrNull(D));
   DeclCache.insert(std::make_pair(D->getCanonicalDecl(), llvm::WeakVH(GV)));
 }
@@ -3172,26 +3213,16 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
                                 Var->hasInternalLinkage(), Var);
 }
 
-/// EmitGlobalVariable - Emit global variable's debug info.
-void CGDebugInfo::EmitGlobalVariable(const ValueDecl *VD,
-                                     llvm::Constant *Init) {
+/// EmitEnumConstant - Emit debug info for an enumerator constant
+void CGDebugInfo::EmitEnumConstant(const EnumConstantDecl *ECD)
+{
   assert(DebugKind >= CodeGenOptions::LimitedDebugInfo);
-  // Create the descriptor for the variable.
-  llvm::DIFile Unit = getOrCreateFile(VD->getLocation());
-  StringRef Name = VD->getName();
-  llvm::DIType Ty = getOrCreateType(VD->getType(), Unit);
-  if (const EnumConstantDecl *ECD = dyn_cast<EnumConstantDecl>(VD)) {
-    const EnumDecl *ED = cast<EnumDecl>(ECD->getDeclContext());
-    assert(isa<EnumType>(ED->getTypeForDecl()) && "Enum without EnumType?");
-    Ty = getOrCreateType(QualType(ED->getTypeForDecl(), 0), Unit);
-  }
-  // Do not use DIGlobalVariable for enums.
-  if (Ty.getTag() == llvm::dwarf::DW_TAG_enumeration_type)
-    return;
-  llvm::DIGlobalVariable GV = DBuilder.createStaticVariable(
-      Unit, Name, Name, Unit, getLineNumber(VD->getLocation()), Ty, true, Init,
-      getOrCreateStaticDataMemberDeclarationOrNull(cast<VarDecl>(VD)));
-  DeclCache.insert(std::make_pair(VD->getCanonicalDecl(), llvm::WeakVH(GV)));
+  llvm::DIFile Unit = getOrCreateFile(ECD->getLocation());
+  llvm::DIType Ty = getOrCreateType(ECD->getType(), Unit);
+
+  const EnumDecl *ED = cast<EnumDecl>(ECD->getDeclContext());
+  assert(isa<EnumType>(ED->getTypeForDecl()) && "Enum without EnumType?");
+  Ty = getOrCreateType(QualType(ED->getTypeForDecl(), 0), Unit);
 }
 
 llvm::DIScope CGDebugInfo::getCurrentContextDescriptor(const Decl *D) {
