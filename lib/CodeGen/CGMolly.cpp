@@ -61,6 +61,7 @@ llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
     /*[ 7]*/funcLocalCoord
   };
   llvm::MDNode *metadataNode = llvm::MDNode::get(llvmContext, metadata);
+  //metadataNode->dump();
   return metadataNode;
 }
 
@@ -111,10 +112,12 @@ FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm
 
 llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty, llvm::Module *module) {
   // Types cannot be directly inserted into an MDNode
-  // Instead we create a dummy function with a return type that is a pointer to the type to be represented
+  // Instead we create a dummy global value with a type that is a pointer to the type to be represented
 
   auto &llvmContext = module->getContext();
   auto pty = llvm::PointerType::getUnqual(ty);
+  return Constant::getNullValue(pty);
+
   auto funcTy = llvm::FunctionType::get(pty, false); 
   auto func = Function::Create(funcTy, GlobalValue::PrivateLinkage, Twine(), module); // "__TypeRepresentative"
   IRBuilder<> builder(BasicBlock::Create(llvmContext, "Entry", func));
@@ -126,6 +129,9 @@ llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty, llvm::Module *mod
 llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
  if (!val)
    return nullptr;
+ auto pty = val->getType();
+ return cast<llvm::PointerType>(pty)->getElementType();
+   
   auto funcTy = cast<llvm::FunctionType>(val->getType()->getPointerElementType());
   assert(funcTy->getNumParams() == 0);
   auto ptrTy = funcTy->getReturnType();
