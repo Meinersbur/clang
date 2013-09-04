@@ -6001,6 +6001,8 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE("IndentWidth: 32", IndentWidth, 32u);
 
   Style.Standard = FormatStyle::LS_Auto;
+  CHECK_PARSE("Standard: Cpp03", Standard, FormatStyle::LS_Cpp03);
+  CHECK_PARSE("Standard: Cpp11", Standard, FormatStyle::LS_Cpp11);
   CHECK_PARSE("Standard: C++03", Standard, FormatStyle::LS_Cpp03);
   CHECK_PARSE("Standard: C++11", Standard, FormatStyle::LS_Cpp11);
   CHECK_PARSE("Standard: Auto", Standard, FormatStyle::LS_Auto);
@@ -6258,43 +6260,68 @@ TEST_F(FormatTest, FormatsProtocolBufferDefinitions) {
 }
 
 TEST_F(FormatTest, FormatsLambdas) {
+  verifyFormat(
+      "int c = [b]() mutable {\n"
+      "  return [&b] {\n"
+      "    return b++;\n"
+      "  }();\n"
+      "}();\n");
+  verifyFormat(
+      "int c = [&] {\n"
+      "  [=] {\n"
+      "    return b++;\n"
+      "  }();\n"
+      "}();\n");
+  verifyFormat(
+      "int c = [&, &a, a] {\n"
+      "  [=, c, &d] {\n"
+      "    return b++;\n"
+      "  }();\n"
+      "}();\n");
+  verifyFormat(
+      "int c = [&a, &a, a] {\n"
+      "  [=, a, b, &c] {\n"
+      "    return b++;\n"
+      "  }();\n"
+      "}();\n");
+  verifyFormat(
+      "auto c = {[&a, &a, a] {\n"
+      "  [=, a, b, &c] {\n"
+      "    return b++;\n"
+      "  }();\n"
+      "} }\n");
+  verifyFormat(
+      "auto c = {[&a, &a, a] {\n"
+      "  [=, a, b, &c] {\n"
+      "  }();\n"
+      "} }\n");
+  verifyFormat(
+      "void f() {\n"
+      "  other(x.begin(), x.end(), [&](int, int) {\n"
+      "    return 1;\n"
+      "  });\n"
+      "}\n");
   // FIXME: The formatting is incorrect; this test currently checks that
   // parsing of the unwrapped lines doesn't regress.
   verifyFormat(
-      "int c = [b]() mutable {\n"
-      "  return [&b]{\n"
-      "    return b++;\n"
-      "  }();\n"
-      "}();\n");
-  verifyFormat(
-      "int c = [&]{\n"
-      "  [ = ]{\n"
-      "    return b++;\n"
-      "  }();\n"
-      "}();\n");
-  verifyFormat(
-      "int c = [ &, &a, a]{\n"
-      "  [ =, c, &d]{\n"
-      "    return b++;\n"
-      "  }();\n"
-      "}();\n");
-  verifyFormat(
-      "int c = [&a, &a, a]{\n"
-      "  [ =, a, b, &c]{\n"
-      "    return b++;\n"
-      "  }();\n"
-      "}();\n");
-  verifyFormat(
-      "auto c = {[&a, &a, a]{\n"
-      "  [ =, a, b, &c]{\n"
-      "    return b++;\n"
-      "  }();\n"
-      "} }\n");
-  verifyFormat(
-      "auto c = {[&a, &a, a]{\n"
-      "  [ =, a, b, &c]{\n"
-      "  }();\n"
-      "} }\n");
+      "void f() {\n"
+      "  other(x.begin(), //\n"
+      "        x.end(),   //\n"
+      "                     [&](int, int) {\n"
+      "    return 1;\n"
+      "  });\n"
+      "}\n");
+}
+
+TEST_F(FormatTest, FormatsBlocks) {
+  // FIXME: Make whitespace formatting consistent. Ask a ObjC dev how
+  // it would ideally look.
+  verifyFormat("[operation setCompletionBlock:^{\n"
+               "  [self onOperationDone];\n"
+               "}];\n");
+  verifyFormat("int i = {[operation setCompletionBlock : ^{\n"
+               "  [self onOperationDone];\n"
+               "}] };\n");
 }
 
 } // end namespace tooling

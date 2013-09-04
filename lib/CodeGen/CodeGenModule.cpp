@@ -1060,7 +1060,7 @@ llvm::Constant *CodeGenModule::GetAddrOfUuidDescriptor(
 
   llvm::GlobalVariable *GV = new llvm::GlobalVariable(
       getModule(), Init->getType(),
-      /*isConstant=*/true, llvm::GlobalValue::ExternalLinkage, Init, Name);
+      /*isConstant=*/true, llvm::GlobalValue::LinkOnceODRLinkage, Init, Name);
   return GV;
 }
 
