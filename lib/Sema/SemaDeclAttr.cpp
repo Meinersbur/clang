@@ -4350,7 +4350,7 @@ static void handleMollyFieldLengths(Sema &S, Decl *D, const AttributeList &Attr)
   SmallVector<Expr*, 4> lengths;
   for (unsigned i = 0; i < attrs; i+=1) {
     auto arg = Attr.getArg(i);
-    lengths.push_back(arg);
+    lengths.push_back(arg.get<Expr*>());
     /*
     llvm::APSInt argInt;
     if (!arg->isIntegerConstantExpr(argInt, S.Context)) {
@@ -5158,7 +5158,7 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     handleTypeTagForDatatypeAttr(S, D, Attr);
     break;
 
-  // Molly
+#ifdef MOLLY
   case AttributeList::AT_MollyFieldLengths:
       handleMollyFieldLengths(S, D, Attr);
       break;
@@ -5210,6 +5210,7 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
  case AttributeList::AT_MollySetMaster:
     handleSimpleAttr<MollySetMasterAttr>(S, D, Attr);
     break;
+#endif /* MOLLY */
 
   default:
     // Ask target about the attribute.
