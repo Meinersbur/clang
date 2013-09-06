@@ -1538,6 +1538,9 @@ def err_auto_fn_virtual : Error<
 // C++11 override control
 def override_keyword_only_allowed_on_virtual_member_functions : Error<
   "only virtual member functions can be marked '%0'">;
+def override_keyword_hides_virtual_member_function : Error<
+  "non-virtual member function marked '%0' hides virtual member "
+  "%select{function|functions}1">;
 def err_function_marked_override_not_overriding : Error<
   "%0 marked 'override' but does not override any member functions">;
 def err_class_marked_final_used_as_base : Error<
@@ -6609,6 +6612,14 @@ def err_omp_clause_ref_type_arg : Error<
   "arguments of OpenMP clause '%0' cannot be of reference type %1">;
 def err_omp_threadprivate_incomplete_type : Error<
   "threadprivate variable with incomplete type %0">;
+def err_omp_no_dsa_for_variable : Error <
+  "variable %0 must have explicitly specified data sharing attributes">;
+def err_omp_wrong_dsa : Error<
+  "%0 variable cannot be %1">;
+def note_omp_explicit_dsa : Note <
+  "defined as %0">;
+def note_omp_predetermined_dsa : Note <
+  "predetermined as %0">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {
