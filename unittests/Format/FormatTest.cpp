@@ -1591,6 +1591,10 @@ TEST_F(FormatTest, FormatsEnumTypes) {
                "  A,\n"
                "  B\n"
                "};");
+  verifyFormat("enum X : std::uint32_t {\n"
+               "  A,\n"
+               "  B\n"
+               "};");
 }
 
 TEST_F(FormatTest, FormatsBitfields) {
@@ -2272,6 +2276,19 @@ TEST_F(FormatTest, LayoutNestedBlocks) {
                    "  somethingElse();\n"
                    "});",
                    getLLVMStyleWithColumns(29)));
+  EXPECT_EQ("DEBUG({ int i; });", format("DEBUG({ int   i; });"));
+  EXPECT_EQ("DEBUG({\n"
+            "  int i;\n"
+            "\n"
+            "  // comment\n"
+            "  int j;\n"
+            "});",
+            format("DEBUG({\n"
+                   "  int  i;\n"
+                   "\n"
+                   "  // comment\n"
+                   "  int  j;\n"
+                   "});"));
 }
 
 TEST_F(FormatTest, PutEmptyBlocksIntoOneLine) {
@@ -2491,6 +2508,10 @@ TEST_F(FormatTest, ConstructorInitializers) {
   verifyFormat("Constructor(int Parameter = 0)\n"
                "    : aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaa),\n"
                "      aaaaaaaaaaaa(aaaaaaaaaaaaaaaaa) {}");
+  verifyFormat("Constructor()\n"
+               "    : aaaaaaaaaaaaaaaaaaaa(a), bbbbbbbbbbbbbbbbbbbbbbbb(b) {\n"
+               "}",
+               getLLVMStyleWithColumns(60));
 
   // Here a line could be saved by splitting the second initializer onto two
   // lines, but that is not desireable.
@@ -6387,7 +6408,7 @@ TEST_F(FormatTest, FormatsLambdas) {
   verifyFormat("auto c = { [&a, &a, a] {\n"
                "  [=, a, b, &c] { return b++; }();\n"
                "} }\n");
-  verifyFormat("auto c = { [&a, &a, a] { [=, a, b, &c] { }(); } }\n");
+  verifyFormat("auto c = { [&a, &a, a] { [=, a, b, &c] {}(); } }\n");
   verifyFormat("void f() {\n"
                "  other(x.begin(), x.end(), [&](int, int) { return 1; });\n"
                "}\n");
@@ -6399,6 +6420,8 @@ TEST_F(FormatTest, FormatsLambdas) {
 
   // Not lambdas.
   verifyFormat("constexpr char hello[]{ \"hello\" };");
+  verifyFormat("double &operator[](int i) { return 0; }\n"
+               "int i;");
 }
 
 TEST_F(FormatTest, FormatsBlocks) {
