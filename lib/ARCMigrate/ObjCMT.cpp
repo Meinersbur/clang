@@ -694,6 +694,20 @@ static bool TypeIsInnerPointer(QualType T) {
   if (T->isObjCObjectPointerType() || T->isObjCBuiltinType() ||
       T->isBlockPointerType() || ento::coreFoundation::isCFObjectRef(T))
     return false;
+  // Also, typedef-of-pointer-to-incomplete-struct is something that we assume
+  // is not an innter pointer type.
+  QualType OrigT = T;
+  while (const TypedefType *TD = dyn_cast<TypedefType>(T.getTypePtr()))
+    T = TD->getDecl()->getUnderlyingType();
+  if (OrigT == T || !T->isPointerType())
+    return true;
+  const PointerType* PT = T->getAs<PointerType>();
+  QualType UPointeeT = PT->getPointeeType().getUnqualifiedType();
+  if (UPointeeT->isRecordType()) {
+    const RecordType *RecordTy = UPointeeT->getAs<RecordType>();
+    if (!RecordTy->getDecl()->isCompleteDefinition())
+      return false;
+  }
   return true;
 }
 
@@ -756,7 +770,7 @@ bool ObjCMigrateASTConsumer::migrateProperty(ASTContext &Ctx,
     // as a 'readonly' property.
     edit::Commit commit(*Editor);
     rewriteToObjCProperty(Method, 0 /*SetterMethod*/, *NSAPIObj, commit,
-                          false /*GetterHasIsPrefix*/);
+                          GetterHasIsPrefix);
     Editor->commit(commit);
     return true;
   }

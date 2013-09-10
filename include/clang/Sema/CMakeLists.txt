@@ -21,3 +21,8 @@ clang_tablegen(AttrSpellingListIndex.inc -gen-clang-attr-spelling-index
   SOURCE ../Basic/Attr.td
   TDDEPENDS ../Basic/AttrMolly.td
   TARGET ClangAttrSpellingListIndex)
+
+clang_tablegen(AttrParsedAttrImpl.inc -gen-clang-attr-parsed-attr-impl
+  -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
+  SOURCE ../Basic/Attr.td
+  TARGET ClangAttrParsedAttrImpl)
