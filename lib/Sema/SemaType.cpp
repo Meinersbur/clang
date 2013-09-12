@@ -235,26 +235,6 @@ namespace {
       savedAttrs.back()->setNext(0);
     }
   };
-
-  /// Basically std::pair except that we really want to avoid an
-  /// implicit operator= for safety concerns.  It's also a minor
-  /// link-time optimization for this to be a private type.
-  struct AttrAndList {
-    /// The attribute.
-    AttributeList &first;
-
-    /// The head of the list the attribute is currently in.
-    AttributeList *&second;
-
-    AttrAndList(AttributeList &attr, AttributeList *&head)
-      : first(attr), second(head) {}
-  };
-}
-
-namespace llvm {
-  template <> struct isPodLike<AttrAndList> {
-    static const bool value = true;
-  };
 }
 
 static void spliceAttrIntoList(AttributeList &attr, AttributeList *&head) {
@@ -4032,7 +4012,7 @@ static bool handleObjCOwnershipTypeAttr(TypeProcessingState &state,
     lifetime = Qualifiers::OCL_Autoreleasing;
   else {
     S.Diag(AttrLoc, diag::warn_attribute_type_not_supported)
-      << "objc_ownership" << II;
+      << attr.getName() << II;
     attr.setInvalid();
     return true;
   }
@@ -4166,7 +4146,7 @@ static bool handleObjCGCTypeAttr(TypeProcessingState &state,
     GCAttr = Qualifiers::Strong;
   else {
     S.Diag(attr.getLoc(), diag::warn_attribute_type_not_supported)
-      << "objc_gc" << II;
+      << attr.getName() << II;
     attr.setInvalid();
     return true;
   }

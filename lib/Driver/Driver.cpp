@@ -441,11 +441,11 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
   std::string Cmd;
   llvm::raw_string_ostream OS(Cmd);
   if (FailingCommand)
-    C.PrintDiagnosticJob(OS, *FailingCommand);
+    FailingCommand->Print(OS, "\n", /*Quote*/ false, /*CrashReport*/ true);
   else
     // Crash triggered by FORCE_CLANG_DIAGNOSTICS_CRASH, which doesn't have an
     // associated FailingCommand, so just pass all jobs.
-    C.PrintDiagnosticJob(OS, C.getJobs());
+    C.getJobs().Print(OS, "\n", /*Quote*/ false, /*CrashReport*/ true);
   OS.flush();
 
   // Keep track of whether we produce any errors while trying to produce
@@ -578,7 +578,7 @@ int Driver::ExecuteCompilation(const Compilation &C,
     SmallVectorImpl< std::pair<int, const Command *> > &FailingCommands) const {
   // Just print if -### was present.
   if (C.getArgs().hasArg(options::OPT__HASH_HASH_HASH)) {
-    C.PrintJob(llvm::errs(), C.getJobs(), "\n", true);
+    C.getJobs().Print(llvm::errs(), "\n", true);
     return 0;
   }
 
@@ -1011,8 +1011,8 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
     Arg *Previous = *it++;
     bool ShowNote = false;
     while (it != ie) {
-      Diag(clang::diag::warn_drv_overriding_t_option) << Previous->getSpelling()
-          << (*it)->getSpelling();
+      Diag(clang::diag::warn_drv_overriding_flag_option)
+          << Previous->getSpelling() << (*it)->getSpelling();
       Previous = *it++;
       ShowNote = true;
     }
