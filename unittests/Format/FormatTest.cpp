@@ -1530,12 +1530,23 @@ TEST_F(FormatTest, FormatsEnum) {
                "  Four = (Zero && (One ^ Two)) | (One << Two),\n"
                "  Five = (One, Two, Three, Four, 5)\n"
                "};");
+  verifyGoogleFormat("enum {\n"
+                     "  Zero,\n"
+                     "  One = 1,\n"
+                     "  Two = One + 1,\n"
+                     "  Three = (One + Two),\n"
+                     "  Four = (Zero && (One ^ Two)) | (One << Two),\n"
+                     "  Five = (One, Two, Three, Four, 5)\n"
+                     "};");
   verifyFormat("enum Enum {};");
   verifyFormat("enum {};");
-  verifyFormat("enum X E {\n} d;");
-  verifyFormat("enum __attribute__((...)) E {\n} d;");
-  verifyFormat("enum __declspec__((...)) E {\n} d;");
+  verifyFormat("enum X E {} d;");
+  verifyFormat("enum __attribute__((...)) E {} d;");
+  verifyFormat("enum __declspec__((...)) E {} d;");
   verifyFormat("enum X f() {\n  a();\n  return 42;\n}");
+  verifyFormat("enum {\n"
+               "  Bar = Foo<int, int>::value\n"
+               "};");
 }
 
 TEST_F(FormatTest, FormatsEnumsWithErrors) {
@@ -1563,9 +1574,9 @@ TEST_F(FormatTest, FormatsEnumStruct) {
                "};");
   verifyFormat("enum struct Enum {};");
   verifyFormat("enum struct {};");
-  verifyFormat("enum struct X E {\n} d;");
-  verifyFormat("enum struct __attribute__((...)) E {\n} d;");
-  verifyFormat("enum struct __declspec__((...)) E {\n} d;");
+  verifyFormat("enum struct X E {} d;");
+  verifyFormat("enum struct __attribute__((...)) E {} d;");
+  verifyFormat("enum struct __declspec__((...)) E {} d;");
   verifyFormat("enum struct X f() {\n  a();\n  return 42;\n}");
 }
 
@@ -1580,9 +1591,9 @@ TEST_F(FormatTest, FormatsEnumClass) {
                "};");
   verifyFormat("enum class Enum {};");
   verifyFormat("enum class {};");
-  verifyFormat("enum class X E {\n} d;");
-  verifyFormat("enum class __attribute__((...)) E {\n} d;");
-  verifyFormat("enum class __declspec__((...)) E {\n} d;");
+  verifyFormat("enum class X E {} d;");
+  verifyFormat("enum class __attribute__((...)) E {} d;");
+  verifyFormat("enum class __declspec__((...)) E {} d;");
   verifyFormat("enum class X f() {\n  a();\n  return 42;\n}");
 }
 
@@ -3508,15 +3519,6 @@ TEST_F(FormatTest, WrapsTemplateDeclarations) {
   verifyFormat("template <typename T> class C {};");
   verifyFormat("template <typename T> void f();");
   verifyFormat("template <typename T> void f() {}");
-
-  FormatStyle AlwaysBreak = getLLVMStyle();
-  AlwaysBreak.AlwaysBreakTemplateDeclarations = true;
-  verifyFormat("template <typename T>\nclass C {};", AlwaysBreak);
-  verifyFormat("template <typename T>\nvoid f();", AlwaysBreak);
-  verifyFormat("template <typename T>\nvoid f() {}", AlwaysBreak);
-  verifyFormat("void aaaaaaaaaaaaaaaaaaa<aaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
-               "                         bbbbbbbbbbbbbbbbbbbbbbbbbbbb>(\n"
-               "    ccccccccccccccccccccccccccccccccccccccccccccccc);");
   verifyFormat(
       "aaaaaaaaaaaaa<aaaaaaaaaa, aaaaaaaaaaa,\n"
       "              aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
@@ -3526,6 +3528,19 @@ TEST_F(FormatTest, WrapsTemplateDeclarations) {
       "                      aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>(\n"
       "        bbbbbbbbbbbbbbbbbbbbbbbb);",
       getLLVMStyleWithColumns(72));
+
+  FormatStyle AlwaysBreak = getLLVMStyle();
+  AlwaysBreak.AlwaysBreakTemplateDeclarations = true;
+  verifyFormat("template <typename T>\nclass C {};", AlwaysBreak);
+  verifyFormat("template <typename T>\nvoid f();", AlwaysBreak);
+  verifyFormat("template <typename T>\nvoid f() {}", AlwaysBreak);
+  verifyFormat("void aaaaaaaaaaaaaaaaaaa<aaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "                         bbbbbbbbbbbbbbbbbbbbbbbbbbbb>(\n"
+               "    ccccccccccccccccccccccccccccccccccccccccccccccc);");
+  verifyFormat("template <template <typename> class Fooooooo,\n"
+               "          template <typename> class Baaaaaaar>\n"
+               "struct C {};",
+               AlwaysBreak);
 }
 
 TEST_F(FormatTest, WrapsAtNestedNameSpecifiers) {
@@ -4260,6 +4275,7 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
     verifyFormat("return { arg1, arg2 };");
     verifyFormat("return { arg1, SomeType{ parameter } };");
     verifyFormat("new T{ arg1, arg2 };");
+    verifyFormat("f(MyMap[{ composite, key }]);");
     verifyFormat("class Class {\n"
                  "  T member = { arg1, arg2 };\n"
                  "};");
@@ -4294,6 +4310,7 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
     verifyFormat("return {arg1, arg2};", NoSpaces);
     verifyFormat("return {arg1, SomeType{parameter}};", NoSpaces);
     verifyFormat("new T{arg1, arg2};", NoSpaces);
+    verifyFormat("f(MyMap[{composite, key}]);", NoSpaces);
     verifyFormat("class Class {\n"
                  "  T member = {arg1, arg2};\n"
                  "};",

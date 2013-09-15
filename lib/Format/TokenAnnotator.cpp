@@ -1052,11 +1052,20 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
                Current->Next->is(tok::string_literal)) {
       Current->MustBreakBefore = true;
     } else if (Current->Previous->ClosesTemplateDeclaration &&
+               Current->Previous->MatchingParen &&
+               Current->Previous->MatchingParen->BindingStrength == 1 &&
                Style.AlwaysBreakTemplateDeclarations) {
+      // FIXME: Fix horrible hack of using BindingStrength to find top-level <>.
       Current->MustBreakBefore = true;
     } else if (Current->Type == TT_CtorInitializerComma &&
                Style.BreakConstructorInitializersBeforeComma) {
       Current->MustBreakBefore = true;
+    } else if (Current->Previous->BlockKind == BK_Block &&
+               Current->isNot(tok::r_brace)) {
+      Current->MustBreakBefore = true;
+    } else if (Current->is(tok::l_brace) && (Current->BlockKind == BK_Block)) {
+      Current->MustBreakBefore =
+          Style.BreakBeforeBraces == FormatStyle::BS_Allman;
     }
     Current->CanBreakBefore =
         Current->MustBreakBefore || canBreakBefore(Line, *Current);
