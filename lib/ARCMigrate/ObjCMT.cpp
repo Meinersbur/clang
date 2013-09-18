@@ -508,7 +508,7 @@ static bool UseNSOptionsMacro(Preprocessor &PP, ASTContext &Ctx,
       PowerOfTwo = false;
       continue;
     }
-    InitExpr = InitExpr->IgnoreImpCasts();
+    InitExpr = InitExpr->IgnoreParenCasts();
     if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(InitExpr))
       if (BO->isShiftOp() || BO->isBitwiseOp())
         return true;
@@ -770,6 +770,8 @@ bool ObjCMigrateASTConsumer::migrateProperty(ASTContext &Ctx,
   }
   
   if (SetterMethod) {
+    if (SetterMethod->isDeprecated())
+      return false;
     // Is this a valid setter, matching the target getter?
     QualType SRT = SetterMethod->getResultType();
     if (!SRT->isVoidType())
