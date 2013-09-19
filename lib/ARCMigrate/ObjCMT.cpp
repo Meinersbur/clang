@@ -657,11 +657,6 @@ static void ReplaceWithInstancetype(const ObjCMigrateASTConsumer &ASTC,
 void ObjCMigrateASTConsumer::migrateMethodInstanceType(ASTContext &Ctx,
                                                        ObjCContainerDecl *CDecl,
                                                        ObjCMethodDecl *OM) {
-  // bail out early and do not suggest 'instancetype' when the method already 
-  // has a related result type,
-  if (OM->hasRelatedResultType())
-    return;
-
   ObjCInstanceTypeFamily OIT_Family =
     Selector::getInstTypeMethodFamily(OM->getSelector());
   
@@ -678,6 +673,10 @@ void ObjCMigrateASTConsumer::migrateMethodInstanceType(ASTContext &Ctx,
       break;
     case OIT_Singleton:
       migrateFactoryMethod(Ctx, CDecl, OM, OIT_Singleton);
+      return;
+    case OIT_Init:
+      if (OM->getResultType()->isObjCIdType())
+        ReplaceWithInstancetype(*this, OM);
       return;
   }
   if (!OM->getResultType()->isObjCIdType())
@@ -721,6 +720,33 @@ static bool TypeIsInnerPointer(QualType T) {
   return true;
 }
 
+static bool AttributesMatch(const Decl *Decl1, const Decl *Decl2) {
+  if (Decl1->hasAttrs() != Decl2->hasAttrs())
+    return false;
+  
+  if (!Decl1->hasAttrs())
+    return true;
+  
+  const AttrVec &Attrs1 = Decl1->getAttrs();
+  const AttrVec &Attrs2 = Decl2->getAttrs();
+  // This list is very small, so this need not be optimized.
+  for (unsigned i = 0, e = Attrs1.size(); i != e; i++) {
+    bool match = false;
+    for (unsigned j = 0, f = Attrs2.size(); j != f; j++) {
+      // Matching attribute kind only. We are not getting into
+      // details of the attributes. For all practical purposes
+      // this is sufficient.
+      if (Attrs1[i]->getKind() == Attrs2[j]->getKind()) {
+        match = true;
+        break;
+      }
+    }
+    if (!match)
+      return false;
+  }
+  return true;
+}
+
 bool ObjCMigrateASTConsumer::migrateProperty(ASTContext &Ctx,
                              ObjCContainerDecl *D,
                              ObjCMethodDecl *Method) {
@@ -730,9 +756,6 @@ bool ObjCMigrateASTConsumer::migrateProperty(ASTContext &Ctx,
   // Is this method candidate to be a getter?
   QualType GRT = Method->getResultType();
   if (GRT->isVoidType())
-    return false;
-  // FIXME. Don't know what todo with attributes, skip for now.
-  if (Method->hasAttrs())
     return false;
   
   Selector GetterSelector = Method->getSelector();
@@ -770,16 +793,17 @@ bool ObjCMigrateASTConsumer::migrateProperty(ASTContext &Ctx,
   }
   
   if (SetterMethod) {
-    if (SetterMethod->isDeprecated())
+    if (SetterMethod->isDeprecated() ||
+        !AttributesMatch(Method, SetterMethod))
       return false;
+    
     // Is this a valid setter, matching the target getter?
     QualType SRT = SetterMethod->getResultType();
     if (!SRT->isVoidType())
       return false;
     const ParmVarDecl *argDecl = *SetterMethod->param_begin();
     QualType ArgType = argDecl->getType();
-    if (!Ctx.hasSameUnqualifiedType(ArgType, GRT) ||
-        SetterMethod->hasAttrs())
+    if (!Ctx.hasSameUnqualifiedType(ArgType, GRT))
       return false;
     edit::Commit commit(*Editor);
     rewriteToObjCProperty(Method, SetterMethod, *NSAPIObj, commit,
@@ -816,6 +840,9 @@ void ObjCMigrateASTConsumer::migrateNsReturnsInnerPointer(ASTContext &Ctx,
 
 void ObjCMigrateASTConsumer::migrateMethods(ASTContext &Ctx,
                                                  ObjCContainerDecl *CDecl) {
+  if (CDecl->isDeprecated())
+    return;
+  
   // migrate methods which can have instancetype as their result type.
   for (ObjCContainerDecl::method_iterator M = CDecl->meth_begin(),
        MEnd = CDecl->meth_end();
