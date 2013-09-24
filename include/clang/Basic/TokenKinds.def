@@ -665,6 +665,9 @@ ANNOTATION(pragma_opencl_extension)
 ANNOTATION(pragma_openmp)
 ANNOTATION(pragma_openmp_end)
 
+ANNOTATION(pragma_molly)
+ANNOTATION(pragma_molly_end)
+
 #undef ANNOTATION
 #undef TESTING_KEYWORD
 #undef OBJC2_AT_KEYWORD

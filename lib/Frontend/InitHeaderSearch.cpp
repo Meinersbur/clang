@@ -406,9 +406,11 @@ AddDefaultCPlusPlusIncludePaths(const llvm::Triple &triple, const HeaderSearchOp
     AddMinGW64CXXPaths(HSOpts.ResourceDir, "4.6.3");
     AddMinGW64CXXPaths(HSOpts.ResourceDir, "4.7.0");
     AddMinGW64CXXPaths(HSOpts.ResourceDir, "4.7.2");
+    AddMinGW64CXXPaths(HSOpts.ResourceDir, "4.8.1");
     // mingw.org C++ include paths
     AddMinGWCPlusPlusIncludePaths("/mingw/lib/gcc", "mingw32", "4.5.2"); //MSYS
 #if defined(_WIN32)
+    AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.8.1");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.7.2");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.7.0");
     AddMinGWCPlusPlusIncludePaths("c:/MinGW/lib/gcc", "mingw32", "4.6.2");

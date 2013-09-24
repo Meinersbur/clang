@@ -134,6 +134,16 @@ private:
   Sema &Actions;
 };
 
+#ifdef MOLLY
+class PragmaMollyHandler : public PragmaHandler {
+public:
+  PragmaMollyHandler(Sema &Actions): PragmaHandler("molly"), Actions(Actions) {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &FirstToken) LLVM_OVERRIDE;
+private:
+  Sema &Actions;
+}; // class PragmaMollyHandler
+#endif /* MOLLY */
+
 }  // end namespace clang
 
 #endif

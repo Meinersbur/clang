@@ -38,8 +38,8 @@ namespace clang {
 
     //TODO: Move this class to LLVM to allow other frontends generate metadata for Molly and remove dependency to Clang
     class FieldTypeMetadata {
-    protected:
-
+    private:
+      llvm::MDNode *node;
 
     public:
       FieldTypeMetadata();

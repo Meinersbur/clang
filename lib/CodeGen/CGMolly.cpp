@@ -19,6 +19,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/CodeGen/MollyRuntimeMetadata.h"
 #include "clang/AST/GlobalDecl.h"
+#include "llvm/ADT/ArrayRef.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
@@ -40,7 +41,7 @@ void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *
   this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
   this->funcCombufSend = cast<Function>(metadata->getOperand(5));
   this->funcCombufRecv = cast<Function>(metadata->getOperand(6));
-//this->varSelfCoords = cast<GlobalVariable>(metadata->getOperand(7));
+  //this->varSelfCoords = cast<GlobalVariable>(metadata->getOperand(7));
   this->funcLocalCoord =  cast<Function>(metadata->getOperand(7));
   assert( metadata->getNumOperands()==8);
 }
@@ -57,7 +58,7 @@ llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
     /*[ 4]*/funcCreateRecvCombuf,
     /*[ 5]*/funcCombufSend,
     /*[ 6]*/funcCombufRecv,
- //   /*[ 7]*/varSelfCoords
+    //   /*[ 7]*/varSelfCoords
     /*[ 7]*/funcLocalCoord
   };
   llvm::MDNode *metadataNode = llvm::MDNode::get(llvmContext, metadata);
@@ -74,6 +75,7 @@ void MollyRuntimeMetadata::addMetadata(llvm::Module *llvmModule){
 
 
 FieldTypeMetadata::FieldTypeMetadata() {
+  this->node = nullptr;
   this->clangDecl = NULL;
   this->llvmType = NULL;
   this->llvmEltType = NULL;
@@ -93,6 +95,7 @@ FieldTypeMetadata::FieldTypeMetadata() {
 FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm::StructType *llvmType, llvm::Type *llvmEltType, uint64_t eltSize, llvm::ArrayRef<int> dims) {
   assert(clangDecl);
   assert(llvmType);
+  this->node = nullptr;
   this->clangDecl = clangDecl;
   this->llvmType = llvmType;
   this->llvmEltType = llvmEltType;
@@ -127,11 +130,11 @@ llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty, llvm::Module *mod
 
 
 llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
- if (!val)
-   return nullptr;
- auto pty = val->getType();
- return cast<llvm::PointerType>(pty)->getElementType();
-   
+  if (!val)
+    return nullptr;
+  auto pty = val->getType();
+  return cast<llvm::PointerType>(pty)->getElementType();
+
   auto funcTy = cast<llvm::FunctionType>(val->getType()->getPointerElementType());
   assert(funcTy->getNumParams() == 0);
   auto ptrTy = funcTy->getReturnType();
@@ -141,6 +144,9 @@ llvm::Type *clang::CodeGen::extractTypeFromValue(llvm::Value *val) {
 
 
 llvm::MDNode *FieldTypeMetadata::buildMetadata(llvm::Module *llvmModule) {
+  // if (this->node) {
+  //  return node; }
+
   auto &llvmContext = llvmType->getContext();
 
   // Create metadata info
@@ -152,6 +158,8 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata(llvm::Module *llvmModule) {
 
   llvm::MDNode *lengthsNode = llvm::MDNode::get(llvmContext, lengthsAsValue);
 
+  assert(funcGetBroadcast);
+  assert(funcSetBroadcast);
   llvm::Value* metadata[] = {
     /*[ 0]*/llvm::MDString::get(llvmContext, "field"), // Just for testing
     /*[ 1]*/llvm::MDString::get(llvmContext, clangDecl->getNameAsString()), // Clang type name
@@ -170,6 +178,7 @@ llvm::MDNode *FieldTypeMetadata::buildMetadata(llvm::Module *llvmModule) {
     /*[14]*/funcPtrLocal
   };
   llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
+  this->node = fieldNode;
   return fieldNode;
 }
 
@@ -290,7 +299,7 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   if (!lengthsAttr)
     return; // Not a field
 
-  auto &fieldType  = fieldsFound[clangType];
+  auto &fieldType = fieldsFound[clangType];
   if (fieldType)
     return;
 
@@ -327,7 +336,7 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, eltSize, lengths);
   return;
 
-
+#if 0
   // Get the metadata node
   llvm::NamedMDNode *fieldsMetadata = cgm->getModule().getOrInsertNamedMetadata("molly.fields");
 
@@ -344,6 +353,7 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
 
   // Append the the metadata to the module, so this metadata does not get optimized away as unused
   fieldsMetadata->addOperand(fieldNode);
+#endif
 }
 
 
@@ -476,7 +486,7 @@ clang::QualType CodeGenMolly::findMollyType(const char *name) {
   auto rankLu = mollyNamespace->lookup(rankName);
   assert(!rankLu.empty());
   auto rankClangDecl = *rankLu.begin();
-  auto typedefTy = clangContext->getTypedefType(cast<TypedefDecl>( rankClangDecl)) ; //FIXME: Accept other type declarations, not just typedef
+  auto typedefTy = clangContext->getTypedefType(cast<TypedefDecl>(rankClangDecl)) ; //FIXME: Accept other type declarations, not just typedef
   return typedefTy;
 }
 
@@ -485,13 +495,26 @@ void CodeGenMolly::EmitMetadata() {
   auto module = &cgm->getModule();
   llvm::NamedMDNode *fieldsMetadata = module->getOrInsertNamedMetadata("molly.fields");
 
+  llvm::DenseMap<const clang::CXXRecordDecl*, llvm::MDNode *> mdNodes;
   for (auto it = fieldsFound.begin(), end = fieldsFound.end(); it!=end; ++it) {
     auto field = it->second;
     if (!field)
       continue;
 
-    fieldsMetadata->addOperand(field->buildMetadata(module));
+    auto md = field->buildMetadata(module);
+    mdNodes[it->first] = md;
+    fieldsMetadata->addOperand(md);
   }
+
+  for (auto &p : pendingMetadata) {
+    auto instr = p.first;
+    auto structTy = p.second;
+
+    auto md = mdNodes[structTy];
+    assert(md);
+    instr->setArgOperand(1, md);
+  }
+  pendingMetadata.clear();
 
   MollyRuntimeMetadata rtMetadata;
   rtMetadata.tyCombufSend = cgm->getTypes().ConvertType(findMollyType("combufsend_t"));
@@ -548,6 +571,21 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     intrincId = Intrinsic::molly_locallength;
     hasDimArg = true;
     break;
+
+  case Builtin::BI__builtin_molly_global_init:
+    intrincId = Intrinsic::molly_global_init;
+    hasSelfArg = false;
+    break;
+  case Builtin::BI__builtin_molly_global_free:
+    intrincId = Intrinsic::molly_global_free;
+    hasSelfArg = false;
+    break;
+  case Builtin::BI__builtin_molly_field_init:
+    intrincId = Intrinsic::molly_field_init;
+    break;
+  case Builtin::BI__builtin_molly_field_free:
+    intrincId = Intrinsic::molly_field_free;
+    break;
   default:
     return false; // Not a Molly intrinsic
   }
@@ -564,21 +602,28 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
 
   // Query element type 
   // Pointer to field is always first argument
-  assert(hasSelfArg);
-  auto ptrToSelf = E->getArg(curArg);
-  curArg += 1;
-  ptrToSelf = ptrToSelf->IgnoreParenImpCasts();
-  auto ptrToSelfType = ptrToSelf->getType();
-  auto structTy = cast<CXXRecordDecl>(ptrToSelfType->getPointeeType()->getAsCXXRecordDecl());
-  auto eltTypedef = cast<TypedefDecl>(findMember(cgm, structTy, "ElementType"));
-  auto eltType = clangContext.getTypeDeclType(eltTypedef);
-  auto llvmEltType = cgf->ConvertType(eltTypedef);
-  auto llvmPtrToEltType = cgf->ConvertType(clangContext.getPointerType(eltType));
+
+
+  llvm::Type *llvmPtrToEltType=nullptr;
+  const Expr *ptrToSelf=nullptr;
+  const CXXRecordDecl *structTy=nullptr;
+  if (hasSelfArg) {
+    ptrToSelf = E->getArg(curArg);
+    curArg += 1;
+    ptrToSelf = ptrToSelf->IgnoreParenImpCasts();
+    auto ptrToSelfType = ptrToSelf->getType();
+    structTy = cast<CXXRecordDecl>(ptrToSelfType->getPointeeType()->getAsCXXRecordDecl());
+    auto eltTypedef = cast<TypedefDecl>(findMember(cgm, structTy, "ElementType"));
+    auto eltType = clangContext.getTypeDeclType(eltTypedef);
+    auto llvmEltType = cgf->ConvertType(eltTypedef);
+    llvmPtrToEltType = cgf->ConvertType(clangContext.getPointerType(eltType));
+  }
 
   // Return type
   switch (BuiltinID) {  
   case Builtin::BI__builtin_molly_ptr:
     // Pointer to buffer
+    assert(llvmPtrToEltType);
     argtypes.push_back(llvmPtrToEltType);
     break;
   case Builtin::BI__builtin_molly_islocal:
@@ -590,15 +635,17 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     //argtypes.push_back(llvm::Type::getInt32Ty(llvmContext));  //FIXME: This is fixed, isn't it?
     break;
   default:
-    // No return or fixed
+    // void or fixed
     //argtypes.push_back(llvm::Type::getVoidTy(llvmContext)); 
     break;
   }
 
   // Ptr to field is always first argument
-  Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
-  args.push_back(thisArg);
-  argtypes.push_back(thisArg->getType()); 
+  if (hasSelfArg) {
+    Value *thisArg = cgf->EmitScalarExpr(ptrToSelf);
+    args.push_back(thisArg);
+    argtypes.push_back(thisArg->getType()); 
+  }
 
   // Dimension arg
   if (hasDimArg) {
@@ -620,7 +667,7 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   if (hasCoordArgs) {
     auto nDims = nArgs - curArg; //TODO: Check if matches field type
     for (auto d = nArgs-nDims;d<nArgs;d+=1) {
-      argtypes.push_back(IntegerType::getInt32Ty(llvmContext)); // Type of a coordinate 
+      argtypes.push_back(IntegerType::getInt64Ty(llvmContext)); // Type of a coordinate 
 
       auto coordArgExpr = E->getArg(d);
       curArg += 1;
@@ -630,8 +677,19 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   }
   assert(curArg == nArgs && "Unexpected number of arguments");
 
+  if (intrincId==Intrinsic::molly_field_init) {
+    //auto md = fieldsFound[structTy];
+    //args.push_back(md->buildMetadata(&cgm->getModule()));
+    args.push_back( llvm::MDNode::get(llvmContext, ArrayRef<llvm::Value*>() )); // Metadata not known yet, must be added later
+  }
+
   Function *func = cgm->getIntrinsic(intrincId, argtypes);
-  auto callInstr = builder->CreateCall(func, args, "mollycall");
+  auto callInstr = builder->CreateCall(func, args, func->getReturnType()->isVoidTy() ? Twine() : "mollycall");
+
+  if (intrincId==Intrinsic::molly_field_init) {
+    pendingMetadata.emplace_back(callInstr, structTy);
+  }
+
   result = RValue::get(callInstr);
   return true;
 }

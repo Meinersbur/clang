@@ -112,6 +112,10 @@ Parser::Parser(Preprocessor &pp, Sema &actions, bool skipFunctionBodies)
   CommentSemaHandler.reset(new ActionCommentHandler(actions));
   PP.addCommentHandler(CommentSemaHandler.get());
 
+#ifdef MOLLY
+  PP.AddPragmaHandler(new PragmaMollyHandler(actions));
+#endif
+
   PP.setCodeCompletionHandler(*this);
 }
 

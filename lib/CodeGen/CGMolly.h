@@ -4,12 +4,14 @@
 #include <llvm/Support/Compiler.h>
 #include <llvm/ADT/DenseMap.h>
 #include <clang/AST/Type.h>
+#include <vector>
 
 namespace llvm {
   class StructType;
   class Function;
   class MDNode;
   class Module;
+  class CallInst;
 } // namespace llvm
 
 namespace clang {
@@ -42,6 +44,8 @@ namespace clang {
       clang::VarDecl *findGlobalVariable(const char *name);
       clang::QualType findMollyType(const char *);
 
+      std::vector<std::pair<llvm::CallInst*, const clang::CXXRecordDecl*>> pendingMetadata;
+
     public:
       CodeGenMolly(CodeGenModule *cgm)  : cgm(cgm) { }
       ~CodeGenMolly();
@@ -49,7 +53,7 @@ namespace clang {
       void annotateFieldType(const clang::CXXRecordDecl *clangType, llvm::StructType *llvmType);
       void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
 
-      static bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
+      bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
 
       void EmitMetadata();
     }; // class CodeGenMolly

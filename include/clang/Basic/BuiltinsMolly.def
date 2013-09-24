@@ -1,9 +1,24 @@
+// Types:
+//  v*  Void pointer
+//  .   varargs
+//  b   boolean
+//  LLi long long int (64 bits?)
+
+// Flags:
+//  n   nothrow
+//  t   signature is meaningless, use custom typechecking
 
 BUILTIN(__builtin_molly_ptr, "v*."  , "nt")
 BUILTIN(__builtin_molly_get, "v."  , "nt")
 BUILTIN(__builtin_molly_set, "v."  , "nt")
 
 BUILTIN(__builtin_molly_islocal, "b."  , "nt")
-BUILTIN(__builtin_molly_rankof, "i."  , "nt")
-BUILTIN(__builtin_molly_localoffset, "ivC*i"  , "n")
-BUILTIN(__builtin_molly_locallength, "ivC*i"  , "n")
+BUILTIN(__builtin_molly_rankof, "LLi."  , "nt")
+BUILTIN(__builtin_molly_localoffset, "LLivC*LLi"  , "n")
+BUILTIN(__builtin_molly_locallength, "LLivC*LLi"  , "n")
+
+BUILTIN(__builtin_molly_global_init, "v"  , "")
+BUILTIN(__builtin_molly_global_free, "v"  , "")
+
+BUILTIN(__builtin_molly_field_init, "vv*"  , "")
+BUILTIN(__builtin_molly_field_free, "vv*"  , "")

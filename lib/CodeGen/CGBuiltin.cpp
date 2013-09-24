@@ -1581,7 +1581,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
 
   // BEGIN Molly
   RValue result;
-  if (CodeGenMolly::EmitMollyBuiltin(result, &CGM, this, FD, BuiltinID, E))
+  if (CGM.MollyGen.EmitMollyBuiltin(result, &CGM, this, FD, BuiltinID, E))
     return result;
   // END Molly
 
