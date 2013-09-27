@@ -3191,10 +3191,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  // -fobjc-default-synthesize-properties=1 is default. This only has an effect
-  // if the nonfragile objc abi is used.
-  CmdArgs.push_back("-fobjc-default-synthesize-properties");
-
   // -fencode-extended-block-signature=1 is default.
   if (getToolChain().IsEncodeExtendedBlockSignatureDefault()) {
     CmdArgs.push_back("-fencode-extended-block-signature");
@@ -6733,6 +6729,10 @@ Command *visualstudio::Compile::GetCommand(Compilation &C, const JobAction &JA,
                                                                    : "/GR-");
   if (Args.hasArg(options::OPT_fsyntax_only))
     CmdArgs.push_back("/Zs");
+
+  std::vector<std::string> Includes = Args.getAllArgValues(options::OPT_include);
+  for (size_t I = 0, E = Includes.size(); I != E; ++I)
+    CmdArgs.push_back(Args.MakeArgString(std::string("/FI") + Includes[I]));
 
   // Flags that can simply be passed through.
   Args.AddAllArgs(CmdArgs, options::OPT__SLASH_LD);
