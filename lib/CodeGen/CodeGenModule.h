@@ -251,7 +251,6 @@ class CodeGenModule : public CodeGenTypeCache {
  
   /// VTables - Holds information about C++ vtables.
   CodeGenVTables VTables;
-  friend class CodeGenVTables;
 
   CGObjCRuntime* ObjCRuntime;
   CGOpenCLRuntime* OpenCLRuntime;
@@ -920,6 +919,10 @@ public:
 
   void EmitVTable(CXXRecordDecl *Class, bool DefinitionRequired);
 
+  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
+  /// builtin types.
+  void EmitFundamentalRTTIDescriptors();
+
   /// \brief Appends Opts to the "Linker Options" metadata value.
   void AppendLinkerOptions(StringRef Opts);
 
@@ -1072,10 +1075,6 @@ private:
   /// EmitFundamentalRTTIDescriptor - Emit the RTTI descriptors for the
   /// given type.
   void EmitFundamentalRTTIDescriptor(QualType Type);
-
-  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
-  /// builtin types.
-  void EmitFundamentalRTTIDescriptors();
 
   /// EmitDeferred - Emit any needed decls for which code generation
   /// was deferred.
