@@ -2494,12 +2494,11 @@ getCCForDeclaratorChunk(Sema &S, Declarator &D,
       assert(D.isFunctionDeclarator());
 
       // If we're inside a record, we're declaring a method, but it could be
-      // static.
+      // explicitly or implicitly static.
       IsCXXInstanceMethod =
-          (D.getContext() == Declarator::MemberContext &&
-           D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef &&
-           D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_static &&
-           !D.getDeclSpec().isFriendSpecified());
+          D.isFirstDeclarationOfMember() &&
+          D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef &&
+          !D.isStaticMember();
     }
   }
 
@@ -4554,7 +4553,11 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
 
     const FunctionProtoType *FnP = cast<FunctionProtoType>(fn);
     if (FnP->isVariadic()) {
-      S.Diag(attr.getLoc(), diag::err_cconv_varargs)
+      // In MS compatibility mode, this is just a warning.
+      const LangOptions &L = S.getLangOpts();
+      unsigned DiagID = L.MicrosoftMode ? diag::warn_cconv_varargs
+                                        : diag::err_cconv_varargs;
+      S.Diag(attr.getLoc(), DiagID)
         << FunctionType::getNameForCallConv(CC);
       attr.setInvalid();
       return true;
@@ -4580,13 +4583,17 @@ static bool handleFunctionTypeAttr(TypeProcessingState &state,
   return true;
 }
 
-void Sema::adjustMemberFunctionCC(QualType &T) {
+void Sema::adjustMemberFunctionCC(QualType &T, bool IsStatic) {
   const FunctionType *FT = T->castAs<FunctionType>();
   bool IsVariadic = (isa<FunctionProtoType>(FT) &&
                      cast<FunctionProtoType>(FT)->isVariadic());
   CallingConv CC = FT->getCallConv();
+
+  // Only adjust types with the default convention.  For example, on Windows we
+  // should adjust a __cdecl type to __thiscall for instance methods, and a
+  // __thiscall type to __cdecl for static methods.
   CallingConv DefaultCC =
-      Context.getDefaultCallingConvention(IsVariadic, /*IsCXXMethod=*/false);
+      Context.getDefaultCallingConvention(IsVariadic, IsStatic);
   if (CC != DefaultCC)
     return;
 
@@ -4602,7 +4609,7 @@ void Sema::adjustMemberFunctionCC(QualType &T) {
 
   // FIXME: This loses sugar.  This should probably be fixed with an implicit
   // AttributedType node that adjusts the convention.
-  CC = Context.getDefaultCallingConvention(IsVariadic, /*IsCXXMethod=*/true);
+  CC = Context.getDefaultCallingConvention(IsVariadic, !IsStatic);
   FT = Context.adjustFunctionType(FT, FT->getExtInfo().withCallingConv(CC));
   FunctionTypeUnwrapper Unwrapped(*this, T);
   T = Unwrapped.wrap(*this, FT);

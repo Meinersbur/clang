@@ -524,7 +524,9 @@ public:
  
   CodeGenVTables &getVTables() { return VTables; }
 
-  VTableContext &getVTableContext() { return VTables.getVTableContext(); }
+  ItaniumVTableContext &getVTableContext() {
+    return VTables.getVTableContext();
+  }
 
   MicrosoftVFTableContext &getVFTableContext() {
     return VTables.getVFTableContext();
