@@ -37,12 +37,12 @@ void MollyRuntimeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *
   this->tyCombufSend = extractTypeFromValue(metadata->getOperand(0));
   this->tyCombufRecv = extractTypeFromValue(metadata->getOperand(1));
   this->tyRank = extractTypeFromValue(metadata->getOperand(2));
-  this->funcCreateSendCombuf = cast<Function>(metadata->getOperand(3));
-  this->funcCreateRecvCombuf = cast<Function>(metadata->getOperand(4));
-  this->funcCombufSend = cast<Function>(metadata->getOperand(5));
-  this->funcCombufRecv = cast<Function>(metadata->getOperand(6));
-  //this->varSelfCoords = cast<GlobalVariable>(metadata->getOperand(7));
-  this->funcLocalCoord =  cast<Function>(metadata->getOperand(7));
+  this->funcCreateSendCombuf = cast_or_null<Function>(metadata->getOperand(3));
+  this->funcCreateRecvCombuf = cast_or_null<Function>(metadata->getOperand(4));
+  this->funcCombufSend = cast_or_null<Function>(metadata->getOperand(5));
+  this->funcCombufRecv = cast_or_null<Function>(metadata->getOperand(6));
+  //this->varSelfCoords = cast_or_null<GlobalVariable>(metadata->getOperand(7));
+  this->funcLocalCoord =  cast_or_null<Function>(metadata->getOperand(7));
   assert( metadata->getNumOperands()==8);
 }
 
@@ -116,6 +116,8 @@ FieldTypeMetadata::FieldTypeMetadata(const clang::CXXRecordDecl *clangDecl, llvm
 llvm::Value *clang::CodeGen::makeValueFromType(llvm::Type *ty, llvm::Module *module) {
   // Types cannot be directly inserted into an MDNode
   // Instead we create a dummy global value with a type that is a pointer to the type to be represented
+  if (ty==nullptr)
+    return nullptr;
 
   auto &llvmContext = module->getContext();
   auto pty = llvm::PointerType::getUnqual(ty);
@@ -242,6 +244,9 @@ static NamedDecl *findMember(CodeGenModule *cgm, const clang::CXXRecordDecl *cxx
 
 
 static Function *clangFunction2llvmFunction(CodeGenModule *cgm, FunctionDecl *clangFunc) {
+  if (!clangFunc)
+    return nullptr;
+
   if (isa<CXXMethodDecl>(clangFunc)) {
     auto method = cast<CXXMethodDecl>(clangFunc);
     // This part is actually more complicated to get a function type for methods; for our special case, this should be enough
@@ -253,6 +258,13 @@ static Function *clangFunction2llvmFunction(CodeGenModule *cgm, FunctionDecl *cl
 
   auto llvmFunc = cgm->GetAddrOfFunction(clangFunc);
   return cast<Function>(llvmFunc);
+}
+
+
+static llvm::Type *clangType2llvmType(CodeGenModule *cgm, QualType clangTy) { 
+  if (clangTy.isNull())
+    return nullptr;
+ return cgm->getTypes().ConvertType(clangTy);
 }
 
 
@@ -440,6 +452,14 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
       assert(!field->funcPtrLocal && "Just one function implementation for Molly specials"); 
       field->funcPtrLocal = llvmFunc;
     }
+
+    if (clangFunc->hasAttr<MollyFieldRankofAttr>()) {
+      ab.addAttribute("molly_field_rankof");
+    }
+
+    if (clangFunc->hasAttr<MollyLocalIndexofAttr>()) {
+      ab.addAttribute("molly_local_indexof");
+    }
   }
 
   llvmFunc->addAttributes(llvm::AttributeSet::FunctionIndex, llvm::AttributeSet::get(llvmContext, llvm::AttributeSet::FunctionIndex, ab));
@@ -451,9 +471,14 @@ clang::FunctionDecl *CodeGenMolly::findGlobalFunction(const char *name) {
   auto clangModule = clangContext->getTranslationUnitDecl();
 
   auto ident = &clangContext->Idents.get(name);
+  if (!ident)
+    return nullptr;
+
   auto declName = DeclarationName(ident);
   auto lookup = clangModule->lookup(declName);
-  assert(!lookup.empty());
+  if (lookup.empty())
+    return nullptr;
+
   return cast<FunctionDecl>( *lookup.begin());//FIXME: What if multiple are found?
 }
 
@@ -478,7 +503,9 @@ clang::QualType CodeGenMolly::findMollyType(const char *name) {
   auto mollyIdent = &clangContext->Idents.get("molly");
   auto mollyName = DeclarationName(mollyIdent);
   auto mollyLu = clangModule->lookup(mollyName);
-  assert(!mollyLu.empty());
+  if (mollyLu.empty())
+    return QualType();
+
   auto mollyNamespace = cast<NamespaceDecl>(*mollyLu.begin());
 
   auto rankIdent = &clangContext->Idents.get(name);
@@ -517,9 +544,9 @@ void CodeGenMolly::EmitMetadata() {
   pendingMetadata.clear();
 
   MollyRuntimeMetadata rtMetadata;
-  rtMetadata.tyCombufSend = cgm->getTypes().ConvertType(findMollyType("combufsend_t"));
-  rtMetadata.tyCombufRecv = cgm->getTypes().ConvertType(findMollyType("combufrecv_t"));
-  rtMetadata.tyRank = cgm->getTypes().ConvertType(findMollyType("rank_t"));
+  rtMetadata.tyCombufSend = clangType2llvmType(cgm, findMollyType("combufsend_t"));
+  rtMetadata.tyCombufRecv = clangType2llvmType(cgm, findMollyType("combufrecv_t"));
+  rtMetadata.tyRank = clangType2llvmType(cgm, findMollyType("rank_t"));
   rtMetadata.funcCreateSendCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_sendcombuf_create"));
   rtMetadata.funcCreateRecvCombuf = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_recvcombuf_create"));
   rtMetadata.funcCombufSend = clangFunction2llvmFunction(cgm, findGlobalFunction("__molly_combuf_send"));
@@ -563,6 +590,8 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     intrincId = Intrinsic::molly_rankof;
     hasCoordArgs = true;
     break;
+
+#if 0
   case Builtin::BI__builtin_molly_localoffset:
     intrincId = Intrinsic::molly_localoffset;
     hasDimArg = true;
@@ -571,6 +600,7 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     intrincId = Intrinsic::molly_locallength;
     hasDimArg = true;
     break;
+#endif
 
   case Builtin::BI__builtin_molly_global_init:
     intrincId = Intrinsic::molly_global_init;
@@ -585,6 +615,10 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     break;
   case Builtin::BI__builtin_molly_field_free:
     intrincId = Intrinsic::molly_field_free;
+    break;
+  case Builtin::BI__builtin_molly_local_indexof:
+    intrincId = Intrinsic::molly_local_indexof;
+    hasCoordArgs = true;
     break;
   default:
     return false; // Not a Molly intrinsic

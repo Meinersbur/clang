@@ -1,5 +1,6 @@
 // Types:
 //  v*  Void pointer
+//  vC* pointer to const void
 //  .   varargs
 //  b   boolean
 //  LLi long long int (64 bits?)
@@ -14,8 +15,9 @@ BUILTIN(__builtin_molly_set, "v."  , "nt")
 
 BUILTIN(__builtin_molly_islocal, "b."  , "nt")
 BUILTIN(__builtin_molly_rankof, "LLi."  , "nt")
-BUILTIN(__builtin_molly_localoffset, "LLivC*LLi"  , "n")
-BUILTIN(__builtin_molly_locallength, "LLivC*LLi"  , "n")
+//BUILTIN(__builtin_molly_localoffset, "LLivC*LLi"  , "n")
+//BUILTIN(__builtin_molly_locallength, "LLivC*LLi"  , "n")
+BUILTIN(__builtin_molly_local_indexof, "LLivC*."  , "n")
 
 BUILTIN(__builtin_molly_global_init, "v"  , "")
 BUILTIN(__builtin_molly_global_free, "v"  , "")

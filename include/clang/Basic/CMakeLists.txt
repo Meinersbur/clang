@@ -27,6 +27,7 @@ clang_tablegen(AttrList.inc -gen-clang-attr-list
   -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
   SOURCE Attr.td
   TDDEPENDS AttrMolly.td
+  DEPENDS AttrMolly.td
   TARGET ClangAttrList)
 
 # ARM NEON
