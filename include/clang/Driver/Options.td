@@ -177,6 +177,9 @@ def objcmt_migrate_nsmacros : Flag<["-"], "objcmt-migrate-ns-macros">, Flags<[CC
   HelpText<"Enable migration to NS_ENUM/NS_OPTIONS macros">;
 def objcmt_migrate_protocol_conformance : Flag<["-"], "objcmt-migrate-protocol-conformance">, Flags<[CC1Option]>,
   HelpText<"Enable migration to add protocol conformance on classes">;
+def objcmt_atomic_property : Flag<["-"], "objcmt-atomic-property">,
+  Flags<[CC1Option]>,
+  HelpText<"Make migration to 'atomic' properties">;
 // Make sure all other -ccc- options are rejected.
 def ccc_ : Joined<["-"], "ccc-">, Group<internal_Group>, Flags<[Unsupported]>;
 
@@ -656,6 +659,7 @@ def fno_spell_checking : Flag<["-"], "fno-spell-checking">, Group<f_Group>,
 def fno_stack_protector : Flag<["-"], "fno-stack-protector">, Group<f_Group>;
 def fno_strict_aliasing : Flag<["-"], "fno-strict-aliasing">, Group<f_Group>;
 def fstruct_path_tbaa : Flag<["-"], "fstruct-path-tbaa">, Group<f_Group>;
+def fno_struct_path_tbaa : Flag<["-"], "fno-struct-path-tbaa">, Group<f_Group>;
 def fno_strict_enums : Flag<["-"], "fno-strict-enums">, Group<f_Group>;
 def fno_strict_overflow : Flag<["-"], "fno-strict-overflow">, Group<f_Group>;
 def fno_threadsafe_statics : Flag<["-"], "fno-threadsafe-statics">, Group<f_Group>,
@@ -829,10 +833,15 @@ def fwrapv : Flag<["-"], "fwrapv">, Group<f_Group>, Flags<[CC1Option]>,
 def fwritable_strings : Flag<["-"], "fwritable-strings">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Store string literals as writable data">;
 def fzero_initialized_in_bss : Flag<["-"], "fzero-initialized-in-bss">, Group<f_Group>;
-def ffunction_sections: Flag <["-"], "ffunction-sections">, Group<f_Group>,
-  Flags<[CC1Option]>, HelpText<"Place each function in its own section (ELF Only)">;
-def fdata_sections : Flag <["-"], "fdata-sections">, Group<f_Group>, Flags<[CC1Option]>,
-  HelpText<"Place each data in its own section (ELF Only)">;
+def ffunction_sections : Flag<["-"], "ffunction-sections">, Group<f_Group>,
+  Flags<[CC1Option]>,
+  HelpText<"Place each function in its own section (ELF Only)">;
+def fno_function_sections : Flag<["-"], "fno-function-sections">,
+  Group<f_Group>, Flags<[CC1Option]>;
+def fdata_sections : Flag <["-"], "fdata-sections">, Group<f_Group>,
+ Flags<[CC1Option]>, HelpText<"Place each data in its own section (ELF Only)">;
+def fno_data_sections : Flag <["-"], "fno-data-sections">, Group<f_Group>,
+  Flags<[CC1Option]>;
 def fdebug_types_section: Flag <["-"], "fdebug-types-section">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Place debug types in their own section (ELF Only)">;
 def g_Flag : Flag<["-"], "g">, Group<g_Group>,
@@ -914,12 +923,12 @@ def lazy__framework : Separate<["-"], "lazy_framework">, Flags<[LinkerInput]>;
 def lazy__library : Separate<["-"], "lazy_library">, Flags<[LinkerInput]>;
 def EL : Flag<["-"], "EL">, Flags<[DriverOption]>;
 def EB : Flag<["-"], "EB">, Flags<[DriverOption]>;
-def m32 : Flag<["-"], "m32">, Group<m_Group>, Flags<[DriverOption]>;
+def m32 : Flag<["-"], "m32">, Group<m_Group>, Flags<[DriverOption, CoreOption]>;
 def mqdsp6_compat : Flag<["-"], "mqdsp6-compat">, Group<m_Group>, Flags<[DriverOption,CC1Option]>,
   HelpText<"Enable hexagon-qdsp6 backward compatibility">;
 def m3dnowa : Flag<["-"], "m3dnowa">, Group<m_x86_Features_Group>;
 def m3dnow : Flag<["-"], "m3dnow">, Group<m_x86_Features_Group>;
-def m64 : Flag<["-"], "m64">, Group<m_Group>, Flags<[DriverOption]>;
+def m64 : Flag<["-"], "m64">, Group<m_Group>, Flags<[DriverOption, CoreOption]>;
 def mabi_EQ : Joined<["-"], "mabi=">, Group<m_Group>;
 def march_EQ : Joined<["-"], "march=">, Group<m_Group>;
 def maltivec : Flag<["-"], "maltivec">, Alias<faltivec>;
@@ -949,7 +958,7 @@ def mios_simulator_version_min_EQ : Joined<["-"], "mios-simulator-version-min=">
 def mkernel : Flag<["-"], "mkernel">, Group<m_Group>;
 def mlinker_version_EQ : Joined<["-"], "mlinker-version=">,
   Flags<[DriverOption]>;
-def mllvm : Separate<["-"], "mllvm">, Flags<[CC1Option]>,
+def mllvm : Separate<["-"], "mllvm">, Flags<[DriverOption,CC1Option]>,
   HelpText<"Additional arguments to forward to LLVM's option processing">;
 def mmacosx_version_min_EQ : Joined<["-"], "mmacosx-version-min=">, Group<m_Group>;
 def mms_bitfields : Flag<["-"], "mms-bitfields">, Group<m_Group>, Flags<[CC1Option]>,
