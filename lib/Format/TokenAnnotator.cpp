@@ -328,13 +328,15 @@ private:
         Tok->Previous->Type = TT_ObjCSelectorName;
         if (Tok->Previous->ColumnWidth >
             Contexts.back().LongestObjCSelectorName) {
-          Contexts.back().LongestObjCSelectorName =
-              Tok->Previous->ColumnWidth;
+          Contexts.back().LongestObjCSelectorName = Tok->Previous->ColumnWidth;
         }
         if (Contexts.back().FirstObjCSelectorName == NULL)
           Contexts.back().FirstObjCSelectorName = Tok->Previous;
       } else if (Contexts.back().ColonIsForRangeExpr) {
         Tok->Type = TT_RangeBasedForLoopColon;
+      } else if (CurrentToken != NULL &&
+                 CurrentToken->is(tok::numeric_constant)) {
+        Tok->Type = TT_BitFieldColon;
       } else if (Contexts.size() == 1 && Line.First->isNot(tok::kw_enum)) {
         Tok->Type = TT_InheritanceColon;
       } else if (Contexts.back().ContextKind == tok::l_paren) {
@@ -462,6 +464,10 @@ private:
     next();
     if (CurrentToken == NULL)
       return;
+    if (CurrentToken->Tok.is(tok::numeric_constant)) {
+      CurrentToken->SpacesRequiredBefore = 1;
+      return;
+    }
     // Hashes in the middle of a line can lead to any strange token
     // sequence.
     if (CurrentToken->Tok.getIdentifierInfo() == NULL)
@@ -521,10 +527,17 @@ private:
     if (CurrentToken != NULL)
       CurrentToken = CurrentToken->Next;
 
-    // Reset token type in case we have already looked at it and then recovered
-    // from an error (e.g. failure to find the matching >).
-    if (CurrentToken != NULL && CurrentToken->Type != TT_LambdaLSquare)
-      CurrentToken->Type = TT_Unknown;
+    if (CurrentToken != NULL) {
+      // Reset token type in case we have already looked at it and then
+      // recovered from an error (e.g. failure to find the matching >).
+      if (CurrentToken->Type != TT_LambdaLSquare &&
+          CurrentToken->Type != TT_ImplicitStringLiteral)
+        CurrentToken->Type = TT_Unknown;
+      if (CurrentToken->Role)
+        CurrentToken->Role.reset(NULL);
+      CurrentToken->FakeLParens.clear();
+      CurrentToken->FakeRParens = 0;
+    }
   }
 
   /// \brief A struct to hold information valid in a specific context, e.g.
@@ -1042,9 +1055,9 @@ void TokenAnnotator::calculateFormattingInformation(AnnotatedLine &Line) {
   while (Current != NULL) {
     if (Current->Type == TT_LineComment)
       Current->SpacesRequiredBefore = Style.SpacesBeforeTrailingComments;
-    else
-      Current->SpacesRequiredBefore =
-          spaceRequiredBefore(Line, *Current) ? 1 : 0;
+    else if (Current->SpacesRequiredBefore == 0 &&
+             spaceRequiredBefore(Line, *Current))
+      Current->SpacesRequiredBefore = 1;
 
     Current->MustBreakBefore =
         Current->MustBreakBefore || mustBreakBefore(Line, *Current);
@@ -1218,8 +1231,9 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
   if (Left.is(tok::coloncolon))
     return false;
   if (Right.is(tok::coloncolon))
-    return !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren,
-                         tok::r_paren);
+    return (Left.is(tok::less) && Style.Standard == FormatStyle::LS_Cpp03) ||
+           !Left.isOneOf(tok::identifier, tok::greater, tok::l_paren,
+                         tok::r_paren, tok::less);
   if (Left.is(tok::less) || Right.isOneOf(tok::greater, tok::less))
     return false;
   if (Right.is(tok::ellipsis))
@@ -1290,6 +1304,8 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
                                          const FormatToken &Tok) {
   if (Tok.Tok.getIdentifierInfo() && Tok.Previous->Tok.getIdentifierInfo())
     return true; // Never ever merge two identifiers.
+  if (Tok.Previous->Type == TT_ImplicitStringLiteral)
+    return Tok.WhitespaceRange.getBegin() != Tok.WhitespaceRange.getEnd();
   if (Line.Type == LT_ObjCMethodDecl) {
     if (Tok.Previous->Type == TT_ObjCMethodSpecifier)
       return true;
@@ -1370,8 +1386,7 @@ bool TokenAnnotator::mustBreakBefore(const AnnotatedLine &Line,
              !Style.ConstructorInitializerAllOnOneLineOrOnePerLine) {
     return true;
   } else if (Right.Previous->BlockKind == BK_Block &&
-             Right.Previous->isNot(tok::r_brace) &&
-             Right.isNot(tok::r_brace)) {
+             Right.Previous->isNot(tok::r_brace) && Right.isNot(tok::r_brace)) {
     return true;
   } else if (Right.is(tok::l_brace) && (Right.BlockKind == BK_Block)) {
     return Style.BreakBeforeBraces == FormatStyle::BS_Allman;
@@ -1478,10 +1493,13 @@ void TokenAnnotator::printDebugInfo(const AnnotatedLine &Line) {
                  << " C=" << Tok->CanBreakBefore << " T=" << Tok->Type
                  << " S=" << Tok->SpacesRequiredBefore
                  << " P=" << Tok->SplitPenalty << " Name=" << Tok->Tok.getName()
-                 << " PPK=" << Tok->PackingKind << " FakeLParens=";
+                 << " L=" << Tok->TotalLength << " PPK=" << Tok->PackingKind
+                 << " FakeLParens=";
     for (unsigned i = 0, e = Tok->FakeLParens.size(); i != e; ++i)
       llvm::errs() << Tok->FakeLParens[i] << "/";
     llvm::errs() << " FakeRParens=" << Tok->FakeRParens << "\n";
+    if (Tok->Next == NULL)
+      assert(Tok == Line.Last);
     Tok = Tok->Next;
   }
   llvm::errs() << "----\n";

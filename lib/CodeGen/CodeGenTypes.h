@@ -59,9 +59,8 @@ namespace CodeGen {
 /// CodeGenTypes - This class organizes the cross-module state that is used
 /// while lowering AST types to LLVM types.
 class CodeGenTypes {
-public:
-  // Some of this stuff should probably be left on the CGM.
   CodeGenModule &CGM;
+  // Some of this stuff should probably be left on the CGM.
   ASTContext &Context;
   llvm::Module &TheModule;
   const llvm::DataLayout &TheDataLayout;
@@ -77,7 +76,6 @@ private:
   //CodeGenMolly MollyGen; // TODO: Ask the parent CGM for this obj
   CodeGenMolly &getMollyGen();
 
-private:
   /// The opaque type map for Objective-C interfaces. All direct
   /// manipulation is done by the runtime interfaces, which are
   /// responsible for coercing to the appropriate type; these opaque
