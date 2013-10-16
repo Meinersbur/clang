@@ -1,6 +1,7 @@
 // Types:
 //  v*  Void pointer
 //  vC* pointer to const void
+//  c** Double char pointer
 //  .   varargs
 //  b   boolean
 //  LLi long long int (64 bits?)
@@ -18,9 +19,18 @@ BUILTIN(__builtin_molly_rankof, "LLi."  , "nt")
 //BUILTIN(__builtin_molly_localoffset, "LLivC*LLi"  , "n")
 //BUILTIN(__builtin_molly_locallength, "LLivC*LLi"  , "n")
 BUILTIN(__builtin_molly_local_indexof, "LLivC*."  , "n")
+BUILTIN(__builtin_molly_cluster_myrank, "LLi"  , "n")
 
-BUILTIN(__builtin_molly_global_init, "v"  , "")
-BUILTIN(__builtin_molly_global_free, "v"  , "")
+BUILTIN(__builtin_molly_global_init, "v"  , "") // deprecated
+BUILTIN(__builtin_molly_global_free, "v"  , "") // deprecated
 
 BUILTIN(__builtin_molly_field_init, "vv*"  , "")
 BUILTIN(__builtin_molly_field_free, "vv*"  , "")
+
+// Return number of elements the local field needs to reserve
+// Local storage needs to accept local indices within [0,local_elts)
+// int __builtin_molly_local_elts(void *field)
+BUILTIN(__builtin_molly_local_elts, "LLiv*", "n") // Currently not used
+
+// int __builtin_molly_orig_main(int argc, char **argv, char **envp)
+BUILTIN(__builtin_molly_orig_main, "iic**c**", "")
