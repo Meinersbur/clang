@@ -1552,16 +1552,16 @@ def override_keyword_hides_virtual_member_function : Error<
 def err_function_marked_override_not_overriding : Error<
   "%0 marked 'override' but does not override any member functions">;
 def err_class_marked_final_used_as_base : Error<
-  "base %0 is marked 'final'">;
+  "base %0 is marked '%select{final|sealed}1'">;
 def warn_abstract_final_class : Warning<
-  "abstract class is marked 'final'">, InGroup<AbstractFinalClass>;
+  "abstract class is marked '%select{final|sealed}0'">, InGroup<AbstractFinalClass>;
 
 // C++11 attributes
 def err_repeat_attribute : Error<"'%0' attribute cannot be repeated">;
 
 // C++11 final
 def err_final_function_overridden : Error<
-  "declaration of %0 overrides a 'final' function">;
+  "declaration of %0 overrides a '%select{final|sealed}1' function">;
 
 // C++11 scoped enumerations
 def err_enum_invalid_underlying : Error<
@@ -2225,6 +2225,9 @@ def warn_loop_state_mismatch : Warning<
 def warn_param_return_typestate_mismatch : Warning<
   "parameter '%0' not in expected state when the function returns: expected "
   "'%1', observed '%2'">, InGroup<Consumed>, DefaultIgnore;
+def warn_param_typestate_mismatch : Warning<
+  "argument not in expected state; expected '%0', observed '%1'">,
+  InGroup<Consumed>, DefaultIgnore;
 
 def warn_impcast_vector_scalar : Warning<
   "implicit conversion turns vector to scalar: %0 to %1">,
