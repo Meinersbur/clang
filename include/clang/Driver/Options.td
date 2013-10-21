@@ -950,6 +950,7 @@ def mno_inline_all_stringops : Flag<["-"], "mno-inline-all-stringops">, Group<cl
 def mfloat_abi_EQ : Joined<["-"], "mfloat-abi=">, Group<m_Group>;
 def mfpmath_EQ : Joined<["-"], "mfpmath=">, Group<m_Group>;
 def mfpu_EQ : Joined<["-"], "mfpu=">, Group<m_Group>;
+def mhwdiv_EQ : Joined<["-"], "mhwdiv=">, Group<m_Group>;
 def mglobal_merge : Flag<["-"], "mglobal-merge">, Group<m_Group>;
 def mhard_float : Flag<["-"], "mhard-float">, Group<m_Group>;
 def miphoneos_version_min_EQ : Joined<["-"], "miphoneos-version-min=">, Group<m_Group>;
@@ -1279,6 +1280,7 @@ def working_directory_EQ : Joined<["-"], "working-directory=">, Flags<[CC1Option
 // Double dash options, which are usually an alias for one of the previous
 // options.
 
+def _mhwdiv_EQ : Separate<["--"], "mhwdiv">, Alias<mhwdiv_EQ>;
 def _CLASSPATH_EQ : Joined<["--"], "CLASSPATH=">, Alias<fclasspath_EQ>;
 def _CLASSPATH : Separate<["--"], "CLASSPATH">, Alias<fclasspath_EQ>;
 def _all_warnings : Flag<["--"], "all-warnings">, Alias<Wall>;
@@ -1454,6 +1456,8 @@ defm schedule_insns : BooleanFFlag<"schedule-insns">, Group<clang_ignored_f_Grou
 defm see : BooleanFFlag<"see">, Group<clang_ignored_f_Group>;
 defm signaling_nans : BooleanFFlag<"signaling-nans">, Group<clang_ignored_f_Group>;
 defm spec_constr_count : BooleanFFlag<"spec-constr-count">, Group<clang_ignored_f_Group>;
+defm strength_reduce :
+    BooleanFFlag<"strength-reduce">, Group<clang_ignored_f_Group>;
 defm tls_model : BooleanFFlag<"tls-model">, Group<clang_ignored_f_Group>;
 defm tracer : BooleanFFlag<"tracer">, Group<clang_ignored_f_Group>;
 defm tree_salias : BooleanFFlag<"tree-salias">, Group<clang_ignored_f_Group>;
