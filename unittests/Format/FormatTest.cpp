@@ -2327,6 +2327,12 @@ TEST_F(FormatTest, LayoutStatementsAroundPreprocessorDirectives) {
                getLLVMStyleWithColumns(28));
   verifyFormat("#if 1\n"
                "int i;");
+  verifyFormat(
+      "#if 1\n"
+      "#endif\n"
+      "#if 1\n"
+      "#else\n"
+      "#endif\n");
 }
 
 TEST_F(FormatTest, FormatsJoinedLinesOnSubsequentRuns) {
@@ -5372,6 +5378,7 @@ TEST_F(FormatTest, ObjCLiterals) {
   verifyFormat(
       "NSArray *array = @[ @\" Hey \", NSApp, [NSNumber numberWithInt:42] ];");
   verifyFormat("return @[ @3, @[], @[ @4, @5 ] ];");
+  verifyFormat("NSArray *array = @[ [foo description] ];");
 
   verifyFormat("@{");
   verifyFormat("@{}");
@@ -5402,6 +5409,25 @@ TEST_F(FormatTest, ObjCLiterals) {
       "  NSFontAttributeNameeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee : "
       "regularFont,\n"
       "};");
+  verifyFormat(
+      "NSArray *arguments = @[\n"
+      "  kind == kUserTicket ? @\"--user-store\" : @\"--system-store\",\n"
+      "  @\"--print-tickets\",\n"
+      "  @\"--productid\",\n"
+      "  @\"com.google.Chrome\"\n"
+      "];");
+  verifyGoogleFormat(
+      "@{\n"
+      "  NSFontAttributeNameeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee : "
+      "regularFont,\n"
+      "};");
+  verifyGoogleFormat(
+      "NSArray *arguments = @[\n"
+      "  kind == kUserTicket ? @\"--user-store\" : @\"--system-store\",\n"
+      "  @\"--print-tickets\",\n"
+      "  @\"--productid\",\n"
+      "  @\"com.google.Chrome\"\n"
+      "];");
 }
 
 TEST_F(FormatTest, ReformatRegionAdjustsIndent) {
