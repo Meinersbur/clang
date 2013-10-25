@@ -2099,6 +2099,12 @@ static void checkNewAttributesAfterDef(Sema &S, Decl *New, const Decl *Old) {
 /// mergeDeclAttributes - Copy attributes from the Old decl to the New one.
 void Sema::mergeDeclAttributes(NamedDecl *New, Decl *Old,
                                AvailabilityMergeKind AMK) {
+  if (UsedAttr *OldAttr = Old->getMostRecentDecl()->getAttr<UsedAttr>()) {
+    UsedAttr *NewAttr = OldAttr->clone(Context);
+    NewAttr->setInherited(true);
+    New->addAttr(NewAttr);
+  }
+
   if (!Old->hasAttrs() && !New->hasAttrs())
     return;
 
@@ -2135,6 +2141,10 @@ void Sema::mergeDeclAttributes(NamedDecl *New, Decl *Old,
         break;
       }
     }
+
+    // Already handled.
+    if (isa<UsedAttr>(*i))
+      continue;
 
     if (mergeDeclAttribute(*this, New, *i, Override))
       foundAny = true;
@@ -2801,7 +2811,8 @@ bool Sema::MergeCompatibleFunctionDecls(FunctionDecl *New, FunctionDecl *Old,
     New->setPure();
 
   // Merge "used" flag.
-  New->setIsUsed(Old->getMostRecentDecl()->isUsed(false));
+  if (Old->getMostRecentDecl()->isUsed(false))
+    New->setIsUsed();
 
   // Merge attributes from the parameters.  These can mismatch with K&R
   // declarations.
@@ -3114,7 +3125,8 @@ void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous) {
   }
 
   // Merge "used" flag.
-  New->setIsUsed(Old->getMostRecentDecl()->isUsed(false));
+  if (Old->getMostRecentDecl()->isUsed(false))
+    New->setIsUsed();
 
   // Keep a chain of previous declarations.
   New->setPreviousDecl(Old);
@@ -9401,6 +9413,29 @@ Sema::CheckForFunctionRedefinition(FunctionDecl *FD,
   Diag(Definition->getLocation(), diag::note_previous_definition);
   FD->setInvalidDecl();
 }
+static void RebuildLambdaScopeInfo(CXXMethodDecl *CallOperator, 
+                                   Sema &S) {
+  CXXRecordDecl *const LambdaClass = CallOperator->getParent();
+  S.PushLambdaScope();
+  LambdaScopeInfo *LSI = S.getCurLambda();
+  LSI->CallOperator = CallOperator;
+  LSI->Lambda = LambdaClass;
+  LSI->ReturnType = CallOperator->getResultType();
+  const LambdaCaptureDefault LCD = LambdaClass->getLambdaCaptureDefault();
+
+  if (LCD == LCD_None)
+    LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_None;
+  else if (LCD == LCD_ByCopy)
+    LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_LambdaByval;
+  else if (LCD == LCD_ByRef)
+    LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_LambdaByref;
+  DeclarationNameInfo DNI = CallOperator->getNameInfo();
+    
+  LSI->IntroducerRange = DNI.getCXXOperatorNameRange(); 
+  LSI->Mutable = !CallOperator->isConst();
+
+  // FIXME: Add the captures to the LSI.
+}
 
 Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
   // Clear the last template instantiation error context.
@@ -9416,31 +9451,18 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
     FD = cast<FunctionDecl>(D);
   // If we are instantiating a generic lambda call operator, push
   // a LambdaScopeInfo onto the function stack.  But use the information
-  // that's already been calculated (ActOnLambdaExpr) when analyzing the
-  // template version, to prime the current LambdaScopeInfo. 
+  // that's already been calculated (ActOnLambdaExpr) to prime the current 
+  // LambdaScopeInfo.  
+  // When the template operator is being specialized, the LambdaScopeInfo,
+  // has to be properly restored so that tryCaptureVariable doesn't try
+  // and capture any new variables. In addition when calculating potential
+  // captures during transformation of nested lambdas, it is necessary to 
+  // have the LSI properly restored. 
   if (isGenericLambdaCallOperatorSpecialization(FD)) {
-    CXXMethodDecl *CallOperator = cast<CXXMethodDecl>(D);
-    CXXRecordDecl *LambdaClass = CallOperator->getParent();
-    LambdaExpr    *LE = LambdaClass->getLambdaExpr();
-    assert(LE && 
-     "No LambdaExpr of closure class when instantiating a generic lambda!");
     assert(ActiveTemplateInstantiations.size() &&
       "There should be an active template instantiation on the stack " 
       "when instantiating a generic lambda!");
-    PushLambdaScope();
-    LambdaScopeInfo *LSI = getCurLambda();
-    LSI->CallOperator = CallOperator;
-    LSI->Lambda = LambdaClass;
-    LSI->ReturnType = CallOperator->getResultType();
-
-    if (LE->getCaptureDefault() == LCD_None)
-      LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_None;
-    else if (LE->getCaptureDefault() == LCD_ByCopy)
-      LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_LambdaByval;
-    else if (LE->getCaptureDefault() == LCD_ByRef)
-      LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_LambdaByref;
-    
-    LSI->IntroducerRange = LE->getIntroducerRange();
+    RebuildLambdaScopeInfo(cast<CXXMethodDecl>(D), *this);
   }
   else
     // Enter a new function scope
@@ -9804,7 +9826,6 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
     PopDeclContext();
 
   PopFunctionScopeInfo(ActivePolicy, dcl);
-  
   // If any errors have occurred, clear out any temporaries that may have
   // been leftover. This ensures that these temporaries won't be picked up for
   // deletion in some later function.
