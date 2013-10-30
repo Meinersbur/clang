@@ -3902,6 +3902,7 @@ TEST_F(FormatTest, UnderstandsOverloadedOperators) {
 
   verifyGoogleFormat("operator void*();");
   verifyGoogleFormat("operator SomeType<SomeType<int>>();");
+  verifyGoogleFormat("operator ::A();");
 
   verifyFormat("using A::operator+;");
 }
@@ -6591,6 +6592,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE_BOOL(Cpp11BracedListStyle);
   CHECK_PARSE_BOOL(IndentFunctionDeclarationAfterType);
   CHECK_PARSE_BOOL(SpacesInParentheses);
+  CHECK_PARSE_BOOL(SpacesInAngles);
   CHECK_PARSE_BOOL(SpaceInEmptyParentheses);
   CHECK_PARSE_BOOL(SpacesInCStyleCastParentheses);
   CHECK_PARSE_BOOL(SpaceAfterControlStatementKeyword);
@@ -6982,6 +6984,17 @@ TEST_F(FormatTest, SupportsCRLF) {
                    "  b; \\\r\n"
                    "  c; d; \r\n",
                    getGoogleStyle()));
+
+  EXPECT_EQ("/*\r\n"
+            "multi line block comments\r\n"
+            "should not introduce\r\n"
+            "an extra carriage return\r\n"
+            "*/\r\n",
+            format("/*\r\n"
+                   "multi line block comments\r\n"
+                   "should not introduce\r\n"
+                   "an extra carriage return\r\n"
+                   "*/\r\n"));
 }
 
 TEST_F(FormatTest, MunchSemicolonAfterBlocks) {
@@ -7007,6 +7020,31 @@ TEST_F(FormatTest, ConfigurableContinuationIndentWidth) {
             "      longFunction(\n"
             "            arg);",
             format("int i = longFunction(arg);", SixIndent));
+}
+
+TEST_F(FormatTest, SpacesInAngles) {
+  FormatStyle Spaces = getLLVMStyle();
+  Spaces.SpacesInAngles = true;
+
+  verifyFormat("static_cast< int >(arg);", Spaces);
+  verifyFormat("template < typename T0, typename T1 > void f() {}", Spaces);
+  verifyFormat("f< int, float >();", Spaces);
+  verifyFormat("template <> g() {}", Spaces);
+  verifyFormat("template < std::vector< int > > f() {}", Spaces);
+
+  Spaces.Standard = FormatStyle::LS_Cpp03;
+  Spaces.SpacesInAngles = true;
+  verifyFormat("A< A< int > >();", Spaces);
+
+  Spaces.SpacesInAngles = false;
+  verifyFormat("A<A<int> >();", Spaces);
+
+  Spaces.Standard = FormatStyle::LS_Cpp11;
+  Spaces.SpacesInAngles = true;
+  verifyFormat("A< A< int > >();", Spaces);
+  
+  Spaces.SpacesInAngles = false;
+  verifyFormat("A<A<int>>();", Spaces);
 }
 
 } // end namespace tooling
