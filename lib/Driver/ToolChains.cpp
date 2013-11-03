@@ -300,10 +300,11 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     }
   }
 
-  const SanitizerArgs &Sanitize = getDriver().getOrParseSanitizerArgs(Args);
+  const SanitizerArgs &Sanitize = getSanitizerArgs();
 
   // Add Ubsan runtime library, if required.
   if (Sanitize.needsUbsanRt()) {
+    // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
     if (isTargetIPhoneOS()) {
       getDriver().Diag(diag::err_drv_clang_unsupported_per_platform)
         << "-fsanitize=undefined";
@@ -318,6 +319,7 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
   // Add ASAN runtime library, if required. Dynamic libraries and bundles
   // should not be linked with the runtime library.
   if (Sanitize.needsAsanRt()) {
+    // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
     if (isTargetIPhoneOS() && !isTargetIOSSimulator()) {
       getDriver().Diag(diag::err_drv_clang_unsupported_per_platform)
         << "-fsanitize=address";
@@ -836,6 +838,12 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
       it = DAL->getArgs().erase(it);
     }
   }
+
+  // Default to use libc++ on OS X 10.9+ and iOS 7+.
+  if (((isTargetMacOS() && !isMacosxVersionLT(10, 9)) ||
+       (isTargetIPhoneOS() && !isIPhoneOSVersionLT(7, 0))) &&
+      !Args.getLastArg(options::OPT_stdlib_EQ))
+    DAL->AddJoinedArg(0, Opts.getOption(options::OPT_stdlib_EQ), "libc++");
 
   // Validate the C++ standard library choice.
   CXXStdlibType Type = GetCXXStdlibType(*DAL);
@@ -2722,7 +2730,7 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
 }
 
 bool Linux::isPIEDefault() const {
-  return getSanitizerArgs().hasZeroBaseShadow(*this);
+  return getSanitizerArgs().hasZeroBaseShadow();
 }
 
 /// DragonFly - DragonFly tool chain which can call as(1) and ld(1) directly.
