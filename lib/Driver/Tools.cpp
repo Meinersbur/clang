@@ -3214,12 +3214,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fno-threadsafe-statics");
 
   // -fuse-cxa-atexit is default.
-  if (!Args.hasFlag(options::OPT_fuse_cxa_atexit,
-                    options::OPT_fno_use_cxa_atexit,
-                   getToolChain().getTriple().getOS() != llvm::Triple::Cygwin &&
+  if (!Args.hasFlag(
+           options::OPT_fuse_cxa_atexit, options::OPT_fno_use_cxa_atexit,
+           getToolChain().getTriple().getOS() != llvm::Triple::Cygwin &&
                    getToolChain().getTriple().getOS() != llvm::Triple::Win32 &&
-                  getToolChain().getTriple().getOS() != llvm::Triple::MinGW32 &&
-              getToolChain().getArch() != llvm::Triple::hexagon) ||
+               getToolChain().getTriple().getOS() != llvm::Triple::MinGW32 &&
+               getToolChain().getArch() != llvm::Triple::hexagon) ||
       KernelOrKext)
     CmdArgs.push_back("-fno-use-cxa-atexit");
 
