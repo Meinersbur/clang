@@ -264,7 +264,7 @@ static Function *clangFunction2llvmFunction(CodeGenModule *cgm, FunctionDecl *cl
 static llvm::Type *clangType2llvmType(CodeGenModule *cgm, QualType clangTy) { 
   if (clangTy.isNull())
     return nullptr;
- return cgm->getTypes().ConvertType(clangTy);
+  return cgm->getTypes().ConvertType(clangTy);
 }
 
 
@@ -379,6 +379,11 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
   // TODO: mark special attributes (especially readOnly, mayWriteToMemory, mayThrow)
   llvm::AttrBuilder ab;
 
+
+  if (llvmFunc->getName() == "_ZN5molly24_array_partial_subscriptIbNS_11_dimlengthsIJLy6EEEES2_EixEy") {
+    int a = 0;
+  }
+
   if (clangFunc->hasAttr<MollyInlineAttr>()) {
     ab.addAttribute("molly_inline");
     //DEBUG(dbgs() << "    Inlinable Func:" << clangFunc->getNameAsString() << "\n");
@@ -386,79 +391,85 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
     //DEBUG(dbgs() << "NOT Inlinable Func:" << clangFunc->getNameAsString() << "\n");
   }
 
+  if (clangFunc->hasAttr<MollyPureAttr>()) {
+    ab.addAttribute("molly_pure");
+  }
+
   auto clangFieldDecl = dyn_cast<CXXRecordDecl>(clangFunc->getParent());
   if (clangFieldDecl) {
 
-    if (fieldsFound.find(clangFieldDecl)==fieldsFound.end())
-      return; // Not a registered field; because annotateFieldType has been called before any of the classes members are created, annotateFieldType abviously decided that the class is not a field
-    auto field = fieldsFound[clangFieldDecl];
+    if (fieldsFound.find(clangFieldDecl)==fieldsFound.end()){
+      // Not a registered field; because annotateFieldType has been called before any of the classes members are created, annotateFieldType abviously decided that the class is not a field
+    } else {
+      auto field = fieldsFound[clangFieldDecl];
 
-    if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
-      ab.addAttribute("molly_get");
-    }
+      if (clangFunc->hasAttr<MollyGetterFuncAttr>()) {
+        ab.addAttribute("molly_get");
+      }
 
-    if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
-      ab.addAttribute("molly_ptr");
-    }
+      if (clangFunc->hasAttr<MollyRefFuncAttr>()) {
+        ab.addAttribute("molly_ptr");
+      }
 
-    if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
-      ab.addAttribute("molly_set");
-    }
+      if (clangFunc->hasAttr<MollySetterFuncAttr>()) {
+        ab.addAttribute("molly_set");
+      }
 
-    if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
-      ab.addAttribute("molly_length");
-    }
+      if (clangFunc->hasAttr<MollyLengthFuncAttr>()) {
+        ab.addAttribute("molly_length");
+      }
 
-    if (clangFunc->hasAttr<MollyFieldmemberAttr>()) {
-      ab.addAttribute("molly_fieldmember");
-    }
+      if (clangFunc->hasAttr<MollyFieldmemberAttr>()) {
+        ab.addAttribute("molly_fieldmember");
+      }
 
-    if (clangFunc->hasAttr<MollyGetRankOfFuncAttr>()) {
-      ab.addAttribute("molly_getrankof");
-    }
+      if (clangFunc->hasAttr<MollyGetRankOfFuncAttr>()) {
+        ab.addAttribute("molly_getrankof");
+      }
 
-    if (clangFunc->hasAttr<MollyGetBroadcastAttr>()) {
-      ab.addAttribute("molly_get_broadcast");
-      assert(!field->funcGetBroadcast && "Just one function implementation for Molly specials"); 
-      field->funcGetBroadcast = llvmFunc; //TODO: Check function signature
-    }
+      if (clangFunc->hasAttr<MollyGetBroadcastAttr>()) {
+        ab.addAttribute("molly_get_broadcast");
+        assert(!field->funcGetBroadcast && "Just one function implementation for Molly specials"); 
+        field->funcGetBroadcast = llvmFunc; //TODO: Check function signature
+      }
 
-    if (clangFunc->hasAttr<MollySetBroadcastAttr>()) {
-      ab.addAttribute("molly_set_broadcast");
-      assert(!field->funcSetBroadcast && "Just one function implementation for Molly specials"); 
-      field->funcSetBroadcast = llvmFunc; //TODO: Check function signature
-    }
+      if (clangFunc->hasAttr<MollySetBroadcastAttr>()) {
+        ab.addAttribute("molly_set_broadcast");
+        assert(!field->funcSetBroadcast && "Just one function implementation for Molly specials"); 
+        field->funcSetBroadcast = llvmFunc; //TODO: Check function signature
+      }
 
-    if (clangFunc->hasAttr<MollyGetMasterAttr>()) {
-      ab.addAttribute("molly_get_master");
-      assert(!field->funcGetMaster && "Just one function implementation for Molly specials"); 
-      field->funcGetMaster = llvmFunc; //TODO: Check function signature
-    }
+      if (clangFunc->hasAttr<MollyGetMasterAttr>()) {
+        ab.addAttribute("molly_get_master");
+        assert(!field->funcGetMaster && "Just one function implementation for Molly specials"); 
+        field->funcGetMaster = llvmFunc; //TODO: Check function signature
+      }
 
-    if (clangFunc->hasAttr<MollySetMasterAttr>()) {
-      ab.addAttribute("molly_set_master");
-      assert(!field->funcSetMaster && "Just one function implementation for Molly specials"); 
-      field->funcSetMaster = llvmFunc; //TODO: Check function signature
-    }
+      if (clangFunc->hasAttr<MollySetMasterAttr>()) {
+        ab.addAttribute("molly_set_master");
+        assert(!field->funcSetMaster && "Just one function implementation for Molly specials"); 
+        field->funcSetMaster = llvmFunc; //TODO: Check function signature
+      }
 
-    if (clangFunc->hasAttr<MollyIsLocalFuncAttr>()) {
-      ab.addAttribute("molly_islocalfunc");
-      assert(!field->funcIslocal && "Just one function implementation for Molly specials"); 
-      field->funcIslocal = llvmFunc; //TODO: Check function signature
-    }
+      if (clangFunc->hasAttr<MollyIsLocalFuncAttr>()) {
+        ab.addAttribute("molly_islocalfunc");
+        assert(!field->funcIslocal && "Just one function implementation for Molly specials"); 
+        field->funcIslocal = llvmFunc; //TODO: Check function signature
+      }
 
-    if (clangFunc->hasAttr<MollyPtrLocalAttr>()) {
-      ab.addAttribute("molly_ptrlocalfunc");
-      assert(!field->funcPtrLocal && "Just one function implementation for Molly specials"); 
-      field->funcPtrLocal = llvmFunc;
-    }
+      if (clangFunc->hasAttr<MollyPtrLocalAttr>()) {
+        ab.addAttribute("molly_ptrlocalfunc");
+        assert(!field->funcPtrLocal && "Just one function implementation for Molly specials"); 
+        field->funcPtrLocal = llvmFunc;
+      }
 
-    if (clangFunc->hasAttr<MollyFieldRankofAttr>()) {
-      ab.addAttribute("molly_field_rankof");
-    }
+      if (clangFunc->hasAttr<MollyFieldRankofAttr>()) {
+        ab.addAttribute("molly_field_rankof");
+      }
 
-    if (clangFunc->hasAttr<MollyLocalIndexofAttr>()) {
-      ab.addAttribute("molly_local_indexof");
+      if (clangFunc->hasAttr<MollyLocalIndexofAttr>()) {
+        ab.addAttribute("molly_local_indexof");
+      }
     }
   }
 

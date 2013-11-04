@@ -5018,6 +5018,9 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
  case AttributeList::AT_MollyFieldRankof:
    handleSimpleAttr<MollyFieldRankofAttr>(S, D, Attr);
    break;
+ case AttributeList::AT_MollyPure:
+   handleSimpleAttr<MollyPureAttr>(S, D, Attr);
+   break;
 #endif /* MOLLY */
 
   default:

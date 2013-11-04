@@ -128,3 +128,9 @@ def MollyLocalIndexof: InheritableAttr {
   let Spellings = [GNU<"molly_local_indexof">, CXX11<"molly","local_indexof">]; 
   //let TemplateDependent = 1; // Inherit to templates
 }
+
+// To tell Polly that this has no side-effect and therefore is fine within SCoPs
+// TODO: Merge with PureAttr ???
+def MollyPure : InheritableAttr {
+ let Spellings = [GNU<"molly_pure">]; 
+}
