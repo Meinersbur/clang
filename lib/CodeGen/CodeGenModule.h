@@ -280,6 +280,9 @@ class CodeGenModule : public CodeGenTypeCache {
   /// is defined once we get to the end of the of the translation unit.
   std::vector<GlobalDecl> Aliases;
 
+  typedef llvm::StringMap<llvm::TrackingVH<llvm::Constant> > ReplacementsTy;
+  ReplacementsTy Replacements;
+
   /// DeferredVTables - A queue of (optional) vtables to consider emitting.
   std::vector<const CXXRecordDecl*> DeferredVTables;
 
@@ -528,12 +531,12 @@ public:
  
   CodeGenVTables &getVTables() { return VTables; }
 
-  ItaniumVTableContext &getVTableContext() {
-    return VTables.getVTableContext();
+  ItaniumVTableContext &getItaniumVTableContext() {
+    return VTables.getItaniumVTableContext();
   }
 
-  MicrosoftVFTableContext &getVFTableContext() {
-    return VTables.getVFTableContext();
+  MicrosoftVTableContext &getMicrosoftVTableContext() {
+    return VTables.getMicrosoftVTableContext();
   }
 
   llvm::MDNode *getTBAAInfo(QualType QTy);
@@ -1039,7 +1042,8 @@ private:
   
   // C++ related functions.
 
-  bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target);
+  bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target,
+                                bool InEveryTU);
   bool TryEmitBaseDestructorAsAlias(const CXXDestructorDecl *D);
 
   void EmitNamespace(const NamespaceDecl *D);
@@ -1085,6 +1089,9 @@ private:
   /// EmitDeferred - Emit any needed decls for which code generation
   /// was deferred.
   void EmitDeferred();
+
+  /// Call replaceAllUsesWith on all pairs in Replacements.
+  void applyReplacements();
 
   void checkAliases();
 
