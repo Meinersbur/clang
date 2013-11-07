@@ -1660,6 +1660,7 @@ bool Sema::SemaBuiltinVAStart(CallExpr *TheCall) {
     Diag(ParamLoc, diag::note_parameter_type) << Type;
   }
 
+  TheCall->setType(Context.VoidTy);
   return false;
 }
 
