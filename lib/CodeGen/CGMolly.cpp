@@ -342,7 +342,7 @@ void CodeGenMolly::annotateFieldType(const clang::CXXRecordDecl *clangType, llvm
   // Determine the element type
   auto eltTypedef = cast<TypedefDecl>(findMember(cgm, clangType, "ElementType"));
   auto eltType = clangContext.getTypeDeclType(eltTypedef);
-  auto llvmEltType = cgm->getTypes().ConvertType(clangContext.getTypeDeclType(eltTypedef));
+  auto llvmEltType = cgm->getTypes().ConvertTypeForMem(clangContext.getTypeDeclType(eltTypedef));
   auto eltSize = cgm->getDataLayout().getTypeAllocSize(llvmEltType);
 
   fieldType = new FieldTypeMetadata(clangType, llvmType, llvmEltType, eltSize, lengths);
