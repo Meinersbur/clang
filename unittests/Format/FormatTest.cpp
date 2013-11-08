@@ -3390,6 +3390,94 @@ TEST_F(FormatTest, BreaksConditionalExpressions) {
       NoBinPacking);
 }
 
+TEST_F(FormatTest, BreaksConditionalExpressionsAfterOperator) {
+  FormatStyle Style = getLLVMStyle();
+  Style.BreakBeforeTernaryOperators = false;
+  Style.ColumnLimit = 70;
+  verifyFormat(
+      "aaaa(aaaaaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaaaaaaaaa ?\n"
+      "                               aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa :\n"
+      "                               aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);",
+      Style);
+  verifyFormat(
+      "aaaa(aaaaaaaaaaaaaaaaaaaa, aaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa :\n"
+      "                                     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);",
+      Style);
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaa ? aaaa(aaaaaa) :\n"
+      "                                                      aaaaaaaaaaaaa);",
+      Style);
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                   aaaaaaaaaaaaaaaa ? aaaaaaaaaaaaaaaaaaaaaaaaaaaaa :\n"
+      "                                      aaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                   aaaaaaaaaaaaa);",
+      Style);
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                   aaaaaaaaaaaaaaaa ?: aaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+      "                   aaaaaaaaaaaaa);",
+      Style);
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) :\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);",
+               Style);
+  verifyFormat("aaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?\n"
+               "           aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "               aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) :\n"
+               "           aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "               aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),\n"
+               "       aaaaaaaaaaaaaaaaaaaaaaaaaaa);",
+               Style);
+  verifyFormat("aaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,\n"
+               "       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?:\n"
+               "           aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa(\n"
+               "               aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),\n"
+               "       aaaaaaaaaaaaaaaaaaaaaaaaaaa);",
+               Style);
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaa :\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaa;",
+               Style);
+  verifyFormat("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaa =\n"
+               "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?\n" 
+               "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa :\n"
+               "        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;",
+               Style);
+  verifyFormat(
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa == aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ?\n"
+      "    aaaaaaaaaaaaaaa :\n"
+      "    aaaaaaaaaaaaaaa;",
+      Style);
+  verifyFormat("f(aaaaaaaaaaaaaaaa == // force break\n"
+               "          aaaaaaaaa ?\n"
+               "      b :\n"
+               "      c);",
+               Style);
+  verifyFormat(
+      "unsigned Indent =\n"
+      "    format(TheLine.First, IndentForLevel[TheLine.Level] >= 0 ?\n"
+      "                              IndentForLevel[TheLine.Level] :\n"
+      "                              TheLine * 2,\n"
+      "           TheLine.InPPDirective, PreviousEndOfLineColumn);",
+      Style);
+  verifyFormat("bool aaaaaa = aaaaaaaaaaaaa ? //\n"
+               "                  aaaaaaaaaaaaaaa :\n"
+               "                  bbbbbbbbbbbbbbb ? //\n"
+               "                      ccccccccccccccc :\n"
+               "                      ddddddddddddddd;",
+               Style);
+  verifyFormat("bool aaaaaa = aaaaaaaaaaaaa ? //\n"
+               "                  aaaaaaaaaaaaaaa :\n"
+               "                  (bbbbbbbbbbbbbbb ? //\n"
+               "                       ccccccccccccccc :\n"
+               "                       ddddddddddddddd);",
+               Style);
+}
+
 TEST_F(FormatTest, DeclarationsOfMultipleVariables) {
   verifyFormat("bool aaaaaaaaaaaaaaaaa = aaaaaa->aaaaaaaaaaaaaaaaa(),\n"
                "     aaaaaaaaaaa = aaaaaa->aaaaaaaaaaa();");
@@ -5386,6 +5474,9 @@ TEST_F(FormatTest, FormatObjCMethodExpr) {
       "[self aaaaaaaaaaaaa:aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa,\n"
       "                    aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa,\n"
       "                    aaaaaaaaaaaaaaa, aaaaaaaaaaaaaaa];");
+  verifyFormat("[self // break\n"
+               "      a:a\n"
+               "    aaa:aaa];");
 }
 
 TEST_F(FormatTest, ObjCAt) {
@@ -6660,6 +6751,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE_BOOL(AlwaysBreakTemplateDeclarations);
   CHECK_PARSE_BOOL(BinPackParameters);
   CHECK_PARSE_BOOL(BreakBeforeBinaryOperators);
+  CHECK_PARSE_BOOL(BreakBeforeTernaryOperators);
   CHECK_PARSE_BOOL(BreakConstructorInitializersBeforeComma);
   CHECK_PARSE_BOOL(ConstructorInitializerAllOnOneLineOrOnePerLine);
   CHECK_PARSE_BOOL(DerivePointerBinding);
