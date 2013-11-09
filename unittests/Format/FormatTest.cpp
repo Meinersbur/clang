@@ -787,6 +787,26 @@ TEST_F(FormatTest, UnderstandsSingleLineComments) {
                    "// first\n"
                    " // at start\n"
                    "otherLine();   // comment"));
+  verifyFormat("f(); // comment\n"
+               "// first\n"
+               "// at start\n"
+               "otherLine();");
+  EXPECT_EQ("f(); // comment\n"
+            "// first\n"
+            "// at start\n"
+            "otherLine();",
+            format("f();   // comment\n"
+                   "// first\n"
+                   " // at start\n"
+                   "otherLine();"));
+  EXPECT_EQ("f(); // comment\n"
+            "     // first\n"
+            "// at start\n"
+            "otherLine();",
+            format("f();   // comment\n"
+                   " // first\n"
+                   "// at start\n"
+                   "otherLine();"));
 }
 
 TEST_F(FormatTest, CanFormatCommentsLocally) {
@@ -2668,6 +2688,14 @@ TEST_F(FormatTest, ExpressionIndentationBreakingBeforeOperators) {
                "                    > ccccc) {\n"
                "}",
                Style);
+
+  // Forced by comments.
+  verifyFormat(
+      "unsigned ContentSize =\n"
+      "    sizeof(int16_t)   // DWARF ARange version number\n"
+      "    + sizeof(int32_t) // Offset of CU in the .debug_info section\n"
+      "    + sizeof(int8_t)  // Pointer Size (in bytes)\n"
+      "    + sizeof(int8_t); // Segment Size (in bytes)");
 }
 
 TEST_F(FormatTest, ConstructorInitializers) {
@@ -3607,6 +3635,13 @@ TEST_F(FormatTest, AlwaysBreakBeforeMultilineStrings) {
             format("x = \"a\\\n"
                    "b\\\n"
                    "c\";",
+                   Break));
+
+  // Exempt ObjC strings for now.
+  EXPECT_EQ("NSString *const kString = @\"aaaa\"\n"
+            "                           \"bbbb\";",
+            format("NSString *const kString = @\"aaaa\"\n"
+                   "\"bbbb\";",
                    Break));
 }
 
@@ -5432,6 +5467,16 @@ TEST_F(FormatTest, FormatObjCMethodExpr) {
       "                  backing:NSBackingStoreBuffered\n"
       "                    defer:NO]);\n"
       "}");
+  verifyFormat(
+      "void f() {\n"
+      "  popup_wdow_.reset([[RenderWidgetPopupWindow alloc]\n"
+      "      iniithContentRect:NSMakRet(origin_global.x, origin_global.y,\n"
+      "                                 pos.width(), pos.height())\n"
+      "                syeMask:NSBorderlessWindowMask\n"
+      "                  bking:NSBackingStoreBuffered\n"
+      "                    der:NO]);\n"
+      "}",
+      getLLVMStyleWithColumns(70));
   verifyFormat("[contentsContainer replaceSubview:[subviews objectAtIndex:0]\n"
                "                             with:contentsNativeView];");
 
@@ -5462,6 +5507,8 @@ TEST_F(FormatTest, FormatObjCMethodExpr) {
                "    aaaaaaaaaa:bbbbbbbbbbbbbbbbb\n"
                "         aaaaa:bbbbbbbbbbb + bbbbbbbbbbbb\n"
                "          aaaa:bbb];");
+  verifyFormat("[self param:function( //\n"
+               "                parameter)]");
   verifyFormat(
       "[self aaaaaaaaaa:aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa |\n"
       "                 aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa | aaaaaaaaaaaaaaa |\n"
@@ -7069,6 +7116,15 @@ TEST_F(FormatTest, FormatsWithWebKitStyle) {
             "    i++;\n"
             "}",
             format("if (aaaaaaaaaaaaaaa || bbbbbbbbbbbbbbb) { i++; }", Style));
+
+  // Don't automatically break all macro definitions (llvm.org/PR17842).
+  verifyFormat("#define aNumber 10", Style);
+  // However, generally keep the line breaks that the user authored.
+  EXPECT_EQ("#define aNumber \\\n"
+            "    10",
+            format("#define aNumber \\\n"
+                   " 10",
+                   Style));
 }
 
 TEST_F(FormatTest, FormatsProtocolBufferDefinitions) {
