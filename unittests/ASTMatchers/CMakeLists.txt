@@ -7,9 +7,8 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_clang_unittest(ASTMatchersTests
-  ASTMatchersTest.cpp)
-
-target_link_libraries(ASTMatchersTests
+  ASTMatchersTest.cpp
+LINK_LIBS
   gtest gtest_main clangASTMatchers clangTooling)
 
 add_subdirectory(Dynamic)

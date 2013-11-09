@@ -132,5 +132,5 @@ def MollyLocalIndexof: InheritableAttr {
 // To tell Polly that this has no side-effect and therefore is fine within SCoPs
 // TODO: Merge with PureAttr ???
 def MollyPure : InheritableAttr {
- let Spellings = [GNU<"molly_pure">]; 
+  let Spellings = [GNU<"molly_pure">, CXX11<"molly","pure">]; 
 }

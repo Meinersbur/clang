@@ -8,9 +8,7 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_unittest(FormatTests
   FormatTest.cpp
-  )
-
-target_link_libraries(FormatTests
+LINK_LIBS
   clangAST
   clangFormat
   clangTooling

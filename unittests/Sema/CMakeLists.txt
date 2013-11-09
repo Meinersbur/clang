@@ -1,7 +1,5 @@
 add_clang_unittest(SemaTests
   ExternalSemaSourceTest.cpp
-  )
-
-target_link_libraries(SemaTests
+LINK_LIBS
   clangAST clangASTMatchers clangTooling
   )

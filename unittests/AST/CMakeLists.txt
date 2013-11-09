@@ -1,3 +1,4 @@
+
 add_clang_unittest(ASTTests
   ASTContextParentMapTest.cpp
   ASTTypeTraitsTest.cpp
@@ -8,8 +9,6 @@ add_clang_unittest(ASTTests
   DeclTest.cpp
   SourceLocationTest.cpp
   StmtPrinterTest.cpp
-  )
-
-target_link_libraries(ASTTests
+LINK_LIBS
   clangAST clangASTMatchers clangTooling
   )

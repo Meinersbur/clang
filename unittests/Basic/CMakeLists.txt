@@ -1,10 +1,9 @@
+
 add_clang_unittest(BasicTests
   CharInfoTest.cpp
   FileManagerTest.cpp
   SourceManagerTest.cpp
-  )
-
-target_link_libraries(BasicTests
+LINK_LIBS
   clangBasic
   clangLex
   )
