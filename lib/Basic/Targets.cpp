@@ -2995,7 +2995,12 @@ public:
       : NetBSDTargetInfo<X86_32TargetInfo>(Triple) {}
 
   virtual unsigned getFloatEvalMethod() const {
-    // NetBSD defaults to "double" rounding
+    unsigned Major, Minor, Micro;
+    getTriple().getOSVersion(Major, Minor, Micro);
+    // New NetBSD uses the default rounding mode.
+    if (Major >= 7 || (Major == 6 && Minor == 99 && Micro >= 26) || Major == 0)
+      return X86_32TargetInfo::getFloatEvalMethod();
+    // NetBSD before 6.99.26 defaults to "double" rounding.
     return 1;
   }
 };
@@ -3951,8 +3956,8 @@ public:
       Builder.defineMacro("__THUMB_INTERWORK__");
 
     if (ABI == "aapcs" || ABI == "aapcs-linux" || ABI == "aapcs-vfp") {
-      // M-class CPUs on Darwin follow AAPCS, but not EABI.
-      if (!(getTriple().isOSDarwin() && CPUProfile == "M"))
+      // Embedded targets on Darwin follow AAPCS, but not EABI.
+      if (!getTriple().isOSDarwin())
         Builder.defineMacro("__ARM_EABI__");
       Builder.defineMacro("__ARM_PCS", "1");
 
@@ -5094,12 +5099,8 @@ public:
 
 class Mips32EBTargetInfo : public Mips32TargetInfoBase {
   virtual void setDescriptionString() {
-    if (HasFP64)
-      DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
-                          "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S128";
-    else
-      DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
-                          "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
+    DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
   }
 
 public:
@@ -5116,12 +5117,8 @@ public:
 
 class Mips32ELTargetInfo : public Mips32TargetInfoBase {
   virtual void setDescriptionString() {
-    if (HasFP64)
-      DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
-                          "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S128";
-    else
-      DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
-                          "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
+    DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
   }
 
 public:

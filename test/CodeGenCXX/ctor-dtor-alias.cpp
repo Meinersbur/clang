@@ -88,3 +88,34 @@ namespace test6 {
   B X;
   // CHECK-DAG: call i32 @__cxa_atexit({{.*}}@_ZN5test61AD2Ev
 }
+
+namespace test7 {
+  // Test that we don't produce an alias from ~B to ~A<int> (or crash figuring
+  // out if we should).
+  // pr17875.
+  // CHECK-DAG: define void @_ZN5test71BD2Ev
+  template <typename> struct A {
+    ~A() {}
+  };
+  class B : A<int> {
+    ~B();
+  };
+  template class A<int>;
+  B::~B() {}
+}
+
+namespace test8 {
+  // Test that we replace ~zed with ~bar which is an alias to ~foo.
+  // CHECK-DAG: call i32 @__cxa_atexit({{.*}}@_ZN5test83barD2Ev
+  // CHECK-DAG: @_ZN5test83barD2Ev = alias {{.*}} @_ZN5test83fooD2Ev
+  struct foo {
+    ~foo();
+  };
+  foo::~foo() {}
+  struct bar : public foo {
+    ~bar();
+  };
+  bar::~bar() {}
+  struct zed : public bar {};
+  zed foo;
+}

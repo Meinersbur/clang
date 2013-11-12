@@ -5185,7 +5185,7 @@ void solaris::Link::ConstructJob(Compilation &C, const JobAction &JA,
   addProfileRT(getToolChain(), Args, CmdArgs, getToolChain().getTriple());
 
   const char *Exec =
-      Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -5297,7 +5297,7 @@ void auroraux::Link::ConstructJob(Compilation &C, const JobAction &JA,
   addProfileRT(getToolChain(), Args, CmdArgs, getToolChain().getTriple());
 
   const char *Exec =
-    Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -5448,7 +5448,7 @@ void openbsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   const char *Exec =
-    Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -5588,7 +5588,7 @@ void bitrig::Link::ConstructJob(Compilation &C, const JobAction &JA,
   }
 
   const char *Exec =
-    Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -5771,6 +5771,26 @@ void freebsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddAllArgs(CmdArgs, options::OPT_Z_Flag);
   Args.AddAllArgs(CmdArgs, options::OPT_r);
 
+  // Tell the linker to load the plugin. This has to come before AddLinkerInputs
+  // as gold requires -plugin to come before any -plugin-opt that -Wl might
+  // forward.
+  if (D.IsUsingLTO(Args)) {
+    CmdArgs.push_back("-plugin");
+    std::string Plugin = ToolChain.getDriver().Dir + "/../lib/LLVMgold.so";
+    CmdArgs.push_back(Args.MakeArgString(Plugin));
+
+    // Try to pass driver level flags relevant to LTO code generation down to
+    // the plugin.
+
+    // Handle flags for selecting CPU variants.
+    std::string CPU = getCPUName(Args, ToolChain.getTriple());
+    if (!CPU.empty()) {
+      CmdArgs.push_back(
+                        Args.MakeArgString(Twine("-plugin-opt=mcpu=") +
+                                           CPU));
+    }
+  }
+
   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs);
 
   if (!Args.hasArg(options::OPT_nostdlib) &&
@@ -5839,7 +5859,7 @@ void freebsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
   addProfileRT(ToolChain, Args, CmdArgs, ToolChain.getTriple());
 
   const char *Exec =
-    Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(ToolChain.GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -5993,7 +6013,7 @@ void netbsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   addProfileRT(getToolChain(), Args, CmdArgs, getToolChain().getTriple());
 
-  const char *Exec = Args.MakeArgString(getToolChain().GetLinkerPath());
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -6504,7 +6524,7 @@ void minix::Link::ConstructJob(Compilation &C, const JobAction &JA,
          Args.MakeArgString(getToolChain().GetFilePath("crtend.o")));
   }
 
-  const char *Exec = Args.MakeArgString(getToolChain().GetLinkerPath());
+  const char *Exec = Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
@@ -6688,7 +6708,7 @@ void dragonfly::Link::ConstructJob(Compilation &C, const JobAction &JA,
   addProfileRT(getToolChain(), Args, CmdArgs, getToolChain().getTriple());
 
   const char *Exec =
-    Args.MakeArgString(getToolChain().GetLinkerPath());
+    Args.MakeArgString(getToolChain().GetProgramPath("ld"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
 }
 
