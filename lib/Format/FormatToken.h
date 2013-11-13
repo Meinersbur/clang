@@ -17,27 +17,33 @@
 #define LLVM_CLANG_FORMAT_FORMAT_TOKEN_H
 
 #include "clang/Basic/OperatorPrecedence.h"
+#include "clang/Format/Format.h"
 #include "clang/Lex/Lexer.h"
+#include "llvm/ADT/OwningPtr.h"
 
 namespace clang {
 namespace format {
 
 enum TokenType {
+  TT_ArrayInitializerLSquare,
+  TT_ArraySubscriptLSquare,
   TT_BinaryOperator,
+  TT_BitFieldColon,
   TT_BlockComment,
   TT_CastRParen,
   TT_ConditionalExpr,
   TT_CtorInitializerColon,
+  TT_CtorInitializerComma,
   TT_DesignatedInitializerPeriod,
+  TT_DictLiteral,
   TT_ImplicitStringLiteral,
   TT_InlineASMColon,
   TT_InheritanceColon,
   TT_FunctionTypeLParen,
+  TT_LambdaLSquare,
   TT_LineComment,
-  TT_ObjCArrayLiteral,
   TT_ObjCBlockLParen,
   TT_ObjCDecl,
-  TT_ObjCDictLiteral,
   TT_ObjCForIn,
   TT_ObjCMethodExpr,
   TT_ObjCMethodSpecifier,
@@ -51,23 +57,51 @@ enum TokenType {
   TT_StartOfName,
   TT_TemplateCloser,
   TT_TemplateOpener,
+  TT_TrailingReturnArrow,
   TT_TrailingUnaryOperator,
   TT_UnaryOperator,
   TT_Unknown
 };
+
+// Represents what type of block a set of braces open.
+enum BraceBlockKind {
+  BK_Unknown,
+  BK_Block,
+  BK_BracedInit
+};
+
+// The packing kind of a function's parameters.
+enum ParameterPackingKind {
+  PPK_BinPacked,
+  PPK_OnePerLine,
+  PPK_Inconclusive
+};
+
+enum FormatDecision {
+  FD_Unformatted,
+  FD_Continue,
+  FD_Break
+};
+
+class TokenRole;
+class AnnotatedLine;
 
 /// \brief A wrapper around a \c Token storing information about the
 /// whitespace characters preceeding it.
 struct FormatToken {
   FormatToken()
       : NewlinesBefore(0), HasUnescapedNewline(false), LastNewlineOffset(0),
-        CodePointCount(0), IsFirst(false), MustBreakBefore(false),
-        Type(TT_Unknown), SpacesRequiredBefore(0), CanBreakBefore(false),
-        ClosesTemplateDeclaration(false), ParameterCount(0), TotalLength(0),
+        ColumnWidth(0), LastLineColumnWidth(0), IsMultiline(false),
+        IsFirst(false), MustBreakBefore(false), IsUnterminatedLiteral(false),
+        BlockKind(BK_Unknown), Type(TT_Unknown), SpacesRequiredBefore(0),
+        CanBreakBefore(false), ClosesTemplateDeclaration(false),
+        ParameterCount(0), PackingKind(PPK_Inconclusive), TotalLength(0),
         UnbreakableTailLength(0), BindingStrength(0), SplitPenalty(0),
-        LongestObjCSelectorName(0), FakeRParens(0), LastInChainOfCalls(false),
-        PartOfMultiVariableDeclStmt(false), MatchingParen(NULL), Previous(NULL),
-        Next(NULL) {}
+        LongestObjCSelectorName(0), FakeRParens(0),
+        StartsBinaryExpression(false), EndsBinaryExpression(false),
+        LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false),
+        MatchingParen(NULL), Previous(NULL), Next(NULL),
+        Decision(FD_Unformatted), Finalized(false) {}
 
   /// \brief The \c Token.
   Token Tok;
@@ -89,9 +123,17 @@ struct FormatToken {
   /// whitespace (relative to \c WhiteSpaceStart). 0 if there is no '\n'.
   unsigned LastNewlineOffset;
 
-  /// \brief The length of the non-whitespace parts of the token in CodePoints.
+  /// \brief The width of the non-whitespace parts of the token (or its first
+  /// line for multi-line tokens) in columns.
   /// We need this to correctly measure number of columns a token spans.
-  unsigned CodePointCount;
+  unsigned ColumnWidth;
+
+  /// \brief Contains the width in columns of the last line of a multi-line
+  /// token.
+  unsigned LastLineColumnWidth;
+
+  /// \brief Whether the token text contains newlines (escaped or not).
+  bool IsMultiline;
 
   /// \brief Indicates that this is the first token.
   bool IsFirst;
@@ -117,9 +159,18 @@ struct FormatToken {
   /// escaped newlines.
   StringRef TokenText;
 
+  /// \brief Set to \c true if this token is an unterminated literal.
+  bool IsUnterminatedLiteral;
+
+  /// \brief Contains the kind of block if this token is a brace.
+  BraceBlockKind BlockKind;
+
   TokenType Type;
 
+  /// \brief The number of spaces that should be inserted before this token.
   unsigned SpacesRequiredBefore;
+
+  /// \brief \c true if it is allowed to break before this token.
   bool CanBreakBefore;
 
   bool ClosesTemplateDeclaration;
@@ -131,8 +182,20 @@ struct FormatToken {
   /// the number of commas.
   unsigned ParameterCount;
 
-  /// \brief The total length of the line up to and including this token.
+  /// \brief A token can have a special role that can carry extra information
+  /// about the token's formatting.
+  llvm::OwningPtr<TokenRole> Role;
+
+  /// \brief If this is an opening parenthesis, how are the parameters packed?
+  ParameterPackingKind PackingKind;
+
+  /// \brief The total length of the unwrapped line up to and including this
+  /// token.
   unsigned TotalLength;
+
+  /// \brief The original 0-based column of this token, including expanded tabs.
+  /// The configured TabWidth is used as tab width.
+  unsigned OriginalColumn;
 
   /// \brief The length of following tokens until the next natural split point,
   /// or the next token that can be broken.
@@ -158,6 +221,12 @@ struct FormatToken {
   SmallVector<prec::Level, 4> FakeLParens;
   /// \brief Insert this many fake ) after this token for correct indentation.
   unsigned FakeRParens;
+
+  /// \brief \c true if this token starts a binary expression, i.e. has at least
+  /// one fake l_paren with a precedence greater than prec::Unknown.
+  bool StartsBinaryExpression;
+  /// \brief \c true if this token ends a binary expression.
+  bool EndsBinaryExpression;
 
   /// \brief Is this the last "." or "->" in a builder-type call?
   bool LastInChainOfCalls;
@@ -212,12 +281,17 @@ struct FormatToken {
   bool opensScope() const {
     return isOneOf(tok::l_paren, tok::l_brace, tok::l_square) ||
            Type == TT_TemplateOpener;
-
   }
   /// \brief Returns whether \p Tok is )]} or a template closing >.
   bool closesScope() const {
     return isOneOf(tok::r_paren, tok::r_brace, tok::r_square) ||
            Type == TT_TemplateCloser;
+  }
+
+  /// \brief Returns \c true if this is a "." or "->" accessing a member.
+  bool isMemberAccess() const {
+    return isOneOf(tok::arrow, tok::period) &&
+           Type != TT_DesignatedInitializerPeriod;
   }
 
   bool isUnaryOperator() const {
@@ -235,10 +309,12 @@ struct FormatToken {
       return false;
     }
   }
+
   bool isBinaryOperator() const {
     // Comma is a binary operator, but does not behave as such wrt. formatting.
     return getPrecedence() > prec::Comma;
   }
+
   bool isTrailingComment() const {
     return is(tok::comment) && (!Next || Next->NewlinesBefore > 0);
   }
@@ -248,7 +324,7 @@ struct FormatToken {
   }
 
   /// \brief Returns the previous token ignoring comments.
-  FormatToken *getPreviousNoneComment() const {
+  FormatToken *getPreviousNonComment() const {
     FormatToken *Tok = Previous;
     while (Tok != NULL && Tok->is(tok::comment))
       Tok = Tok->Previous;
@@ -256,11 +332,25 @@ struct FormatToken {
   }
 
   /// \brief Returns the next token ignoring comments.
-  const FormatToken *getNextNoneComment() const {
+  const FormatToken *getNextNonComment() const {
     const FormatToken *Tok = Next;
     while (Tok != NULL && Tok->is(tok::comment))
       Tok = Tok->Next;
     return Tok;
+  }
+
+  /// \brief Returns \c true if this tokens starts a block-type list, i.e. a
+  /// list that should be indented with a block indent.
+  bool opensBlockTypeList(const FormatStyle &Style) const {
+    return Type == TT_ArrayInitializerLSquare ||
+           (is(tok::l_brace) &&
+            (BlockKind == BK_Block || Type == TT_DictLiteral ||
+             !Style.Cpp11BracedListStyle));
+  }
+
+  /// \brief Same as opensBlockTypeList, but for the closing token.
+  bool closesBlockTypeList(const FormatStyle &Style) const {
+    return MatchingParen && MatchingParen->opensBlockTypeList(Style);
   }
 
   FormatToken *MatchingParen;
@@ -268,10 +358,92 @@ struct FormatToken {
   FormatToken *Previous;
   FormatToken *Next;
 
+  SmallVector<AnnotatedLine *, 1> Children;
+
+  /// \brief Stores the formatting decision for the token once it was made.
+  FormatDecision Decision;
+
+  /// \brief If \c true, this token has been fully formatted (indented and
+  /// potentially re-formatted inside), and we do not allow further formatting
+  /// changes.
+  bool Finalized;
+
 private:
   // Disallow copying.
   FormatToken(const FormatToken &) LLVM_DELETED_FUNCTION;
   void operator=(const FormatToken &) LLVM_DELETED_FUNCTION;
+};
+
+class ContinuationIndenter;
+struct LineState;
+
+class TokenRole {
+public:
+  TokenRole(const FormatStyle &Style) : Style(Style) {}
+  virtual ~TokenRole();
+
+  /// \brief After the \c TokenAnnotator has finished annotating all the tokens,
+  /// this function precomputes required information for formatting.
+  virtual void precomputeFormattingInfos(const FormatToken *Token);
+
+  /// \brief Apply the special formatting that the given role demands.
+  ///
+  /// Continues formatting from \p State leaving indentation to \p Indenter and
+  /// returns the total penalty that this formatting incurs.
+  virtual unsigned format(LineState &State, ContinuationIndenter *Indenter,
+                          bool DryRun) {
+    return 0;
+  }
+
+  /// \brief Notifies the \c Role that a comma was found.
+  virtual void CommaFound(const FormatToken *Token) {}
+
+protected:
+  const FormatStyle &Style;
+};
+
+class CommaSeparatedList : public TokenRole {
+public:
+  CommaSeparatedList(const FormatStyle &Style) : TokenRole(Style) {}
+
+  virtual void precomputeFormattingInfos(const FormatToken *Token);
+
+  virtual unsigned format(LineState &State, ContinuationIndenter *Indenter,
+                          bool DryRun);
+
+  /// \brief Adds \p Token as the next comma to the \c CommaSeparated list.
+  virtual void CommaFound(const FormatToken *Token) { Commas.push_back(Token); }
+
+private:
+  /// \brief A struct that holds information on how to format a given list with
+  /// a specific number of columns.
+  struct ColumnFormat {
+    /// \brief The number of columns to use.
+    unsigned Columns;
+
+    /// \brief The total width in characters.
+    unsigned TotalWidth;
+
+    /// \brief The number of lines required for this format.
+    unsigned LineCount;
+
+    /// \brief The size of each column in characters.
+    SmallVector<unsigned, 8> ColumnSizes;
+  };
+
+  /// \brief Calculate which \c ColumnFormat fits best into
+  /// \p RemainingCharacters.
+  const ColumnFormat *getColumnFormat(unsigned RemainingCharacters) const;
+
+  /// \brief The ordered \c FormatTokens making up the commas of this list.
+  SmallVector<const FormatToken *, 8> Commas;
+
+  /// \brief The length of each of the list's items in characters including the
+  /// trailing comma.
+  SmallVector<unsigned, 8> ItemLengths;
+
+  /// \brief Precomputed formats that can be used for this list.
+  SmallVector<ColumnFormat, 4> Formats;
 };
 
 } // namespace format

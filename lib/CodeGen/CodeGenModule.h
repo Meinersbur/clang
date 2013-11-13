@@ -31,7 +31,7 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ValueHandle.h"
-#include "llvm/Transforms/Utils/BlackList.h"
+#include "llvm/Transforms/Utils/SpecialCaseList.h"
 
 namespace llvm {
   class Module;
@@ -250,7 +250,6 @@ class CodeGenModule : public CodeGenTypeCache {
  
   /// VTables - Holds information about C++ vtables.
   CodeGenVTables VTables;
-  friend class CodeGenVTables;
 
   CGObjCRuntime* ObjCRuntime;
   CGOpenCLRuntime* OpenCLRuntime;
@@ -275,6 +274,10 @@ class CodeGenModule : public CodeGenTypeCache {
   /// that *are* actually referenced.  These get code generated when the module
   /// is done.
   std::vector<GlobalDecl> DeferredDeclsToEmit;
+
+  /// List of alias we have emitted. Used to make sure that what they point to
+  /// is defined once we get to the end of the of the translation unit.
+  std::vector<GlobalDecl> Aliases;
 
   /// DeferredVTables - A queue of (optional) vtables to consider emitting.
   std::vector<const CXXRecordDecl*> DeferredVTables;
@@ -412,7 +415,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   GlobalDecl initializedGlobalDecl;
 
-  llvm::BlackList SanitizerBlacklist;
+  llvm::OwningPtr<llvm::SpecialCaseList> SanitizerBlacklist;
 
   const SanitizerOptions &SanOpts;
 
@@ -519,7 +522,14 @@ public:
   CodeGenTypes &getTypes() { return Types; }
  
   CodeGenVTables &getVTables() { return VTables; }
-  VTableContext &getVTableContext() { return VTables.getVTableContext(); }
+
+  ItaniumVTableContext &getVTableContext() {
+    return VTables.getVTableContext();
+  }
+
+  MicrosoftVFTableContext &getVFTableContext() {
+    return VTables.getVFTableContext();
+  }
 
   llvm::MDNode *getTBAAInfo(QualType QTy);
   llvm::MDNode *getTBAAInfoForVTablePtr();
@@ -752,7 +762,8 @@ public:
   /// given type.
   llvm::GlobalValue *GetAddrOfCXXDestructor(const CXXDestructorDecl *dtor,
                                             CXXDtorType dtorType,
-                                            const CGFunctionInfo *fnInfo = 0);
+                                            const CGFunctionInfo *fnInfo = 0,
+                                            llvm::FunctionType *fnType = 0);
 
   /// getBuiltinLibFunction - Given a builtin id for a function like
   /// "__builtin_fabsf", return a Function* for "fabsf".
@@ -851,17 +862,11 @@ public:
 
   /// ErrorUnsupported - Print out an error that codegen doesn't support the
   /// specified stmt yet.
-  /// \param OmitOnError - If true, then this error should only be emitted if no
-  /// other errors have been reported.
-  void ErrorUnsupported(const Stmt *S, const char *Type,
-                        bool OmitOnError=false);
+  void ErrorUnsupported(const Stmt *S, const char *Type);
 
   /// ErrorUnsupported - Print out an error that codegen doesn't support the
   /// specified decl yet.
-  /// \param OmitOnError - If true, then this error should only be emitted if no
-  /// other errors have been reported.
-  void ErrorUnsupported(const Decl *D, const char *Type,
-                        bool OmitOnError=false);
+  void ErrorUnsupported(const Decl *D, const char *Type);
 
   /// SetInternalFunctionAttributes - Set the attributes on the LLVM
   /// function for the given decl and function info. This applies
@@ -914,6 +919,10 @@ public:
   void EmitTentativeDefinition(const VarDecl *D);
 
   void EmitVTable(CXXRecordDecl *Class, bool DefinitionRequired);
+
+  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
+  /// builtin types.
+  void EmitFundamentalRTTIDescriptors();
 
   /// \brief Appends Opts to the "Linker Options" metadata value.
   void AppendLinkerOptions(StringRef Opts);
@@ -970,8 +979,8 @@ public:
   /// annotations are emitted during finalization of the LLVM code.
   void AddGlobalAnnotations(const ValueDecl *D, llvm::GlobalValue *GV);
 
-  const llvm::BlackList &getSanitizerBlacklist() const {
-    return SanitizerBlacklist;
+  const llvm::SpecialCaseList &getSanitizerBlacklist() const {
+    return *SanitizerBlacklist;
   }
 
   const SanitizerOptions &getSanOpts() const { return SanOpts; }
@@ -979,6 +988,197 @@ public:
   void addDeferredVTable(const CXXRecordDecl *RD) {
     DeferredVTables.push_back(RD);
   }
+
+  /// \brief Emit a code for threadprivate variables.
+  ///
+  void EmitOMPThreadPrivate(const OMPThreadPrivateDecl *D);
+  /// \brief Emit a code for threadprivate variable.
+  ///
+  void EmitOMPThreadPrivate(const VarDecl *VD, const Expr *TPE);
+
+  /// \brief Creates a structure with the location info for Intel OpenMP RTL.
+  llvm::Value *CreateIntelOpenMPRTLLoc(SourceLocation Loc,
+                                       CodeGenFunction &CGF,
+                                       unsigned Flags = 0x02);
+  /// \brief Creates call to "__kmpc_global_thread_num(ident_t *loc)" OpenMP
+  /// RTL function.
+  llvm::Value *CreateOpenMPGlobalThreadNum(SourceLocation Loc,
+                                           CodeGenFunction &CGF);
+
+  /// \brief Checks if the variable is OpenMP threadprivate and generates code
+  /// for threadprivate variables.
+  /// \return 0 if the variable is not threadprivate, or new address otherwise.
+  llvm::Value *CreateOpenMPThreadPrivateCached(const VarDecl *VD,
+                                               SourceLocation Loc,
+                                               CodeGenFunction &CGF,
+                                               bool NoCast = false);
+
+  class OpenMPSupportStackTy {
+    /// \brief A set of OpenMP threadprivate variables.
+    llvm::DenseMap<const Decl *, const Expr *> OpenMPThreadPrivate;
+    /// \brief A set of OpenMP private variables.
+    typedef llvm::DenseMap<const Decl *, llvm::Value *> OMPPrivateVarsTy;
+    struct OMPStackElemTy {
+      OMPPrivateVarsTy PrivateVars;
+      llvm::BasicBlock *IfEnd;
+      llvm::Function *ReductionFunc;
+      CodeGenModule &CGM;
+      CodeGenFunction *RedCGF;
+      llvm::SmallVector<llvm::Type *, 16> ReductionTypes;
+      llvm::DenseMap<const VarDecl *, unsigned> ReductionMap;
+      llvm::StructType *ReductionRec;
+      llvm::Value *ReductionRecVar;
+      llvm::Value *RedArg1;
+      llvm::Value *RedArg2;
+      llvm::Value *ReduceSwitch;
+      llvm::BasicBlock *BB1;
+      llvm::Instruction *BB1IP;
+      llvm::BasicBlock *BB2;
+      llvm::Instruction *BB2IP;
+      llvm::Value *LockVar;
+      llvm::BasicBlock *LastprivateBB;
+      llvm::Instruction *LastprivateIP;
+      llvm::BasicBlock *LastprivateEndBB;
+      llvm::Value *LastIterVar;
+      llvm::Value *TaskFlags;
+      llvm::Value *PTaskTValue;
+      llvm::Value *PTask;
+      llvm::Value *UntiedPartIdAddr;
+      unsigned     UntiedCounter;
+      llvm::Value *UntiedSwitch;
+      llvm::BasicBlock *UntiedEnd;
+      bool NoWait;
+      bool Mergeable;
+      bool Ordered;
+      int Schedule;
+      const Expr *ChunkSize;
+      bool NewTask;
+      bool Untied;
+      bool HasFirstPrivate;
+      bool HasLastPrivate;
+      llvm::DenseMap<const ValueDecl *, FieldDecl *> TaskFields;
+      llvm::Type *TaskPrivateTy;
+      QualType TaskPrivateQTy;
+      llvm::Value *TaskPrivateBase;
+      OMPStackElemTy(CodeGenModule &CGM);
+      ~OMPStackElemTy();
+    };
+    typedef llvm::SmallVector<OMPStackElemTy, 16> OMPStackTy;
+    OMPStackTy OpenMPStack;
+    CodeGenModule &CGM;
+  public:
+    OpenMPSupportStackTy(CodeGenModule &CGM)
+      : OpenMPThreadPrivate(), OpenMPStack(), CGM(CGM) { }
+    const Expr *hasThreadPrivateVar(const VarDecl *VD) {
+      llvm::DenseMap<const Decl *, const Expr *>::iterator I =
+                                                  OpenMPThreadPrivate.find(VD);
+      if (I != OpenMPThreadPrivate.end())
+        return I->second;
+      return 0;
+    }
+    void addThreadPrivateVar(const VarDecl *VD, const Expr *TPE) {
+      OpenMPThreadPrivate[VD] = TPE;
+    }
+    /// \brief Checks, if the specified variable is currently marked as
+    /// private.
+    /// \return 0 if the variable is not private, or address of private
+    /// otherwise.
+    llvm::Value *getOpenMPPrivateVar(const VarDecl *VD) {
+      if (OpenMPStack.empty()) return 0;
+      for (OMPStackTy::reverse_iterator I = OpenMPStack.rbegin(),
+                                        E = OpenMPStack.rend();
+           I != E; ++I) {
+        if (I->PrivateVars.count(VD) > 0 && I->PrivateVars[VD])
+          return I->PrivateVars[VD];
+        if (I->NewTask) return 0;
+      }
+      return 0;
+    }
+    llvm::Value *getTopOpenMPPrivateVar(const VarDecl *VD) {
+      if (OpenMPStack.empty()) return 0;
+      return OpenMPStack.back().PrivateVars.count(VD) > 0 ? OpenMPStack.back().PrivateVars[VD] : 0;
+    }
+    llvm::Value *getPrevOpenMPPrivateVar(const VarDecl *VD) {
+      if (OpenMPStack.size()< 2) return 0;
+      return OpenMPStack[OpenMPStack.size() - 2].PrivateVars.count(VD) > 0 ? OpenMPStack[OpenMPStack.size() - 2].PrivateVars[VD] : 0;
+    }
+    void startOpenMPRegion(bool NewTask) {
+      OpenMPStack.push_back(OMPStackElemTy(CGM));
+      OpenMPStack.back().NewTask = NewTask;
+    }
+    bool isNewTask() { return OpenMPStack.back().NewTask; };
+    void endOpenMPRegion();
+    void addOpenMPPrivateVar(const VarDecl *VD, llvm::Value *Addr) {
+      assert(!OpenMPStack.empty() &&
+             "OpenMP private variables region is not started.");
+      OpenMPStack.back().PrivateVars[VD] = Addr;
+    }
+    void delOpenMPPrivateVar(const VarDecl *VD) {
+      assert(!OpenMPStack.empty() &&
+             "OpenMP private variables region is not started.");
+      OpenMPStack.back().PrivateVars[VD] = 0;
+    }
+    void delPrevOpenMPPrivateVar(const VarDecl *VD) {
+      assert(OpenMPStack.size() >= 2 &&
+             "OpenMP private variables region is not started.");
+      OpenMPStack[OpenMPStack.size() - 2].PrivateVars[VD] = 0;
+    }
+    void setIfDest(llvm::BasicBlock *EndBB) {OpenMPStack.back().IfEnd = EndBB;}
+    llvm::BasicBlock *takeIfDest() {
+      llvm::BasicBlock *BB = OpenMPStack.back().IfEnd;
+      OpenMPStack.back().IfEnd = 0;
+      return BB;
+    }
+    CodeGenFunction &getCGFForReductionFunction();
+    void getReductionFunctionArgs(llvm::Value *&Arg1, llvm::Value *&Arg2);
+    void registerReductionVar(const VarDecl *VD, llvm::Type *Type);
+    llvm::Value *getReductionRecVar(CodeGenFunction &CGF);
+    llvm::Type *getReductionRec();
+    llvm::Value *getReductionSwitch();
+    void setReductionSwitch(llvm::Value *Switch);
+    void setReductionIPs(llvm::BasicBlock *BB1, llvm::Instruction *IP1,
+                         llvm::BasicBlock *BB2, llvm::Instruction *IP2);
+    void getReductionIPs(llvm::BasicBlock *&BB1, llvm::Instruction *&IP1,
+                         llvm::BasicBlock *&BB2, llvm::Instruction *&IP2);
+    llvm::Value *getReductionLockVar();
+    void setReductionLockVar(llvm::Value *Var);
+    void setLastprivateIP(llvm::BasicBlock *BB, llvm::Instruction *IP, llvm::BasicBlock *EndBB);
+    void getLastprivateIP(llvm::BasicBlock *&BB, llvm::Instruction *&IP, llvm::BasicBlock *&EndBB);
+    llvm::Value *getLastIterVar();
+    void setLastIterVar(llvm::Value *Var);
+    unsigned getReductionVarIdx(const VarDecl *VD);
+    unsigned getNumberOfReductionVars();
+    void setNoWait(bool Flag);
+    bool getNoWait();
+    void setScheduleChunkSize(int Sched, const Expr *Size);
+    void getScheduleChunkSize(int &Sched, const Expr *&Size);
+    void setMergeable(bool Flag);
+    bool getMergeable();
+    void setOrdered(bool Flag);
+    bool getOrdered();
+    void setUntied(bool Flag);
+    bool getUntied();
+    bool getParentUntied();
+    void setHasFirstPrivate(bool Flag);
+    bool hasFirstPrivate();
+    void setHasLastPrivate(bool Flag);
+    bool hasLastPrivate();
+    llvm::Value *getTaskFlags();
+    void setTaskFlags(llvm::Value *Flags);
+    void setPTask(llvm::Value *Task, llvm::Value *TaskT, llvm::Type *PTy, QualType PQTy, llvm::Value *PB);
+    void getPTask(llvm::Value *&Task, llvm::Value *&TaskT, llvm::Type *&PTy, QualType &PQTy, llvm::Value *&PB);
+    llvm::DenseMap<const ValueDecl *, FieldDecl *> &getTaskFields();
+    void setUntiedData(llvm::Value *UntiedPartIdAddr, llvm::Value *UntiedSwitch, llvm::BasicBlock *UntiedEnd, unsigned UntiedCounter);
+    void getUntiedData(llvm::Value *&UntiedPartIdAddr, llvm::Value *&UntiedSwitch, llvm::BasicBlock *&UntiedEnd, unsigned &UntiedCounter);
+    void setParentUntiedData(llvm::Value *UntiedPartIdAddr, llvm::Value *UntiedSwitch, llvm::BasicBlock *UntiedEnd, unsigned UntiedCounter);
+    void getParentUntiedData(llvm::Value *&UntiedPartIdAddr, llvm::Value *&UntiedSwitch, llvm::BasicBlock *&UntiedEnd, unsigned &UntiedCounter);
+  };
+
+  OpenMPSupportStackTy OpenMPSupport;
+
+  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
+  /// declarations are emitted lazily.
+  void EmitGlobal(GlobalDecl D);
 
 private:
   llvm::GlobalValue *GetGlobalValue(StringRef Ref);
@@ -994,6 +1194,23 @@ private:
                                         const VarDecl *D,
                                         bool UnnamedAddr = false);
 
+  /// \brief Creates OpenMP threadprivate function for specified variable
+  /// and returns this function and constructor, copy constructor and
+  /// destructor.
+  void CreateOpenMPCXXInit(const VarDecl *Var, CXXRecordDecl *Ty,
+                           llvm::Function *&InitFunction,
+                           llvm::Value *&Ctor,
+                           llvm::Value *&CCtor,
+                           llvm::Value *&Dtor);
+
+  /// \brief Creates OpenMP threadprivate function for specified array variable
+  /// and returns this function and constructor, copy constructor and
+  /// destructor.
+  void CreateOpenMPArrCXXInit(const VarDecl *Var, CXXRecordDecl *Ty,
+                              llvm::Function *&InitFunction,
+                              llvm::Value *&Ctor,
+                              llvm::Value *&CCtor,
+                              llvm::Value *&Dtor);
   /// SetCommonAttributes - Set attributes which are common to any
   /// form of a global definition (alias, Objective-C method,
   /// function, global variable).
@@ -1010,10 +1227,6 @@ private:
   void SetFunctionAttributes(GlobalDecl GD,
                              llvm::Function *F,
                              bool IsIncompleteFunction);
-
-  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
-  /// declarations are emitted lazily.
-  void EmitGlobal(GlobalDecl D);
 
   void EmitGlobalDefinition(GlobalDecl D);
 
@@ -1032,17 +1245,9 @@ private:
   void EmitLinkageSpec(const LinkageSpecDecl *D);
   void CompleteDIClassType(const CXXMethodDecl* D);
 
-  /// EmitCXXConstructors - Emit constructors (base, complete) from a
-  /// C++ constructor Decl.
-  void EmitCXXConstructors(const CXXConstructorDecl *D);
-
   /// EmitCXXConstructor - Emit a single constructor with the given type from
   /// a C++ constructor Decl.
   void EmitCXXConstructor(const CXXConstructorDecl *D, CXXCtorType Type);
-
-  /// EmitCXXDestructors - Emit destructors (base, complete) from a
-  /// C++ destructor Decl.
-  void EmitCXXDestructors(const CXXDestructorDecl *D);
 
   /// EmitCXXDestructor - Emit a single destructor with the given type from
   /// a C++ destructor Decl.
@@ -1076,13 +1281,11 @@ private:
   /// given type.
   void EmitFundamentalRTTIDescriptor(QualType Type);
 
-  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
-  /// builtin types.
-  void EmitFundamentalRTTIDescriptors();
-
   /// EmitDeferred - Emit any needed decls for which code generation
   /// was deferred.
   void EmitDeferred();
+
+  void checkAliases();
 
   /// EmitDeferredVTables - Emit any vtables which we deferred and
   /// still have a use for.
@@ -1100,6 +1303,9 @@ private:
   void EmitStaticExternCAliases();
 
   void EmitDeclMetadata();
+
+  /// \brief Emit the Clang version as llvm.ident metadata.
+  void EmitVersionIdentMetadata();
 
   /// EmitCoverageFile - Emit the llvm.gcov metadata used to tell LLVM where
   /// to emit the .gcno and .gcda files in a way that persists in .bc files.

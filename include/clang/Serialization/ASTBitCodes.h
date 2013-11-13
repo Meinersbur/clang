@@ -535,7 +535,10 @@ namespace clang {
 
       /// \brief Record code for undefined but used functions and variables that
       /// need a definition in this TU.
-      UNDEFINED_BUT_USED = 49
+      UNDEFINED_BUT_USED = 49,
+
+      /// \brief Record code for late parsed template functions.
+      LATE_PARSED_TEMPLATE = 50
     };
 
     /// \brief Record types used within a source manager block.
@@ -1027,6 +1030,12 @@ namespace clang {
       DECL_CLASS_TEMPLATE_SPECIALIZATION,
       /// \brief A ClassTemplatePartialSpecializationDecl record.
       DECL_CLASS_TEMPLATE_PARTIAL_SPECIALIZATION,
+      /// \brief A VarTemplateDecl record.
+      DECL_VAR_TEMPLATE,
+      /// \brief A VarTemplateSpecializationDecl record.
+      DECL_VAR_TEMPLATE_SPECIALIZATION,
+      /// \brief A VarTemplatePartialSpecializationDecl record.
+      DECL_VAR_TEMPLATE_PARTIAL_SPECIALIZATION,
       /// \brief A FunctionTemplateDecl record.
       DECL_FUNCTION_TEMPLATE,
       /// \brief A TemplateTypeParmDecl record.
@@ -1054,7 +1063,7 @@ namespace clang {
       DECL_CLASS_SCOPE_FUNCTION_SPECIALIZATION,
       /// \brief An ImportDecl recording a module import.
       DECL_IMPORT,
-      /// \brief A OMPThreadPrivateDecl record.
+      /// \brief An OMPThreadPrivateDecl record.
       DECL_OMP_THREADPRIVATE,
       /// \brief An EmptyDecl record.
       DECL_EMPTY
@@ -1177,6 +1186,8 @@ namespace clang {
       EXPR_GNU_NULL,
       /// \brief A ShuffleVectorExpr record.
       EXPR_SHUFFLE_VECTOR,
+      /// \brief A ConvertVectorExpr record.
+      EXPR_CONVERT_VECTOR,
       /// \brief BlockExpr
       EXPR_BLOCK,
       /// \brief A GenericSelectionExpr record.
@@ -1319,7 +1330,24 @@ namespace clang {
       STMT_SEH_EXCEPT,            // SEHExceptStmt
       STMT_SEH_FINALLY,           // SEHFinallyStmt
       STMT_SEH_TRY,               // SEHTryStmt
-      
+
+      // OpenMP drectives
+      STMT_OMP_PARALLEL_DIRECTIVE,
+      STMT_OMP_FOR_DIRECTIVE,
+      STMT_OMP_SECTIONS_DIRECTIVE,
+      STMT_OMP_SECTION_DIRECTIVE,
+      STMT_OMP_SINGLE_DIRECTIVE,
+      STMT_OMP_TASK_DIRECTIVE,
+      STMT_OMP_TASKYIELD_DIRECTIVE,
+      STMT_OMP_MASTER_DIRECTIVE,
+      STMT_OMP_CRITICAL_DIRECTIVE,
+      STMT_OMP_BARRIER_DIRECTIVE,
+      STMT_OMP_TASKWAIT_DIRECTIVE,
+      STMT_OMP_TASKGROUP_DIRECTIVE,
+      STMT_OMP_ATOMIC_DIRECTIVE,
+      STMT_OMP_FLUSH_DIRECTIVE,
+      STMT_OMP_ORDERED_DIRECTIVE,
+
       // ARC
       EXPR_OBJC_BRIDGED_CAST,     // ObjCBridgedCastExpr
       

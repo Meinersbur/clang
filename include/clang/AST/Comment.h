@@ -699,7 +699,7 @@ private:
   unsigned ParamIndex;
 
 public:
-  enum {
+  enum LLVM_ENUM_INT_TYPE(unsigned) {
     InvalidParamIndex = ~0U,
     VarArgParamIndex = ~0U/*InvalidParamIndex*/ - 1U
   };
@@ -1108,10 +1108,6 @@ public:
   const DeclInfo *getDeclInfo() const LLVM_READONLY {
     if (!ThisDeclInfo->IsFilled)
       ThisDeclInfo->fill();
-    return ThisDeclInfo;
-  }
-  
-  DeclInfo *getThisDeclInfo() const LLVM_READONLY {
     return ThisDeclInfo;
   }
   

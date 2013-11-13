@@ -13,9 +13,11 @@
 
 #include "clang/CodeGen/ModuleBuilder.h"
 #include "CodeGenModule.h"
+#include "CGDebugInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/DeclOpenMP.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
@@ -59,13 +61,22 @@ namespace {
       TD.reset(new llvm::DataLayout(Ctx->getTargetInfo().getTargetDescription()));
       Builder.reset(new CodeGen::CodeGenModule(Context, CodeGenOpts, *M, *TD,
                                                Diags));
+
+      for (size_t i = 0, e = CodeGenOpts.DependentLibraries.size(); i < e; ++i)
+        HandleDependentLibrary(CodeGenOpts.DependentLibraries[i]);
     }
 
     virtual void HandleCXXStaticMemberVarInstantiation(VarDecl *VD) {
+      if (Diags.hasErrorOccurred())
+        return;
+
       Builder->HandleCXXStaticMemberVarInstantiation(VD);
     }
 
     virtual bool HandleTopLevelDecl(DeclGroupRef DG) {
+      if (Diags.hasErrorOccurred())
+        return true;
+
       // Make sure to emit all elements of a Decl.
       for (DeclGroupRef::iterator I = DG.begin(), E = DG.end(); I != E; ++I)
         Builder->EmitTopLevelDecl(*I);
@@ -77,6 +88,9 @@ namespace {
     /// client hack on the type, which can occur at any point in the file
     /// (because these can be defined in declspecs).
     virtual void HandleTagDeclDefinition(TagDecl *D) {
+      if (Diags.hasErrorOccurred())
+        return;
+
       Builder->UpdateCompletedType(D);
       
       // In C++, we may have member functions that need to be emitted at this 
@@ -85,12 +99,23 @@ namespace {
         for (DeclContext::decl_iterator M = D->decls_begin(), 
                                      MEnd = D->decls_end();
              M != MEnd; ++M)
-          if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(*M))
+          if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(*M)) {
             if (Method->doesThisDeclarationHaveABody() &&
                 (Method->hasAttr<UsedAttr>() || 
                  Method->hasAttr<ConstructorAttr>()))
               Builder->EmitTopLevelDecl(Method);
+          } else if (OMPThreadPrivateDecl *TD = dyn_cast<OMPThreadPrivateDecl>(*M))
+            Builder->EmitTopLevelDecl(TD);
       }
+    }
+
+    virtual void HandleTagDeclRequiredDefinition(const TagDecl *D) LLVM_OVERRIDE {
+      if (Diags.hasErrorOccurred())
+        return;
+
+      if (CodeGen::CGDebugInfo *DI = Builder->getModuleDebugInfo())
+        if (const RecordDecl *RD = dyn_cast<RecordDecl>(D))
+          DI->completeRequiredType(RD);
     }
 
     virtual void HandleTranslationUnit(ASTContext &Ctx) {

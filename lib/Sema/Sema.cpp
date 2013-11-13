@@ -89,8 +89,10 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
     NumSFINAEErrors(0), InFunctionDeclarator(0),
     AccessCheckingSFINAE(false), InNonInstantiationSFINAEContext(false),
     NonInstantiationEntries(0), ArgumentPackSubstitutionIndex(-1),
-    CurrentInstantiationScope(0), TyposCorrected(0),
-    AnalysisWarnings(*this), CurScope(0), Ident_super(0), Ident___float128(0)
+    CurrentInstantiationScope(0), DisableTypoCorrection(false),
+    TyposCorrected(0), AnalysisWarnings(*this),
+    VarDataSharingAttributesStack(0), CurScope(0),
+    Ident_super(0), Ident___float128(0)
 {
   TUScope = 0;
 
@@ -113,6 +115,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
                                           false, 0, false));
 
   FunctionScopes.push_back(new FunctionScopeInfo(Diags));
+
+  // Initilization of data sharing attributes stack for OpenMP
+  InitDataSharingAttributesStack();
 }
 
 void Sema::Initialize() {
@@ -173,8 +178,15 @@ void Sema::Initialize() {
 }
 
 Sema::~Sema() {
+  for (LateParsedTemplateMapT::iterator I = LateParsedTemplateMap.begin(),
+                                        E = LateParsedTemplateMap.end();
+       I != E; ++I)
+    delete I->second;
   if (PackContext) FreePackedContext();
   if (VisContext) FreeVisContext();
+  // Destroys data sharing attributes stack for OpenMP
+  DestroyDataSharingAttributesStack();
+
   delete TheTargetAttributesSema;
   MSStructPragmaOn = false;
   // Kill all the active scopes.
@@ -284,9 +296,6 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
   if (ExprTy == TypeTy)
     return Owned(E);
 
-  if (getLangOpts().ObjCAutoRefCount)
-    CheckObjCARCConversion(SourceRange(), Ty, E, CCK);
-
   // If this is a derived-to-base cast to a through a virtual base, we
   // need a vtable.
   if (Kind == CK_DerivedToBase &&
@@ -350,6 +359,15 @@ static bool ShouldRemoveFromUnused(Sema *SemaRef, const DeclaratorDecl *D) {
   }
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
+    // If a variable usable in constant expressions is referenced,
+    // don't warn if it isn't used: if the value of a variable is required
+    // for the computation of a constant expression, it doesn't make sense to
+    // warn even if the variable isn't odr-used.  (isReferenced doesn't
+    // precisely reflect that, but it's a decent approximation.)
+    if (VD->isReferenced() &&
+        VD->isUsableInConstantExpressions(SemaRef->Context))
+      return true;
+
     // UnusedFileScopedDecls stores the first declaration.
     // The declaration may have become definition so check again.
     const VarDecl *DeclToCheck = VD->getDefinition();
@@ -551,9 +569,9 @@ void Sema::ActOnEndOfTranslationUnit() {
   if (PP.isCodeCompletionEnabled())
     return;
 
-  // Only complete translation units define vtables and perform implicit
-  // instantiations.
-  if (TUKind == TU_Complete) {
+  // Complete translation units and modules define vtables and perform implicit
+  // instantiations. PCH files do not.
+  if (TUKind != TU_Prefix) {
     DiagnoseUseOfUnimplementedSelectors();
 
     // If any dynamic classes have their key function defined within
@@ -582,12 +600,17 @@ void Sema::ActOnEndOfTranslationUnit() {
     // carefully keep track of the point of instantiation (C++ [temp.point]).
     // This means that name lookup that occurs within the template
     // instantiation will always happen at the end of the translation unit,
-    // so it will find some names that should not be found. Although this is
-    // common behavior for C++ compilers, it is technically wrong. In the
-    // future, we either need to be able to filter the results of name lookup
-    // or we need to perform template instantiations earlier.
+    // so it will find some names that are not required to be found. This is
+    // valid, but we could do better by diagnosing if an instantiation uses a
+    // name that was not visible at its first point of instantiation.
     PerformPendingInstantiations();
+    CheckDelayedMemberExceptionSpecs();
   }
+
+  // All delayed member exception specs should be checked or we end up accepting
+  // incompatible declarations.
+  assert(DelayedDefaultedMemberExceptionSpecs.empty());
+  assert(DelayedDestructorExceptionSpecChecks.empty());
 
   // Remove file scoped decls that turned out to be used.
   UnusedFileScopedDecls.erase(
@@ -630,14 +653,14 @@ void Sema::ActOnEndOfTranslationUnit() {
       SmallVector<Module *, 2> Stack;
       Stack.push_back(CurrentModule);
       while (!Stack.empty()) {
-        Module *Mod = Stack.back();
-        Stack.pop_back();
+        Module *Mod = Stack.pop_back_val();
 
         // Resolve the exported declarations and conflicts.
         // FIXME: Actually complain, once we figure out how to teach the
         // diagnostic client to deal with complaints in the module map at this
         // point.
         ModMap.resolveExports(Mod, /*Complain=*/false);
+        ModMap.resolveUses(Mod, /*Complain=*/false);
         ModMap.resolveConflicts(Mod, /*Complain=*/false);
 
         // Queue the submodules, so their exports will also be resolved.
@@ -722,7 +745,7 @@ void Sema::ActOnEndOfTranslationUnit() {
           else {
             if (FD->getStorageClass() == SC_Static &&
                 !FD->isInlineSpecified() &&
-                !SourceMgr.isFromMainFile(
+                !SourceMgr.isInMainFile(
                    SourceMgr.getExpansionLoc(FD->getLocation())))
               Diag(DiagD->getLocation(), diag::warn_unneeded_static_internal_decl)
                 << DiagD->getDeclName();
@@ -743,11 +766,10 @@ void Sema::ActOnEndOfTranslationUnit() {
         if (DiagD->isReferenced()) {
           Diag(DiagD->getLocation(), diag::warn_unneeded_internal_decl)
                 << /*variable*/1 << DiagD->getDeclName();
-        } else if (getSourceManager().isFromMainFile(DiagD->getLocation())) {
-          // If the declaration is in a header which is included into multiple
-          // TUs, it will declare one variable per TU, and one of the other
-          // variables may be used. So, only warn if the declaration is in the
-          // main file.
+        } else if (DiagD->getType().isConstQualified()) {
+          Diag(DiagD->getLocation(), diag::warn_unused_const_variable)
+              << DiagD->getDeclName();
+        } else {
           Diag(DiagD->getLocation(), diag::warn_unused_variable)
               << DiagD->getDeclName();
         }
@@ -981,7 +1003,7 @@ Scope *Sema::getScopeForContext(DeclContext *Ctx) {
     // Ignore scopes that cannot have declarations. This is important for
     // out-of-line definitions of static class members.
     if (S->getFlags() & (Scope::DeclScope | Scope::TemplateParamScope))
-      if (DeclContext *Entity = static_cast<DeclContext *> (S->getEntity()))
+      if (DeclContext *Entity = S->getEntity())
         if (Ctx == Entity->getPrimaryContext())
           return S;
   }
@@ -1007,10 +1029,17 @@ void Sema::PushBlockScope(Scope *BlockScope, BlockDecl *Block) {
                                               BlockScope, Block));
 }
 
-void Sema::PushLambdaScope(CXXRecordDecl *Lambda,
-                           CXXMethodDecl *CallOperator) {
-  FunctionScopes.push_back(new LambdaScopeInfo(getDiagnostics(), Lambda,
-                                               CallOperator));
+void Sema::PushLambdaScope() {
+  FunctionScopes.push_back(new LambdaScopeInfo(getDiagnostics()));
+}
+
+void Sema::RecordParsingTemplateParameterDepth(unsigned Depth) {
+  if (LambdaScopeInfo *const LSI = getCurLambda()) {
+    LSI->AutoTemplateParameterDepth = Depth;
+    return;
+  } 
+  llvm_unreachable( 
+      "Remove assertion if intentionally called in a non-lambda context.");
 }
 
 void Sema::PopFunctionScopeInfo(const AnalysisBasedWarnings::Policy *WP,
@@ -1066,6 +1095,16 @@ LambdaScopeInfo *Sema::getCurLambda() {
 
   return dyn_cast<LambdaScopeInfo>(FunctionScopes.back());
 }
+// We have a generic lambda if we parsed auto parameters, or we have 
+// an associated template parameter list.
+LambdaScopeInfo *Sema::getCurGenericLambda() {
+  if (LambdaScopeInfo *LSI =  getCurLambda()) {
+    return (LSI->AutoTemplateParams.size() ||
+                    LSI->GLTemplateParameterList) ? LSI : 0;
+  }
+  return 0;
+}
+
 
 void Sema::ActOnComment(SourceRange Comment) {
   if (!LangOpts.RetainCommentsFromSystemHeaders &&
@@ -1187,7 +1226,7 @@ bool Sema::tryExprAsCall(Expr &E, QualType &ZeroArgCallReturnTy,
   // Attempt to call the member with no arguments - this will correctly handle
   // member templates with defaults/deduction of template arguments, overloads
   // with default arguments, etc.
-  if (IsMemExpr) {
+  if (IsMemExpr && !E.isTypeDependent()) {
     bool Suppress = getDiagnostics().getSuppressAllDiagnostics();
     getDiagnostics().setSuppressAllDiagnostics(true);
     ExprResult R = BuildCallToMemberFunction(NULL, &E, SourceLocation(), None,
@@ -1306,8 +1345,7 @@ bool Sema::tryToRecoverWithCall(ExprResult &E, const PartialDiagnostic &PD,
     // arguments and that it returns something of a reasonable type,
     // so we can emit a fixit and carry on pretending that E was
     // actually a CallExpr.
-    SourceLocation ParenInsertionLoc =
-      PP.getLocForEndOfToken(Range.getEnd());
+    SourceLocation ParenInsertionLoc = PP.getLocForEndOfToken(Range.getEnd());
     Diag(Loc, PD)
       << /*zero-arg*/ 1 << Range
       << (IsCallableWithAppend(E.get())
@@ -1317,8 +1355,8 @@ bool Sema::tryToRecoverWithCall(ExprResult &E, const PartialDiagnostic &PD,
 
     // FIXME: Try this before emitting the fixit, and suppress diagnostics
     // while doing so.
-    E = ActOnCallExpr(0, E.take(), ParenInsertionLoc,
-                      None, ParenInsertionLoc.getLocWithOffset(1));
+    E = ActOnCallExpr(0, E.take(), Range.getEnd(), None,
+                      Range.getEnd().getLocWithOffset(1));
     return true;
   }
 

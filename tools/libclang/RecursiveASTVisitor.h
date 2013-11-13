@@ -27,6 +27,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
+#include "clang/AST/StmtOpenMP.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
@@ -247,6 +248,9 @@ public:
 #include "clang/AST/StmtNodes.inc"
   // The above header #undefs ABSTRACT_STMT and STMT upon exit.
 
+  /// \brief Traverses OMPExecutableDirective class.
+  bool TraverseOMPExecutableDirective(OMPExecutableDirective *S);
+
   // Define WalkUpFrom*() and empty Visit*() for all Stmt classes.
   bool WalkUpFromStmt(Stmt *S) { return getDerived().VisitStmt(S); }
   bool VisitStmt(Stmt *S) { return true; }
@@ -394,6 +398,7 @@ private:
   // These are helper methods used by more than one Traverse* method.
   bool TraverseTemplateParameterListHelper(TemplateParameterList *TPL);
   bool TraverseClassInstantiations(ClassTemplateDecl *D);
+  bool TraverseVariableInstantiations(VarTemplateDecl *D);
   bool TraverseFunctionInstantiations(FunctionTemplateDecl *D) ;
   bool TraverseTemplateArgumentLocsHelper(const TemplateArgumentLoc *TAL,
                                           unsigned Count);
@@ -502,7 +507,7 @@ bool RecursiveASTVisitor<Derived>::TraverseStmt(Stmt *S) {
       }
     }
 
-    for (SmallVector<Stmt *, 8>::reverse_iterator
+    for (SmallVectorImpl<Stmt *>::reverse_iterator
            RI = StmtsToEnqueu.rbegin(),
            RE = StmtsToEnqueu.rend(); RI != RE; ++RI)
       Queue.push_back(*RI);
@@ -1413,6 +1418,57 @@ DEF_TRAVERSE_DECL(ClassTemplateDecl, {
     // it was instantiated, and thus should not be traversed.
   })
 
+// A helper method for traversing the implicit instantiations of a
+// class template.
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::TraverseVariableInstantiations(
+    VarTemplateDecl *D) {
+  VarTemplateDecl::spec_iterator end = D->spec_end();
+  for (VarTemplateDecl::spec_iterator it = D->spec_begin(); it != end; ++it) {
+    VarTemplateSpecializationDecl *SD = *it;
+
+    switch (SD->getSpecializationKind()) {
+    // Visit the implicit instantiations with the requested pattern.
+    case TSK_Undeclared:
+    case TSK_ImplicitInstantiation:
+      TRY_TO(TraverseDecl(SD));
+      break;
+
+    // We don't need to do anything on an explicit instantiation
+    // or explicit specialization because there will be an explicit
+    // node for it elsewhere.
+    case TSK_ExplicitInstantiationDeclaration:
+    case TSK_ExplicitInstantiationDefinition:
+    case TSK_ExplicitSpecialization:
+      break;
+    }
+  }
+
+  return true;
+}
+
+DEF_TRAVERSE_DECL(
+    VarTemplateDecl,
+    {
+  VarDecl *TempDecl = D->getTemplatedDecl();
+  TRY_TO(TraverseDecl(TempDecl));
+  TRY_TO(TraverseTemplateParameterListHelper(D->getTemplateParameters()));
+
+  // By default, we do not traverse the instantiations of
+  // variable templates since they do not appear in the user code. The
+  // following code optionally traverses them.
+  //
+  // We only traverse the variable instantiations when we see the canonical
+  // declaration of the template, to ensure we only visit them once.
+  if (getDerived().shouldVisitTemplateInstantiations() &&
+      D == D->getCanonicalDecl())
+    TRY_TO(TraverseVariableInstantiations(D));
+
+      // Note that getInstantiatedFromMemberTemplate() is just a link
+      // from a template instantiation back to the template from which
+      // it was instantiated, and thus should not be traversed.
+})
+
 // A helper method for traversing the instantiations of a
 // function while skipping its specializations.
 template<typename Derived>
@@ -1590,7 +1646,8 @@ DEF_TRAVERSE_DECL(ClassTemplatePartialSpecializationDecl, {
     }
     // The args that remains unspecialized.
     TRY_TO(TraverseTemplateArgumentLocsHelper(
-        D->getTemplateArgsAsWritten(), D->getNumTemplateArgsAsWritten()));
+                       D->getTemplateArgsAsWritten()->getTemplateArgs(),
+                       D->getTemplateArgsAsWritten()->NumTemplateArgs));
 
     // Don't need the ClassTemplatePartialSpecializationHelper, even
     // though that's our parent class -- we already visit all the
@@ -1738,6 +1795,44 @@ bool RecursiveASTVisitor<Derived>::TraverseVarHelper(VarDecl *D) {
 DEF_TRAVERSE_DECL(VarDecl, {
     TRY_TO(TraverseVarHelper(D));
   })
+
+DEF_TRAVERSE_DECL(VarTemplateSpecializationDecl, {
+  // For implicit instantiations, we don't want to
+  // recurse at all, since the instatiated class isn't written in
+  // the source code anywhere.
+  if (TypeSourceInfo *TSI = D->getTypeAsWritten())
+    TRY_TO(TraverseTypeLoc(TSI->getTypeLoc()));
+
+  if (!getDerived().shouldVisitTemplateInstantiations() &&
+      D->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
+    // Returning from here skips traversing the
+    // declaration context of the VarTemplateSpecializationDecl
+    // (embedded in the DEF_TRAVERSE_DECL() macro).
+    return true;
+})
+
+DEF_TRAVERSE_DECL(VarTemplatePartialSpecializationDecl,
+                  {
+  // The partial specialization.
+  if (TemplateParameterList *TPL = D->getTemplateParameters()) {
+    for (TemplateParameterList::iterator I = TPL->begin(), E = TPL->end();
+         I != E; ++I) {
+      TRY_TO(TraverseDecl(*I));
+    }
+  }
+  // The args that remains unspecialized.
+  TRY_TO(TraverseTemplateArgumentLocsHelper(
+                         D->getTemplateArgsAsWritten()->getTemplateArgs(),
+                         D->getTemplateArgsAsWritten()->NumTemplateArgs));
+
+  // Don't need the VarTemplatePartialSpecializationHelper, even
+  // though that's our parent class -- we already visit all the
+  // template args here.
+  TRY_TO(TraverseVarHelper(D));
+
+                    // Instantiations will have been visited with the primary
+                    // template.
+})
 
 DEF_TRAVERSE_DECL(ImplicitParamDecl, {
     TRY_TO(TraverseVarHelper(D));
@@ -2143,6 +2238,7 @@ DEF_TRAVERSE_STMT(ParenExpr, { })
 DEF_TRAVERSE_STMT(ParenListExpr, { })
 DEF_TRAVERSE_STMT(PredefinedExpr, { })
 DEF_TRAVERSE_STMT(ShuffleVectorExpr, { })
+DEF_TRAVERSE_STMT(ConvertVectorExpr, { })
 DEF_TRAVERSE_STMT(StmtExpr, { })
 DEF_TRAVERSE_STMT(UnresolvedLookupExpr, {
   TRY_TO(TraverseNestedNameSpecifierLoc(S->getQualifierLoc()));
@@ -2201,6 +2297,95 @@ DEF_TRAVERSE_STMT(ObjCDictionaryLiteral, { })
   
 // Traverse OpenCL: AsType, Convert.
 DEF_TRAVERSE_STMT(AsTypeExpr, { })
+
+// OpenMP directives
+namespace {
+template <class T>
+class RecursiveOMPClauseVisitor :
+          public OMPClauseVisitor<RecursiveOMPClauseVisitor<T>, bool> {
+  RecursiveASTVisitor<T> *Visitor;
+  RecursiveASTVisitor<T> &getDerived() { return *Visitor; }
+public:
+  RecursiveOMPClauseVisitor(RecursiveASTVisitor<T> *V) : Visitor(V) { }
+#define OPENMP_CLAUSE(Name, Class)                                      \
+  bool Visit##Class(Class *S) {                                         \
+    for (Stmt::child_range Range = S->children(); Range; ++Range) {     \
+      if (!Visitor->TraverseStmt(*Range)) return false;                 \
+    }                                                                   \
+    return true;                                                        \
+  }
+#include "clang/Basic/OpenMPKinds.def"
+};
+}
+
+DEF_TRAVERSE_STMT(OMPExecutableDirective, {
+  RecursiveOMPClauseVisitor<Derived> V(this);
+  ArrayRef<OMPClause *> Clauses = S->clauses();
+  for (ArrayRef<OMPClause *>::iterator I = Clauses.begin(), E = Clauses.end();
+       I != E; ++I)
+    if (!V.Visit(*I)) return false;
+})
+
+DEF_TRAVERSE_STMT(OMPParallelDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPForDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPSectionsDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPSectionDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPSingleDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPTaskDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPTaskyieldDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPMasterDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPCriticalDirective, {
+  TRY_TO(TraverseDeclarationNameInfo(S->getDirectiveName()));
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPBarrierDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPTaskwaitDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPTaskgroupDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPAtomicDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPFlushDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
+
+DEF_TRAVERSE_STMT(OMPOrderedDirective, {
+  return TraverseOMPExecutableDirective(S);
+})
 
 // FIXME: look at the following tricky-seeming exprs to see if we
 // need to recurse on anything.  These are ones that have methods

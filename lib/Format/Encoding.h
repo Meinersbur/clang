@@ -18,6 +18,7 @@
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/Unicode.h"
 
 namespace clang {
 namespace format {
@@ -50,10 +51,41 @@ inline unsigned getCodePointCountUTF8(StringRef Text) {
 /// Encoding.
 inline unsigned getCodePointCount(StringRef Text, Encoding Encoding) {
   switch (Encoding) {
-    case Encoding_UTF8:
-      return getCodePointCountUTF8(Text);
-    default:
-      return Text.size();
+  case Encoding_UTF8:
+    return getCodePointCountUTF8(Text);
+  default:
+    return Text.size();
+  }
+}
+
+/// \brief Returns the number of columns required to display the \p Text on a
+/// generic Unicode-capable terminal. Text is assumed to use the specified
+/// \p Encoding.
+inline unsigned columnWidth(StringRef Text, Encoding Encoding) {
+  if (Encoding == Encoding_UTF8) {
+    int ContentWidth = llvm::sys::unicode::columnWidthUTF8(Text);
+    if (ContentWidth >= 0)
+      return ContentWidth;
+  }
+  return Text.size();
+}
+
+/// \brief Returns the number of columns required to display the \p Text,
+/// starting from the \p StartColumn on a terminal with the \p TabWidth. The
+/// text is assumed to use the specified \p Encoding.
+inline unsigned columnWidthWithTabs(StringRef Text, unsigned StartColumn,
+                                    unsigned TabWidth, Encoding Encoding) {
+  unsigned TotalWidth = 0;
+  StringRef Tail = Text;
+  for (;;) {
+    StringRef::size_type TabPos = Tail.find('\t');
+    if (TabPos == StringRef::npos)
+      return TotalWidth + columnWidth(Tail, Encoding);
+    int Width = columnWidth(Tail.substr(0, TabPos), Encoding);
+    assert(Width >= 0);
+    TotalWidth += Width;
+    TotalWidth += TabWidth - (TotalWidth + StartColumn) % TabWidth;
+    Tail = Tail.substr(TabPos + 1);
   }
 }
 
@@ -61,16 +93,14 @@ inline unsigned getCodePointCount(StringRef Text, Encoding Encoding) {
 /// codepoint and starting with FirstChar in the specified Encoding.
 inline unsigned getCodePointNumBytes(char FirstChar, Encoding Encoding) {
   switch (Encoding) {
-    case Encoding_UTF8:
-      return getNumBytesForUTF8(FirstChar);
-    default:
-      return 1;
+  case Encoding_UTF8:
+    return getNumBytesForUTF8(FirstChar);
+  default:
+    return 1;
   }
 }
 
-inline bool isOctDigit(char c) {
-  return '0' <= c && c <= '7';
-}
+inline bool isOctDigit(char c) { return '0' <= c && c <= '7'; }
 
 inline bool isHexDigit(char c) {
   return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f') ||
