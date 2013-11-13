@@ -110,6 +110,16 @@ vec_lda (long a, double _Complex *b) {
   return __builtin_qpx_qvlfda((double *) &((char *) b)[a]);
 }
 
+static __inline__ vector4double __attribute__((__overloadable__, __always_inline__, __nodebug__))
+vec_ld (long a, vector4double *b) {
+  return __builtin_qpx_qvlfd((double *) &((char *) b)[a]);
+}
+
+static __inline__ vector4double __attribute__((__overloadable__, __always_inline__, __nodebug__))
+vec_lda (long a, vector4double *b) {
+  return __builtin_qpx_qvlfda((double *) &((char *) b)[a]);
+}
+
 static __inline__ vector4double __attribute__((__always_inline__, __nodebug__))
 vec_ldia (long a, int *b) {
   return __builtin_qpx_qvlfiwa((int *) &((char *) b)[a]);
@@ -279,6 +289,16 @@ vec_st (vector4double a, long b, double _Complex *c) {
 
 static __inline__ void __attribute__((__overloadable__, __always_inline__, __nodebug__))
 vec_sta (vector4double a, long b, double _Complex *c) {
+  return __builtin_qpx_qvstfda(a, (double *) &((char *) c)[b]);
+}
+
+static __inline__ void __attribute__((__overloadable__, __always_inline__, __nodebug__))
+vec_st (vector4double a, long b, vector4double *c) {
+  return __builtin_qpx_qvstfd(a, (double *) &((char *) c)[b]);
+}
+
+static __inline__ void __attribute__((__overloadable__, __always_inline__, __nodebug__))
+vec_sta (vector4double a, long b, vector4double *c) {
   return __builtin_qpx_qvstfda(a, (double *) &((char *) c)[b]);
 }
 
@@ -655,7 +675,7 @@ vec_promote (double a, int b) {
   return r;
 }
 
-#define vec_sldw(a, b, c) __builtin_shufflevector(a, b, c, (c)+1, (c)+2, (c)+3);
+#define vec_sldw(a, b, c) __builtin_shufflevector(a, b, c, (c)+1, (c)+2, (c)+3)
 
 static __inline__ vector4double __attribute__((__always_inline__, __nodebug__))
 vec_splat (vector4double a, int b) {

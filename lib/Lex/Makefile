@@ -16,9 +16,9 @@ include $(CLANG_LEVEL)/../../Makefile.config
 
 LIBRARYNAME := clangLex
 
-ifeq ($(ARCH),PowerPC)
-CXX.Flags += -maltivec
-endif
+#ifeq ($(ARCH),PowerPC)
+#CXX.Flags += -maltivec
+#endif
 
 include $(CLANG_LEVEL)/Makefile
 

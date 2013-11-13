@@ -1036,6 +1036,8 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
     }
 
     // Then look for gcc installed alongside clang.
+    Prefixes.push_back(D.SysRoot);
+    Prefixes.push_back(D.SysRoot + "/usr");
     Prefixes.push_back(D.InstalledDir + "/..");
 
     // And finally in /usr.
@@ -2659,11 +2661,10 @@ void Linux::AddCXXStdlibLibArgs(const ArgList &Args,
 
     // For static linking, we also need to explicitly link to libstdc++
     // for the cxxabi exception objects.
-    if (!Args.hasArg(options::OPT_static))
-      return;
-
-    CmdArgs.push_back("-lrt");
-    CmdArgs.push_back("-lpthread");
+    if (Args.hasArg(options::OPT_static)) {
+      CmdArgs.push_back("-lrt");
+      CmdArgs.push_back("-lpthread");
+    }
   }
 
   CmdArgs.push_back("-lstdc++");

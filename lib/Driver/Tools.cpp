@@ -1972,6 +1972,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
+  if (Args.hasArg(options::OPT_fopenmp))
+    CmdArgs.push_back("-fopenmp");
+
   // Add the "effective" target triple.
   CmdArgs.push_back("-triple");
   std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
@@ -4897,7 +4900,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasArg(options::OPT_fopenmp))
     // This is more complicated in gcc...
-    CmdArgs.push_back("-lgomp");
+    CmdArgs.push_back("-liomp5");
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
   
@@ -6355,7 +6358,7 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
-        CmdArgs.push_back("-lgomp");
+        CmdArgs.push_back("-liomp5");
 
         // FIXME: Exclude this for platforms whith libgomp that doesn't require
         // librt. Most modern Linux platfroms require it, but some may not.
