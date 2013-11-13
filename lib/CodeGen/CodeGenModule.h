@@ -31,7 +31,7 @@
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ValueHandle.h"
-#include "llvm/Transforms/Utils/BlackList.h"
+#include "llvm/Transforms/Utils/SpecialCaseList.h"
 
 namespace llvm {
   class Module;
@@ -250,7 +250,6 @@ class CodeGenModule : public CodeGenTypeCache {
  
   /// VTables - Holds information about C++ vtables.
   CodeGenVTables VTables;
-  friend class CodeGenVTables;
 
   CGObjCRuntime* ObjCRuntime;
   CGOpenCLRuntime* OpenCLRuntime;
@@ -275,6 +274,10 @@ class CodeGenModule : public CodeGenTypeCache {
   /// that *are* actually referenced.  These get code generated when the module
   /// is done.
   std::vector<GlobalDecl> DeferredDeclsToEmit;
+
+  /// List of alias we have emitted. Used to make sure that what they point to
+  /// is defined once we get to the end of the of the translation unit.
+  std::vector<GlobalDecl> Aliases;
 
   /// DeferredVTables - A queue of (optional) vtables to consider emitting.
   std::vector<const CXXRecordDecl*> DeferredVTables;
@@ -412,7 +415,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   GlobalDecl initializedGlobalDecl;
 
-  llvm::BlackList SanitizerBlacklist;
+  llvm::OwningPtr<llvm::SpecialCaseList> SanitizerBlacklist;
 
   const SanitizerOptions &SanOpts;
 
@@ -519,7 +522,14 @@ public:
   CodeGenTypes &getTypes() { return Types; }
  
   CodeGenVTables &getVTables() { return VTables; }
-  VTableContext &getVTableContext() { return VTables.getVTableContext(); }
+
+  ItaniumVTableContext &getVTableContext() {
+    return VTables.getVTableContext();
+  }
+
+  MicrosoftVFTableContext &getVFTableContext() {
+    return VTables.getVFTableContext();
+  }
 
   llvm::MDNode *getTBAAInfo(QualType QTy);
   llvm::MDNode *getTBAAInfoForVTablePtr();
@@ -752,7 +762,8 @@ public:
   /// given type.
   llvm::GlobalValue *GetAddrOfCXXDestructor(const CXXDestructorDecl *dtor,
                                             CXXDtorType dtorType,
-                                            const CGFunctionInfo *fnInfo = 0);
+                                            const CGFunctionInfo *fnInfo = 0,
+                                            llvm::FunctionType *fnType = 0);
 
   /// getBuiltinLibFunction - Given a builtin id for a function like
   /// "__builtin_fabsf", return a Function* for "fabsf".
@@ -851,17 +862,11 @@ public:
 
   /// ErrorUnsupported - Print out an error that codegen doesn't support the
   /// specified stmt yet.
-  /// \param OmitOnError - If true, then this error should only be emitted if no
-  /// other errors have been reported.
-  void ErrorUnsupported(const Stmt *S, const char *Type,
-                        bool OmitOnError=false);
+  void ErrorUnsupported(const Stmt *S, const char *Type);
 
   /// ErrorUnsupported - Print out an error that codegen doesn't support the
   /// specified decl yet.
-  /// \param OmitOnError - If true, then this error should only be emitted if no
-  /// other errors have been reported.
-  void ErrorUnsupported(const Decl *D, const char *Type,
-                        bool OmitOnError=false);
+  void ErrorUnsupported(const Decl *D, const char *Type);
 
   /// SetInternalFunctionAttributes - Set the attributes on the LLVM
   /// function for the given decl and function info. This applies
@@ -914,6 +919,10 @@ public:
   void EmitTentativeDefinition(const VarDecl *D);
 
   void EmitVTable(CXXRecordDecl *Class, bool DefinitionRequired);
+
+  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
+  /// builtin types.
+  void EmitFundamentalRTTIDescriptors();
 
   /// \brief Appends Opts to the "Linker Options" metadata value.
   void AppendLinkerOptions(StringRef Opts);
@@ -970,8 +979,8 @@ public:
   /// annotations are emitted during finalization of the LLVM code.
   void AddGlobalAnnotations(const ValueDecl *D, llvm::GlobalValue *GV);
 
-  const llvm::BlackList &getSanitizerBlacklist() const {
-    return SanitizerBlacklist;
+  const llvm::SpecialCaseList &getSanitizerBlacklist() const {
+    return *SanitizerBlacklist;
   }
 
   const SanitizerOptions &getSanOpts() const { return SanOpts; }
@@ -979,6 +988,10 @@ public:
   void addDeferredVTable(const CXXRecordDecl *RD) {
     DeferredVTables.push_back(RD);
   }
+
+  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
+  /// declarations are emitted lazily.
+  void EmitGlobal(GlobalDecl D);
 
 private:
   llvm::GlobalValue *GetGlobalValue(StringRef Ref);
@@ -1011,10 +1024,6 @@ private:
                              llvm::Function *F,
                              bool IsIncompleteFunction);
 
-  /// EmitGlobal - Emit code for a singal global function or var decl. Forward
-  /// declarations are emitted lazily.
-  void EmitGlobal(GlobalDecl D);
-
   void EmitGlobalDefinition(GlobalDecl D);
 
   void EmitGlobalFunctionDefinition(GlobalDecl GD);
@@ -1032,17 +1041,9 @@ private:
   void EmitLinkageSpec(const LinkageSpecDecl *D);
   void CompleteDIClassType(const CXXMethodDecl* D);
 
-  /// EmitCXXConstructors - Emit constructors (base, complete) from a
-  /// C++ constructor Decl.
-  void EmitCXXConstructors(const CXXConstructorDecl *D);
-
   /// EmitCXXConstructor - Emit a single constructor with the given type from
   /// a C++ constructor Decl.
   void EmitCXXConstructor(const CXXConstructorDecl *D, CXXCtorType Type);
-
-  /// EmitCXXDestructors - Emit destructors (base, complete) from a
-  /// C++ destructor Decl.
-  void EmitCXXDestructors(const CXXDestructorDecl *D);
 
   /// EmitCXXDestructor - Emit a single destructor with the given type from
   /// a C++ destructor Decl.
@@ -1076,13 +1077,11 @@ private:
   /// given type.
   void EmitFundamentalRTTIDescriptor(QualType Type);
 
-  /// EmitFundamentalRTTIDescriptors - Emit the RTTI descriptors for the
-  /// builtin types.
-  void EmitFundamentalRTTIDescriptors();
-
   /// EmitDeferred - Emit any needed decls for which code generation
   /// was deferred.
   void EmitDeferred();
+
+  void checkAliases();
 
   /// EmitDeferredVTables - Emit any vtables which we deferred and
   /// still have a use for.
@@ -1100,6 +1099,9 @@ private:
   void EmitStaticExternCAliases();
 
   void EmitDeclMetadata();
+
+  /// \brief Emit the Clang version as llvm.ident metadata.
+  void EmitVersionIdentMetadata();
 
   /// EmitCoverageFile - Emit the llvm.gcov metadata used to tell LLVM where
   /// to emit the .gcno and .gcda files in a way that persists in .bc files.

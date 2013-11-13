@@ -159,7 +159,12 @@ public:
     /// This declaration is a C++ operator declared in a non-class
     /// context.  All such operators are also in IDNS_Ordinary.
     /// C++ lexical operator lookup looks for these.
-    IDNS_NonMemberOperator   = 0x0400
+    IDNS_NonMemberOperator   = 0x0400,
+
+    /// This declaration is a function-local extern declaration of a
+    /// variable or function. This may also be IDNS_Ordinary if it
+    /// has been declared outside any function.
+    IDNS_LocalExtern         = 0x0800
   };
 
   /// ObjCDeclQualifier - 'Qualifiers' written next to the return and
@@ -294,6 +299,8 @@ protected:
   friend class ASTDeclReader;
   friend class ASTReader;
   friend class LinkageComputer;
+
+  template<typename decl_type> friend class Redeclarable;
 
 private:
   void CheckAccessDeclContext() const;
@@ -498,7 +505,16 @@ public:
   /// whether the function is used.
   bool isUsed(bool CheckUsedAttr = true) const;
 
-  void setUsed(bool U = true) { Used = U; }
+  /// \brief Set whether the declaration is used, in the sense of odr-use.
+  ///
+  /// This should only be used immediately after creating a declaration.
+  void setIsUsed() { Used = true; }
+
+  /// \brief Mark the declaration used, in the sense of odr-use.
+  ///
+  /// This notifies any mutation listeners in addition to setting a bit
+  /// indicating the declaration is used.
+  void markUsed(ASTContext &C);
 
   /// \brief Whether this declaration was referenced.
   bool isReferenced() const;
@@ -521,13 +537,13 @@ public:
     NextInContextAndBits.setInt(Bits);
   }
 
-protected:
   /// \brief Whether this declaration was marked as being private to the
   /// module in which it was defined.
-  bool isModulePrivate() const { 
+  bool isModulePrivate() const {
     return NextInContextAndBits.getInt() & ModulePrivateFlag;
   }
-  
+
+protected:
   /// \brief Specify whether this declaration was marked as being private
   /// to the module in which it was defined.
   void setModulePrivate(bool MP = true) {
@@ -769,7 +785,12 @@ public:
   const Decl *getPreviousDecl() const { 
     return const_cast<Decl *>(this)->getPreviousDeclImpl();
   }
-  
+
+  /// \brief True if this is the first declaration in its redeclaration chain.
+  bool isFirstDecl() const {
+    return getPreviousDecl() == 0;
+  }
+
   /// \brief Retrieve the most recent declaration that declares the same entity
   /// as this declaration (which may be this declaration).
   Decl *getMostRecentDecl() { return getMostRecentDeclImpl(); }
@@ -818,30 +839,64 @@ public:
   bool isFunctionOrFunctionTemplate() const;
 
   /// \brief Changes the namespace of this declaration to reflect that it's
+  /// a function-local extern declaration.
+  ///
+  /// These declarations appear in the lexical context of the extern
+  /// declaration, but in the semantic context of the enclosing namespace
+  /// scope.
+  void setLocalExternDecl() {
+    assert((IdentifierNamespace == IDNS_Ordinary ||
+            IdentifierNamespace == IDNS_OrdinaryFriend) &&
+           "namespace is not ordinary");
+
+    Decl *Prev = getPreviousDecl();
+    IdentifierNamespace &= ~IDNS_Ordinary;
+
+    IdentifierNamespace |= IDNS_LocalExtern;
+    if (Prev && Prev->getIdentifierNamespace() & IDNS_Ordinary)
+      IdentifierNamespace |= IDNS_Ordinary;
+  }
+
+  /// \brief Determine whether this is a block-scope declaration with linkage.
+  /// This will either be a local variable declaration declared 'extern', or a
+  /// local function declaration.
+  bool isLocalExternDecl() {
+    return IdentifierNamespace & IDNS_LocalExtern;
+  }
+
+  /// \brief Changes the namespace of this declaration to reflect that it's
   /// the object of a friend declaration.
   ///
   /// These declarations appear in the lexical context of the friending
   /// class, but in the semantic context of the actual entity.  This property
   /// applies only to a specific decl object;  other redeclarations of the
   /// same entity may not (and probably don't) share this property.
-  void setObjectOfFriendDecl(bool PreviouslyDeclared) {
+  void setObjectOfFriendDecl(bool PerformFriendInjection = false) {
     unsigned OldNS = IdentifierNamespace;
     assert((OldNS & (IDNS_Tag | IDNS_Ordinary |
-                     IDNS_TagFriend | IDNS_OrdinaryFriend)) &&
+                     IDNS_TagFriend | IDNS_OrdinaryFriend |
+                     IDNS_LocalExtern)) &&
            "namespace includes neither ordinary nor tag");
     assert(!(OldNS & ~(IDNS_Tag | IDNS_Ordinary | IDNS_Type |
-                       IDNS_TagFriend | IDNS_OrdinaryFriend)) &&
+                       IDNS_TagFriend | IDNS_OrdinaryFriend |
+                       IDNS_LocalExtern)) &&
            "namespace includes other than ordinary or tag");
 
-    IdentifierNamespace = 0;
+    Decl *Prev = getPreviousDecl();
+    IdentifierNamespace &= ~(IDNS_Ordinary | IDNS_Tag | IDNS_Type);
+
     if (OldNS & (IDNS_Tag | IDNS_TagFriend)) {
       IdentifierNamespace |= IDNS_TagFriend;
-      if (PreviouslyDeclared) IdentifierNamespace |= IDNS_Tag | IDNS_Type;
+      if (PerformFriendInjection ||
+          (Prev && Prev->getIdentifierNamespace() & IDNS_Tag))
+        IdentifierNamespace |= IDNS_Tag | IDNS_Type;
     }
 
-    if (OldNS & (IDNS_Ordinary | IDNS_OrdinaryFriend)) {
+    if (OldNS & (IDNS_Ordinary | IDNS_OrdinaryFriend | IDNS_LocalExtern)) {
       IdentifierNamespace |= IDNS_OrdinaryFriend;
-      if (PreviouslyDeclared) IdentifierNamespace |= IDNS_Ordinary;
+      if (PerformFriendInjection ||
+          (Prev && Prev->getIdentifierNamespace() & IDNS_Ordinary))
+        IdentifierNamespace |= IDNS_Ordinary;
     }
   }
 
@@ -887,9 +942,6 @@ public:
   // Same as dump(), but forces color printing.
   LLVM_ATTRIBUTE_USED void dumpColor() const;
   void dump(raw_ostream &Out) const;
-  // Debuggers don't usually respect default arguments.
-  LLVM_ATTRIBUTE_USED void dumpXML() const;
-  void dumpXML(raw_ostream &OS) const;
 
 private:
   void setAttrsImpl(const AttrVec& Attrs, ASTContext &Ctx);
@@ -984,6 +1036,7 @@ protected:
   mutable Decl *LastDecl;
 
   friend class ExternalASTSource;
+  friend class ASTDeclReader;
   friend class ASTWriter;
 
   /// \brief Build up a chain of declarations.
@@ -1439,12 +1492,20 @@ public:
     return const_cast<DeclContext*>(this)->lookup(Name);
   }
 
+  /// \brief Find the declarations with the given name that are visible
+  /// within this context; don't attempt to retrieve anything from an
+  /// external source.
+  lookup_result noload_lookup(DeclarationName Name);
+
   /// \brief A simplistic name lookup mechanism that performs name lookup
   /// into this declaration context without consulting the external source.
   ///
   /// This function should almost never be used, because it subverts the
   /// usual relationship between a DeclContext and the external source.
   /// See the ASTImporter for the (few, but important) use cases.
+  ///
+  /// FIXME: This is very inefficient; replace uses of it with uses of
+  /// noload_lookup.
   void localUncachedLookup(DeclarationName Name,
                            SmallVectorImpl<NamedDecl *> &Results);
 
@@ -1566,6 +1627,8 @@ private:
   friend class DependentDiagnostic;
   StoredDeclsMap *CreateStoredDeclsMap(ASTContext &C) const;
 
+  template<decl_iterator (DeclContext::*Begin)() const,
+           decl_iterator (DeclContext::*End)() const>
   void buildLookupImpl(DeclContext *DCtx);
   void makeDeclVisibleInContextWithFlags(NamedDecl *D, bool Internal,
                                          bool Rediscoverable);

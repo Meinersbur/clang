@@ -59,7 +59,13 @@ about them. The improvements since the 3.3 release include:
 New Compiler Flags
 ------------------
 
--  ...
+- Clang no longer special cases -O4 to enable lto. Explicitly pass -flto to
+  enable it.
+- Command line "clang -O3 -flto a.c -c" and "clang -emit-llvm a.c -c" 
+  are no longer equivalent.
+- Clang now errors on unknown -m flags (``-munknown-to-clang``),
+  unknown -f flags (``-funknown-to-clang``) and unknown
+  options (``-what-is-this``).
 
 C Language Changes in Clang
 ---------------------------
@@ -73,6 +79,10 @@ C11 Feature Support
 
 C++ Language Changes in Clang
 -----------------------------
+
+- Fixed an ABI regression, introduced in Clang 3.2, which affected
+  member offsets for classes inheriting from certain classes with tail padding.
+  See PR16537.
 
 - ...
 

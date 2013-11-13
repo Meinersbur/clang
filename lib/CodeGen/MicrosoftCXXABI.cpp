@@ -20,6 +20,8 @@
 #include "MicrosoftVBTables.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/VTableBuilder.h"
+#include "llvm/ADT/StringSet.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -65,14 +67,83 @@ public:
   llvm::BasicBlock *EmitCtorCompleteObjectHandler(CodeGenFunction &CGF,
                                                   const CXXRecordDecl *RD);
 
-  void BuildDestructorSignature(const CXXDestructorDecl *Ctor,
+  void initializeHiddenVirtualInheritanceMembers(CodeGenFunction &CGF,
+                                                 const CXXRecordDecl *RD);
+
+  void EmitCXXConstructors(const CXXConstructorDecl *D);
+
+  // Background on MSVC destructors
+  // ==============================
+  //
+  // Both Itanium and MSVC ABIs have destructor variants.  The variant names
+  // roughly correspond in the following way:
+  //   Itanium       Microsoft
+  //   Base       -> no name, just ~Class
+  //   Complete   -> vbase destructor
+  //   Deleting   -> scalar deleting destructor
+  //                 vector deleting destructor
+  //
+  // The base and complete destructors are the same as in Itanium, although the
+  // complete destructor does not accept a VTT parameter when there are virtual
+  // bases.  A separate mechanism involving vtordisps is used to ensure that
+  // virtual methods of destroyed subobjects are not called.
+  //
+  // The deleting destructors accept an i32 bitfield as a second parameter.  Bit
+  // 1 indicates if the memory should be deleted.  Bit 2 indicates if the this
+  // pointer points to an array.  The scalar deleting destructor assumes that
+  // bit 2 is zero, and therefore does not contain a loop.
+  //
+  // For virtual destructors, only one entry is reserved in the vftable, and it
+  // always points to the vector deleting destructor.  The vector deleting
+  // destructor is the most general, so it can be used to destroy objects in
+  // place, delete single heap objects, or delete arrays.
+  //
+  // A TU defining a non-inline destructor is only guaranteed to emit a base
+  // destructor, and all of the other variants are emitted on an as-needed basis
+  // in COMDATs.  Because a non-base destructor can be emitted in a TU that
+  // lacks a definition for the destructor, non-base destructors must always
+  // delegate to or alias the base destructor.
+
+  void BuildDestructorSignature(const CXXDestructorDecl *Dtor,
                                 CXXDtorType Type,
                                 CanQualType &ResTy,
                                 SmallVectorImpl<CanQualType> &ArgTys);
 
+  /// Non-base dtors should be emitted as delegating thunks in this ABI.
+  bool useThunkForDtorVariant(const CXXDestructorDecl *Dtor,
+                              CXXDtorType DT) const {
+    return DT != Dtor_Base;
+  }
+
+  void EmitCXXDestructors(const CXXDestructorDecl *D);
+
+  const CXXRecordDecl *getThisArgumentTypeForMethod(const CXXMethodDecl *MD) {
+    MD = MD->getCanonicalDecl();
+    if (MD->isVirtual() && !isa<CXXDestructorDecl>(MD)) {
+      MicrosoftVFTableContext::MethodVFTableLocation ML =
+          CGM.getVFTableContext().getMethodVFTableLocation(MD);
+      // The vbases might be ordered differently in the final overrider object
+      // and the complete object, so the "this" argument may sometimes point to
+      // memory that has no particular type (e.g. past the complete object).
+      // In this case, we just use a generic pointer type.
+      // FIXME: might want to have a more precise type in the non-virtual
+      // multiple inheritance case.
+      if (ML.VBase || !ML.VFTableOffset.isZero())
+        return 0;
+    }
+    return MD->getParent();
+  }
+
+  llvm::Value *adjustThisArgumentForVirtualCall(CodeGenFunction &CGF,
+                                                GlobalDecl GD,
+                                                llvm::Value *This);
+
   void BuildInstanceFunctionParams(CodeGenFunction &CGF,
                                    QualType &ResTy,
                                    FunctionArgList &Params);
+
+  llvm::Value *adjustThisParameterInVirtualFunctionPrologue(
+      CodeGenFunction &CGF, GlobalDecl GD, llvm::Value *This);
 
   void EmitInstanceFunctionProlog(CodeGenFunction &CGF);
 
@@ -82,14 +153,42 @@ public:
                            llvm::Value *This,
                            CallExpr::const_arg_iterator ArgBeg,
                            CallExpr::const_arg_iterator ArgEnd);
- 
+
+  void emitVTableDefinitions(CodeGenVTables &CGVT, const CXXRecordDecl *RD);
+
+  llvm::Value *getVTableAddressPointInStructor(
+      CodeGenFunction &CGF, const CXXRecordDecl *VTableClass,
+      BaseSubobject Base, const CXXRecordDecl *NearestVBase,
+      bool &NeedsVirtualOffset);
+
+  llvm::Constant *
+  getVTableAddressPointForConstExpr(BaseSubobject Base,
+                                    const CXXRecordDecl *VTableClass);
+
+  llvm::GlobalVariable *getAddrOfVTable(const CXXRecordDecl *RD,
+                                        CharUnits VPtrOffset);
+
+  llvm::Value *getVirtualFunctionPointer(CodeGenFunction &CGF, GlobalDecl GD,
+                                         llvm::Value *This, llvm::Type *Ty);
+
   void EmitVirtualDestructorCall(CodeGenFunction &CGF,
                                  const CXXDestructorDecl *Dtor,
                                  CXXDtorType DtorType, SourceLocation CallLoc,
                                  llvm::Value *This);
 
-  void EmitVirtualInheritanceTables(llvm::GlobalVariable::LinkageTypes Linkage,
-                                    const CXXRecordDecl *RD);
+  void adjustCallArgsForDestructorThunk(CodeGenFunction &CGF, GlobalDecl GD,
+                                        CallArgList &CallArgs) {
+    assert(GD.getDtorType() == Dtor_Deleting &&
+           "Only deleting destructor thunks are available in this ABI");
+    CallArgs.add(RValue::get(getStructorImplicitParamValue(CGF)),
+                             CGM.getContext().IntTy);
+  }
+
+  void emitVirtualInheritanceTables(const CXXRecordDecl *RD);
+
+  void setThunkLinkage(llvm::Function *Thunk, bool ForVTable) {
+    Thunk->setLinkage(llvm::GlobalValue::WeakAnyLinkage);
+  }
 
   void EmitGuardedInit(CodeGenFunction &CGF, const VarDecl &D,
                        llvm::GlobalVariable *DeclPtr,
@@ -131,6 +230,10 @@ public:
                                    CharUnits cookieSize);
 
 private:
+  MicrosoftMangleContext &getMangleContext() {
+    return cast<MicrosoftMangleContext>(CodeGen::CGCXXABI::getMangleContext());
+  }
+
   llvm::Constant *getZeroInt() {
     return llvm::ConstantInt::get(CGM.IntTy, 0);
   }
@@ -233,8 +336,29 @@ public:
                                   const MemberPointerType *MPT);
 
 private:
-  /// VBTables - All the vbtables which have been referenced.
+  typedef std::pair<const CXXRecordDecl *, CharUnits> VFTableIdTy;
+  typedef llvm::DenseMap<VFTableIdTy, llvm::GlobalVariable *> VFTablesMapTy;
+  /// \brief All the vftables that have been referenced.
+  VFTablesMapTy VFTablesMap;
+
+  /// \brief This set holds the record decls we've deferred vtable emission for.
+  llvm::SmallPtrSet<const CXXRecordDecl *, 4> DeferredVFTables;
+
+
+  /// \brief All the vbtables which have been referenced.
   llvm::DenseMap<const CXXRecordDecl *, VBTableVector> VBTablesMap;
+
+  /// Info on the global variable used to guard initialization of static locals.
+  /// The BitIndex field is only used for externally invisible declarations.
+  struct GuardInfo {
+    GuardInfo() : Guard(0), BitIndex(0) {}
+    llvm::GlobalVariable *Guard;
+    unsigned BitIndex;
+  };
+
+  /// Map from DeclContext to the current guard variable.  We assume that the
+  /// AST is visited in source code order.
+  llvm::DenseMap<const DeclContext *, GuardInfo> GuardVariableMap;
 };
 
 }
@@ -273,24 +397,6 @@ CharUnits MicrosoftCXXABI::GetVBPtrOffsetFromBases(const CXXRecordDecl *RD) {
     Total += RDLayout.getBaseClassOffset(RD);
   }
   return Total;
-}
-
-/// \brief Computes the index of BaseClassDecl in the vbtable of ClassDecl.
-/// BaseClassDecl must be a morally virtual base of ClassDecl.  The vbtable is
-/// an array of i32 offsets.  The first entry is a self entry, and the rest are
-/// offsets from the vbptr to virtual bases.  The bases are ordered the same way
-/// our vbases are ordered: as they appear in a left-to-right depth-first search
-/// of the hierarchy.
-static unsigned GetVBTableIndex(const CXXRecordDecl *ClassDecl,
-                                const CXXRecordDecl *BaseClassDecl) {
-  unsigned VBTableIndex = 1;  // Start with one to skip the self entry.
-  for (CXXRecordDecl::base_class_const_iterator I = ClassDecl->vbases_begin(),
-       E = ClassDecl->vbases_end(); I != E; ++I) {
-    if (I->getType()->getAsCXXRecordDecl() == BaseClassDecl)
-      return VBTableIndex;
-    VBTableIndex++;
-  }
-  llvm_unreachable("BaseClassDecl must be a vbase of ClassDecl");
 }
 
 llvm::Value *
@@ -353,6 +459,66 @@ MicrosoftCXXABI::EmitCtorCompleteObjectHandler(CodeGenFunction &CGF,
   return SkipVbaseCtorsBB;
 }
 
+void MicrosoftCXXABI::initializeHiddenVirtualInheritanceMembers(
+    CodeGenFunction &CGF, const CXXRecordDecl *RD) {
+  // In most cases, an override for a vbase virtual method can adjust
+  // the "this" parameter by applying a constant offset.
+  // However, this is not enough while a constructor or a destructor of some
+  // class X is being executed if all the following conditions are met:
+  //  - X has virtual bases, (1)
+  //  - X overrides a virtual method M of a vbase Y, (2)
+  //  - X itself is a vbase of the most derived class.
+  //
+  // If (1) and (2) are true, the vtorDisp for vbase Y is a hidden member of X
+  // which holds the extra amount of "this" adjustment we must do when we use
+  // the X vftables (i.e. during X ctor or dtor).
+  // Outside the ctors and dtors, the values of vtorDisps are zero.
+
+  const ASTRecordLayout &Layout = getContext().getASTRecordLayout(RD);
+  typedef ASTRecordLayout::VBaseOffsetsMapTy VBOffsets;
+  const VBOffsets &VBaseMap = Layout.getVBaseOffsetsMap();
+  CGBuilderTy &Builder = CGF.Builder;
+
+  unsigned AS =
+      cast<llvm::PointerType>(getThisValue(CGF)->getType())->getAddressSpace();
+  llvm::Value *Int8This = 0;  // Initialize lazily.
+
+  for (VBOffsets::const_iterator I = VBaseMap.begin(), E = VBaseMap.end();
+        I != E; ++I) {
+    if (!I->second.hasVtorDisp())
+      continue;
+
+    llvm::Value *VBaseOffset = CGM.getCXXABI().GetVirtualBaseClassOffset(
+        CGF, getThisValue(CGF), RD, I->first);
+    // FIXME: it doesn't look right that we SExt in GetVirtualBaseClassOffset()
+    // just to Trunc back immediately.
+    VBaseOffset = Builder.CreateTruncOrBitCast(VBaseOffset, CGF.Int32Ty);
+    uint64_t ConstantVBaseOffset =
+        Layout.getVBaseClassOffset(I->first).getQuantity();
+
+    // vtorDisp_for_vbase = vbptr[vbase_idx] - offsetof(RD, vbase).
+    llvm::Value *VtorDispValue = Builder.CreateSub(
+        VBaseOffset, llvm::ConstantInt::get(CGM.Int32Ty, ConstantVBaseOffset),
+        "vtordisp.value");
+
+    if (!Int8This)
+      Int8This = Builder.CreateBitCast(getThisValue(CGF),
+                                       CGF.Int8Ty->getPointerTo(AS));
+    llvm::Value *VtorDispPtr = Builder.CreateInBoundsGEP(Int8This, VBaseOffset);
+    // vtorDisp is always the 32-bits before the vbase in the class layout.
+    VtorDispPtr = Builder.CreateConstGEP1_32(VtorDispPtr, -4);
+    VtorDispPtr = Builder.CreateBitCast(
+        VtorDispPtr, CGF.Int32Ty->getPointerTo(AS), "vtordisp.ptr");
+
+    Builder.CreateStore(VtorDispValue, VtorDispPtr);
+  }
+}
+
+void MicrosoftCXXABI::EmitCXXConstructors(const CXXConstructorDecl *D) {
+  // There's only one constructor type in this ABI.
+  CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
+}
+
 void MicrosoftCXXABI::EmitVBPtrStores(CodeGenFunction &CGF,
                                       const CXXRecordDecl *RD) {
   llvm::Value *ThisInt8Ptr =
@@ -382,9 +548,102 @@ void MicrosoftCXXABI::BuildDestructorSignature(const CXXDestructorDecl *Dtor,
   // TODO: 'for base' flag
 
   if (Type == Dtor_Deleting) {
-    // The scalar deleting destructor takes an implicit bool parameter.
-    ArgTys.push_back(CGM.getContext().BoolTy);
+    // The scalar deleting destructor takes an implicit int parameter.
+    ArgTys.push_back(CGM.getContext().IntTy);
   }
+}
+
+void MicrosoftCXXABI::EmitCXXDestructors(const CXXDestructorDecl *D) {
+  // The TU defining a dtor is only guaranteed to emit a base destructor.  All
+  // other destructor variants are delegating thunks.
+  CGM.EmitGlobal(GlobalDecl(D, Dtor_Base));
+}
+
+llvm::Value *MicrosoftCXXABI::adjustThisArgumentForVirtualCall(
+    CodeGenFunction &CGF, GlobalDecl GD, llvm::Value *This) {
+  GD = GD.getCanonicalDecl();
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+  // FIXME: consider splitting the vdtor vs regular method code into two
+  // functions.
+
+  GlobalDecl LookupGD = GD;
+  if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
+    // Complete dtors take a pointer to the complete object,
+    // thus don't need adjustment.
+    if (GD.getDtorType() == Dtor_Complete)
+      return This;
+
+    // There's only Dtor_Deleting in vftable but it shares the this adjustment
+    // with the base one, so look up the deleting one instead.
+    LookupGD = GlobalDecl(DD, Dtor_Deleting);
+  }
+  MicrosoftVFTableContext::MethodVFTableLocation ML =
+      CGM.getVFTableContext().getMethodVFTableLocation(LookupGD);
+
+  unsigned AS = cast<llvm::PointerType>(This->getType())->getAddressSpace();
+  llvm::Type *charPtrTy = CGF.Int8Ty->getPointerTo(AS);
+  CharUnits StaticOffset = ML.VFTableOffset;
+  if (ML.VBase) {
+    bool AvoidVirtualOffset = false;
+    if (isa<CXXDestructorDecl>(MD) && GD.getDtorType() == Dtor_Base) {
+      // A base destructor can only be called from a complete destructor of the
+      // same record type or another destructor of a more derived type;
+      // or a constructor of the same record type if an exception is thrown.
+      assert(isa<CXXDestructorDecl>(CGF.CurGD.getDecl()) ||
+             isa<CXXConstructorDecl>(CGF.CurGD.getDecl()));
+      const CXXRecordDecl *CurRD =
+          cast<CXXMethodDecl>(CGF.CurGD.getDecl())->getParent();
+
+      if (MD->getParent() == CurRD) {
+        if (isa<CXXDestructorDecl>(CGF.CurGD.getDecl()))
+          assert(CGF.CurGD.getDtorType() == Dtor_Complete);
+        if (isa<CXXConstructorDecl>(CGF.CurGD.getDecl()))
+          assert(CGF.CurGD.getCtorType() == Ctor_Complete);
+        // We're calling the main base dtor from a complete structor,
+        // so we know the "this" offset statically.
+        AvoidVirtualOffset = true;
+      } else {
+        // Let's see if we try to call a destructor of a non-virtual base.
+        for (CXXRecordDecl::base_class_const_iterator I = CurRD->bases_begin(),
+             E = CurRD->bases_end(); I != E; ++I) {
+          if (I->getType()->getAsCXXRecordDecl() != MD->getParent())
+            continue;
+          // If we call a base destructor for a non-virtual base, we statically
+          // know where it expects the vfptr and "this" to be.
+          // The total offset should reflect the adjustment done by
+          // adjustThisParameterInVirtualFunctionPrologue().
+          AvoidVirtualOffset = true;
+          break;
+        }
+      }
+    }
+
+    if (AvoidVirtualOffset) {
+      const ASTRecordLayout &Layout =
+          CGF.getContext().getASTRecordLayout(MD->getParent());
+      StaticOffset += Layout.getVBaseClassOffset(ML.VBase);
+    } else {
+      This = CGF.Builder.CreateBitCast(This, charPtrTy);
+      llvm::Value *VBaseOffset = CGM.getCXXABI()
+          .GetVirtualBaseClassOffset(CGF, This, MD->getParent(), ML.VBase);
+      This = CGF.Builder.CreateInBoundsGEP(This, VBaseOffset);
+    }
+  }
+  if (!StaticOffset.isZero()) {
+    assert(StaticOffset.isPositive());
+    This = CGF.Builder.CreateBitCast(This, charPtrTy);
+    if (ML.VBase) {
+      // Non-virtual adjustment might result in a pointer outside the allocated
+      // object, e.g. if the final overrider class is laid out after the virtual
+      // base that declares a method in the most derived class.
+      // FIXME: Update the code that emits this adjustment in thunks prologues.
+      This = CGF.Builder.CreateConstGEP1_32(This, StaticOffset.getQuantity());
+    } else {
+      This = CGF.Builder.CreateConstInBoundsGEP1_32(This,
+                                                    StaticOffset.getQuantity());
+    }
+  }
+  return This;
 }
 
 static bool IsDeletingDtor(GlobalDecl GD) {
@@ -415,10 +674,56 @@ void MicrosoftCXXABI::BuildInstanceFunctionParams(CodeGenFunction &CGF,
       = ImplicitParamDecl::Create(Context, 0,
                                   CGF.CurGD.getDecl()->getLocation(),
                                   &Context.Idents.get("should_call_delete"),
-                                  Context.BoolTy);
+                                  Context.IntTy);
     Params.push_back(ShouldDelete);
     getStructorImplicitParamDecl(CGF) = ShouldDelete;
   }
+}
+
+llvm::Value *MicrosoftCXXABI::adjustThisParameterInVirtualFunctionPrologue(
+    CodeGenFunction &CGF, GlobalDecl GD, llvm::Value *This) {
+  GD = GD.getCanonicalDecl();
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+
+  GlobalDecl LookupGD = GD;
+  if (const CXXDestructorDecl *DD = dyn_cast<CXXDestructorDecl>(MD)) {
+    // Complete destructors take a pointer to the complete object as a
+    // parameter, thus don't need this adjustment.
+    if (GD.getDtorType() == Dtor_Complete)
+      return This;
+
+    // There's no Dtor_Base in vftable but it shares the this adjustment with
+    // the deleting one, so look it up instead.
+    LookupGD = GlobalDecl(DD, Dtor_Deleting);
+  }
+
+  // In this ABI, every virtual function takes a pointer to one of the
+  // subobjects that first defines it as the 'this' parameter, rather than a
+  // pointer to ther final overrider subobject. Thus, we need to adjust it back
+  // to the final overrider subobject before use.
+  // See comments in the MicrosoftVFTableContext implementation for the details.
+
+  MicrosoftVFTableContext::MethodVFTableLocation ML =
+      CGM.getVFTableContext().getMethodVFTableLocation(LookupGD);
+  CharUnits Adjustment = ML.VFTableOffset;
+  if (ML.VBase) {
+    const ASTRecordLayout &DerivedLayout =
+        CGF.getContext().getASTRecordLayout(MD->getParent());
+    Adjustment += DerivedLayout.getVBaseClassOffset(ML.VBase);
+  }
+
+  if (Adjustment.isZero())
+    return This;
+
+  unsigned AS = cast<llvm::PointerType>(This->getType())->getAddressSpace();
+  llvm::Type *charPtrTy = CGF.Int8Ty->getPointerTo(AS),
+             *thisTy = This->getType();
+
+  This = CGF.Builder.CreateBitCast(This, charPtrTy);
+  assert(Adjustment.isPositive());
+  This =
+      CGF.Builder.CreateConstInBoundsGEP1_32(This, -Adjustment.getQuantity());
+  return CGF.Builder.CreateBitCast(This, thisTy);
 }
 
 void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
@@ -478,6 +783,134 @@ void MicrosoftCXXABI::EmitConstructorCall(CodeGenFunction &CGF,
                         ImplicitParam, ImplicitParamTy, ArgBeg, ArgEnd);
 }
 
+void MicrosoftCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
+                                            const CXXRecordDecl *RD) {
+  MicrosoftVFTableContext &VFTContext = CGM.getVFTableContext();
+  MicrosoftVFTableContext::VFPtrListTy VFPtrs = VFTContext.getVFPtrOffsets(RD);
+  llvm::GlobalVariable::LinkageTypes Linkage = CGM.getVTableLinkage(RD);
+
+  for (MicrosoftVFTableContext::VFPtrListTy::iterator I = VFPtrs.begin(),
+       E = VFPtrs.end(); I != E; ++I) {
+    llvm::GlobalVariable *VTable = getAddrOfVTable(RD, I->VFPtrFullOffset);
+    if (VTable->hasInitializer())
+      continue;
+
+    const VTableLayout &VTLayout =
+        VFTContext.getVFTableLayout(RD, I->VFPtrFullOffset);
+    llvm::Constant *Init = CGVT.CreateVTableInitializer(
+        RD, VTLayout.vtable_component_begin(),
+        VTLayout.getNumVTableComponents(), VTLayout.vtable_thunk_begin(),
+        VTLayout.getNumVTableThunks());
+    VTable->setInitializer(Init);
+
+    VTable->setLinkage(Linkage);
+    CGM.setTypeVisibility(VTable, RD, CodeGenModule::TVK_ForVTable);
+  }
+}
+
+llvm::Value *MicrosoftCXXABI::getVTableAddressPointInStructor(
+    CodeGenFunction &CGF, const CXXRecordDecl *VTableClass, BaseSubobject Base,
+    const CXXRecordDecl *NearestVBase, bool &NeedsVirtualOffset) {
+  NeedsVirtualOffset = (NearestVBase != 0);
+
+  llvm::Value *VTableAddressPoint =
+      getAddrOfVTable(VTableClass, Base.getBaseOffset());
+  if (!VTableAddressPoint) {
+    assert(Base.getBase()->getNumVBases() &&
+           !CGM.getContext().getASTRecordLayout(Base.getBase()).hasOwnVFPtr());
+  }
+  return VTableAddressPoint;
+}
+
+static void mangleVFTableName(MicrosoftMangleContext &MangleContext,
+                              const CXXRecordDecl *RD, const VFPtrInfo &VFPtr,
+                              SmallString<256> &Name) {
+  llvm::raw_svector_ostream Out(Name);
+  MangleContext.mangleCXXVFTable(RD, VFPtr.PathToMangle, Out);
+}
+
+llvm::Constant *MicrosoftCXXABI::getVTableAddressPointForConstExpr(
+    BaseSubobject Base, const CXXRecordDecl *VTableClass) {
+  llvm::Constant *VTable = getAddrOfVTable(VTableClass, Base.getBaseOffset());
+  assert(VTable && "Couldn't find a vftable for the given base?");
+  return VTable;
+}
+
+llvm::GlobalVariable *MicrosoftCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
+                                                       CharUnits VPtrOffset) {
+  // getAddrOfVTable may return 0 if asked to get an address of a vtable which
+  // shouldn't be used in the given record type. We want to cache this result in
+  // VFTablesMap, thus a simple zero check is not sufficient.
+  VFTableIdTy ID(RD, VPtrOffset);
+  VFTablesMapTy::iterator I;
+  bool Inserted;
+  llvm::tie(I, Inserted) = VFTablesMap.insert(
+      std::make_pair(ID, static_cast<llvm::GlobalVariable *>(0)));
+  if (!Inserted)
+    return I->second;
+
+  llvm::GlobalVariable *&VTable = I->second;
+
+  MicrosoftVFTableContext &VFTContext = CGM.getVFTableContext();
+  const MicrosoftVFTableContext::VFPtrListTy &VFPtrs =
+      VFTContext.getVFPtrOffsets(RD);
+
+  if (DeferredVFTables.insert(RD)) {
+    // We haven't processed this record type before.
+    // Queue up this v-table for possible deferred emission.
+    CGM.addDeferredVTable(RD);
+
+#ifndef NDEBUG
+    // Create all the vftables at once in order to make sure each vftable has
+    // a unique mangled name.
+    llvm::StringSet<> ObservedMangledNames;
+    for (size_t J = 0, F = VFPtrs.size(); J != F; ++J) {
+      SmallString<256> Name;
+      mangleVFTableName(getMangleContext(), RD, VFPtrs[J], Name);
+      if (!ObservedMangledNames.insert(Name.str()))
+        llvm_unreachable("Already saw this mangling before?");
+    }
+#endif
+  }
+
+  for (size_t J = 0, F = VFPtrs.size(); J != F; ++J) {
+    if (VFPtrs[J].VFPtrFullOffset != VPtrOffset)
+      continue;
+
+    llvm::ArrayType *ArrayType = llvm::ArrayType::get(
+        CGM.Int8PtrTy,
+        VFTContext.getVFTableLayout(RD, VFPtrs[J].VFPtrFullOffset)
+            .getNumVTableComponents());
+
+    SmallString<256> Name;
+    mangleVFTableName(getMangleContext(), RD, VFPtrs[J], Name);
+    VTable = CGM.CreateOrReplaceCXXRuntimeVariable(
+        Name.str(), ArrayType, llvm::GlobalValue::ExternalLinkage);
+    VTable->setUnnamedAddr(true);
+    break;
+  }
+
+  return VTable;
+}
+
+llvm::Value *MicrosoftCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
+                                                        GlobalDecl GD,
+                                                        llvm::Value *This,
+                                                        llvm::Type *Ty) {
+  GD = GD.getCanonicalDecl();
+  CGBuilderTy &Builder = CGF.Builder;
+
+  Ty = Ty->getPointerTo()->getPointerTo();
+  llvm::Value *VPtr = adjustThisArgumentForVirtualCall(CGF, GD, This);
+  llvm::Value *VTable = CGF.GetVTablePtr(VPtr, Ty);
+
+  MicrosoftVFTableContext::MethodVFTableLocation ML =
+      CGM.getVFTableContext().getMethodVFTableLocation(GD);
+  llvm::Value *VFuncPtr =
+      Builder.CreateConstInBoundsGEP1_64(VTable, ML.Index, "vfn");
+  return Builder.CreateLoad(VFuncPtr);
+}
+
 void MicrosoftCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
                                                 const CXXDestructorDecl *Dtor,
                                                 CXXDtorType DtorType,
@@ -486,19 +919,21 @@ void MicrosoftCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
   // We have only one destructor in the vftable but can get both behaviors
-  // by passing an implicit bool parameter.
-  const CGFunctionInfo *FInfo
-      = &CGM.getTypes().arrangeCXXDestructor(Dtor, Dtor_Deleting);
+  // by passing an implicit int parameter.
+  GlobalDecl GD(Dtor, Dtor_Deleting);
+  const CGFunctionInfo *FInfo =
+      &CGM.getTypes().arrangeCXXDestructor(Dtor, Dtor_Deleting);
   llvm::Type *Ty = CGF.CGM.getTypes().GetFunctionType(*FInfo);
-  llvm::Value *Callee = CGF.BuildVirtualCall(Dtor, Dtor_Deleting, This, Ty);
+  llvm::Value *Callee = getVirtualFunctionPointer(CGF, GD, This, Ty);
 
   ASTContext &Context = CGF.getContext();
-  llvm::Value *ImplicitParam
-    = llvm::ConstantInt::get(llvm::IntegerType::getInt1Ty(CGF.getLLVMContext()),
+  llvm::Value *ImplicitParam =
+      llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(CGF.getLLVMContext()),
                              DtorType == Dtor_Deleting);
 
+  This = adjustThisArgumentForVirtualCall(CGF, GD, This);
   CGF.EmitCXXMemberCall(Dtor, CallLoc, Callee, ReturnValueSlot(), This,
-                        ImplicitParam, Context.BoolTy, 0, 0);
+                        ImplicitParam, Context.IntTy, 0, 0);
 }
 
 const VBTableVector &
@@ -517,9 +952,10 @@ MicrosoftCXXABI::EnumerateVBTables(const CXXRecordDecl *RD) {
   return VBTables;
 }
 
-void MicrosoftCXXABI::EmitVirtualInheritanceTables(
-    llvm::GlobalVariable::LinkageTypes Linkage, const CXXRecordDecl *RD) {
+void MicrosoftCXXABI::emitVirtualInheritanceTables(const CXXRecordDecl *RD) {
   const VBTableVector &VBTables = EnumerateVBTables(RD);
+  llvm::GlobalVariable::LinkageTypes Linkage = CGM.getVTableLinkage(RD);
+
   for (VBTableVector::const_iterator I = VBTables.begin(), E = VBTables.end();
        I != E; ++I) {
     I->EmitVBTableDefinition(CGM, RD, Linkage);
@@ -582,17 +1018,86 @@ llvm::Value* MicrosoftCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
 }
 
 void MicrosoftCXXABI::EmitGuardedInit(CodeGenFunction &CGF, const VarDecl &D,
-                                      llvm::GlobalVariable *DeclPtr,
+                                      llvm::GlobalVariable *GV,
                                       bool PerformInit) {
-  // FIXME: this code was only tested for global initialization.
-  // Not sure whether we want thread-safe static local variables as VS
-  // doesn't make them thread-safe.
+  // MSVC always uses an i32 bitfield to guard initialization, which is *not*
+  // threadsafe.  Since the user may be linking in inline functions compiled by
+  // cl.exe, there's no reason to provide a false sense of security by using
+  // critical sections here.
 
   if (D.getTLSKind())
     CGM.ErrorUnsupported(&D, "dynamic TLS initialization");
 
-  // Emit the initializer and add a global destructor if appropriate.
-  CGF.EmitCXXGlobalVarDeclInit(D, DeclPtr, PerformInit);
+  CGBuilderTy &Builder = CGF.Builder;
+  llvm::IntegerType *GuardTy = CGF.Int32Ty;
+  llvm::ConstantInt *Zero = llvm::ConstantInt::get(GuardTy, 0);
+
+  // Get the guard variable for this function if we have one already.
+  GuardInfo &GI = GuardVariableMap[D.getDeclContext()];
+
+  unsigned BitIndex;
+  if (D.isExternallyVisible()) {
+    // Externally visible variables have to be numbered in Sema to properly
+    // handle unreachable VarDecls.
+    BitIndex = getContext().getManglingNumber(&D);
+    assert(BitIndex > 0);
+    BitIndex--;
+  } else {
+    // Non-externally visible variables are numbered here in CodeGen.
+    BitIndex = GI.BitIndex++;
+  }
+
+  if (BitIndex >= 32) {
+    if (D.isExternallyVisible())
+      ErrorUnsupportedABI(CGF, "more than 32 guarded initializations");
+    BitIndex %= 32;
+    GI.Guard = 0;
+  }
+
+  // Lazily create the i32 bitfield for this function.
+  if (!GI.Guard) {
+    // Mangle the name for the guard.
+    SmallString<256> GuardName;
+    {
+      llvm::raw_svector_ostream Out(GuardName);
+      getMangleContext().mangleStaticGuardVariable(&D, Out);
+      Out.flush();
+    }
+
+    // Create the guard variable with a zero-initializer.  Just absorb linkage
+    // and visibility from the guarded variable.
+    GI.Guard = new llvm::GlobalVariable(CGM.getModule(), GuardTy, false,
+                                     GV->getLinkage(), Zero, GuardName.str());
+    GI.Guard->setVisibility(GV->getVisibility());
+  } else {
+    assert(GI.Guard->getLinkage() == GV->getLinkage() &&
+           "static local from the same function had different linkage");
+  }
+
+  // Pseudo code for the test:
+  // if (!(GuardVar & MyGuardBit)) {
+  //   GuardVar |= MyGuardBit;
+  //   ... initialize the object ...;
+  // }
+
+  // Test our bit from the guard variable.
+  llvm::ConstantInt *Bit = llvm::ConstantInt::get(GuardTy, 1U << BitIndex);
+  llvm::LoadInst *LI = Builder.CreateLoad(GI.Guard);
+  llvm::Value *IsInitialized =
+      Builder.CreateICmpNE(Builder.CreateAnd(LI, Bit), Zero);
+  llvm::BasicBlock *InitBlock = CGF.createBasicBlock("init");
+  llvm::BasicBlock *EndBlock = CGF.createBasicBlock("init.end");
+  Builder.CreateCondBr(IsInitialized, EndBlock, InitBlock);
+
+  // Set our bit in the guard variable and emit the initializer and add a global
+  // destructor if appropriate.
+  CGF.EmitBlock(InitBlock);
+  Builder.CreateStore(Builder.CreateOr(LI, Bit), GI.Guard);
+  CGF.EmitCXXGlobalVarDeclInit(D, GV, PerformInit);
+  Builder.CreateBr(EndBlock);
+
+  // Continue.
+  CGF.EmitBlock(EndBlock);
 }
 
 // Member pointer helpers.
@@ -722,8 +1227,10 @@ MicrosoftCXXABI::EmitFullMemberPointer(llvm::Constant *FirstField,
       CGM.IntTy, NonVirtualBaseAdjustment.getQuantity()));
 
   if (hasVBPtrOffsetField(Inheritance)) {
-    fields.push_back(llvm::ConstantInt::get(
-      CGM.IntTy, GetVBPtrOffsetFromBases(RD).getQuantity()));
+    CharUnits Offs = CharUnits::Zero();
+    if (RD->getNumVBases())
+      Offs = GetVBPtrOffsetFromBases(RD);
+    fields.push_back(llvm::ConstantInt::get(CGM.IntTy, Offs.getQuantity()));
   }
 
   // The rest of the fields are adjusted by conversions to a more derived class.
@@ -779,6 +1286,7 @@ MicrosoftCXXABI::BuildMemberPointer(const CXXRecordDecl *RD,
   if (MD->isVirtual()) {
     // FIXME: We have to instantiate a thunk that loads the vftable and jumps to
     // the right offset.
+    CGM.ErrorUnsupported(MD, "pointer to virtual member function");
     FirstField = llvm::Constant::getNullValue(CGM.VoidPtrTy);
   } else {
     const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();

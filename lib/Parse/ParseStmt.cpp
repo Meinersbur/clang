@@ -111,6 +111,38 @@ Parser::ParseStatementOrDeclaration(StmtVector &Stmts, bool OnlyStatement,
   return Actions.ProcessStmtAttributes(Res.get(), Attrs.getList(), Attrs.Range);
 }
 
+namespace {
+class StatementFilterCCC : public CorrectionCandidateCallback {
+public:
+  StatementFilterCCC(Token nextTok) : NextToken(nextTok) {
+    WantTypeSpecifiers = nextTok.is(tok::l_paren) || nextTok.is(tok::less) ||
+                         nextTok.is(tok::identifier) || nextTok.is(tok::star) ||
+                         nextTok.is(tok::amp) || nextTok.is(tok::l_square);
+    WantExpressionKeywords = nextTok.is(tok::l_paren) ||
+                             nextTok.is(tok::identifier) ||
+                             nextTok.is(tok::arrow) || nextTok.is(tok::period);
+    WantRemainingKeywords = nextTok.is(tok::l_paren) || nextTok.is(tok::semi) ||
+                            nextTok.is(tok::identifier) ||
+                            nextTok.is(tok::l_brace);
+    WantCXXNamedCasts = false;
+  }
+
+  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+    if (FieldDecl *FD = candidate.getCorrectionDeclAs<FieldDecl>())
+      return !candidate.getCorrectionSpecifier() || isa<ObjCIvarDecl>(FD);
+    if (NextToken.is(tok::equal))
+      return candidate.getCorrectionDeclAs<VarDecl>();
+    if (NextToken.is(tok::period) &&
+        candidate.getCorrectionDeclAs<NamespaceDecl>())
+      return false;
+    return CorrectionCandidateCallback::ValidateCandidate(candidate);
+  }
+
+private:
+  Token NextToken;
+};
+}
+
 StmtResult
 Parser::ParseStatementOrDeclarationAfterAttributes(StmtVector &Stmts,
           bool OnlyStatement, SourceLocation *TrailingElseLoc,
@@ -149,21 +181,8 @@ Retry:
     if (Next.isNot(tok::coloncolon)) {
       // Try to limit which sets of keywords should be included in typo
       // correction based on what the next token is.
-      // FIXME: Pass the next token into the CorrectionCandidateCallback and
-      //        do this filtering in a more fine-grained manner.
-      CorrectionCandidateCallback DefaultValidator;
-      DefaultValidator.WantTypeSpecifiers =
-          Next.is(tok::l_paren) || Next.is(tok::less) ||
-          Next.is(tok::identifier) || Next.is(tok::star) ||
-          Next.is(tok::amp) || Next.is(tok::l_square);
-      DefaultValidator.WantExpressionKeywords =
-          Next.is(tok::l_paren) || Next.is(tok::identifier) ||
-          Next.is(tok::arrow) || Next.is(tok::period);
-      DefaultValidator.WantRemainingKeywords =
-          Next.is(tok::l_paren) || Next.is(tok::semi) ||
-          Next.is(tok::identifier) || Next.is(tok::l_brace);
-      DefaultValidator.WantCXXNamedCasts = false;
-      if (TryAnnotateName(/*IsAddressOfOperand*/false, &DefaultValidator)
+      StatementFilterCCC Validator(Next);
+      if (TryAnnotateName(/*IsAddressOfOperand*/false, &Validator)
             == ANK_Error) {
         // Handle errors here by skipping up to the next semicolon or '}', and
         // eat the semicolon if that's what stopped us.
@@ -303,12 +322,13 @@ Retry:
     return StmtEmpty();
 
   case tok::annot_pragma_captured:
+    ProhibitAttributes(Attrs);
     return HandlePragmaCaptured();
 
   case tok::annot_pragma_openmp:
-    SourceLocation DeclStart = Tok.getLocation();
-    DeclGroupPtrTy Res = ParseOpenMPDeclarativeDirective();
-    return Actions.ActOnDeclStmt(Res, DeclStart, Tok.getLocation());
+    ProhibitAttributes(Attrs);
+    return ParseOpenMPDeclarativeOrExecutableDirective();
+
   }
 
   // If we reached this code, the statement must end in a semicolon.
@@ -798,7 +818,6 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   // only allowed at the start of a compound stmt regardless of the language.
   while (Tok.is(tok::kw___label__)) {
     SourceLocation LabelLoc = ConsumeToken();
-    Diag(LabelLoc, diag::ext_gnu_local_label);
 
     SmallVector<Decl *, 8> DeclsInGroup;
     while (1) {
@@ -817,8 +836,8 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
     }
 
     DeclSpec DS(AttrFactory);
-    DeclGroupPtrTy Res = Actions.FinalizeDeclaratorGroup(getCurScope(), DS,
-                                      DeclsInGroup.data(), DeclsInGroup.size());
+    DeclGroupPtrTy Res =
+        Actions.FinalizeDeclaratorGroup(getCurScope(), DS, DeclsInGroup);
     StmtResult R = Actions.ActOnDeclStmt(Res, LabelLoc, Tok.getLocation());
 
     ExpectAndConsumeSemi(diag::err_expected_semi_declaration);
@@ -1295,14 +1314,12 @@ StmtResult Parser::ParseDoStatement() {
     return StmtError();
   }
 
-  // Parse the parenthesized condition.
+  // Parse the parenthesized expression.
   BalancedDelimiterTracker T(*this, tok::l_paren);
   T.consumeOpen();
 
-  // FIXME: Do not just parse the attribute contents and throw them away
-  ParsedAttributesWithRange attrs(AttrFactory);
-  MaybeParseCXX11Attributes(attrs);
-  ProhibitAttributes(attrs);
+  // A do-while expression is not a condition, so can't have attributes.
+  DiagnoseAndSkipCXX11Attributes();
 
   ExprResult Cond = ParseExpression();
   T.consumeClose();
@@ -2093,6 +2110,8 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
 
   OwningPtr<llvm::MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TT));
   OwningPtr<llvm::MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, TT));
+  // Get the instruction descriptor.
+  const llvm::MCInstrInfo *MII = TheTarget->createMCInstrInfo(); 
   OwningPtr<llvm::MCObjectFileInfo> MOFI(new llvm::MCObjectFileInfo());
   OwningPtr<llvm::MCSubtargetInfo>
     STI(TheTarget->createMCSubtargetInfo(TT, "", ""));
@@ -2109,10 +2128,8 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
   OwningPtr<llvm::MCAsmParser>
     Parser(createMCAsmParser(TempSrcMgr, Ctx, *Str.get(), *MAI));
   OwningPtr<llvm::MCTargetAsmParser>
-    TargetParser(TheTarget->createMCAsmParser(*STI, *Parser));
+    TargetParser(TheTarget->createMCAsmParser(*STI, *Parser, *MII));
 
-  // Get the instruction descriptor.
-  const llvm::MCInstrInfo *MII = TheTarget->createMCInstrInfo(); 
   llvm::MCInstPrinter *IP =
     TheTarget->createMCInstPrinter(1, *MAI, *MII, *MRI, *STI);
 
@@ -2395,8 +2412,7 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   // If the function body could not be parsed, make a bogus compoundstmt.
   if (FnBody.isInvalid()) {
     Sema::CompoundScopeRAII CompoundScope(Actions);
-    FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc,
-                                       MultiStmtArg(), false);
+    FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc, None, false);
   }
 
   BodyScope.Exit();
@@ -2433,8 +2449,7 @@ Decl *Parser::ParseFunctionTryBlock(Decl *Decl, ParseScope &BodyScope) {
   // compound statement as the body.
   if (FnBody.isInvalid()) {
     Sema::CompoundScopeRAII CompoundScope(Actions);
-    FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc,
-                                       MultiStmtArg(), false);
+    FnBody = Actions.ActOnCompoundStmt(LBraceLoc, LBraceLoc, None, false);
   }
 
   BodyScope.Exit();
@@ -2530,9 +2545,10 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
   }
   else {
     StmtVector Handlers;
-    ParsedAttributesWithRange attrs(AttrFactory);
-    MaybeParseCXX11Attributes(attrs);
-    ProhibitAttributes(attrs);
+
+    // C++11 attributes can't appear here, despite this context seeming
+    // statement-like.
+    DiagnoseAndSkipCXX11Attributes();
 
     if (Tok.isNot(tok::kw_catch))
       return StmtError(Diag(Tok, diag::err_expected_catch));
@@ -2546,7 +2562,7 @@ StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
     if (Handlers.empty())
       return StmtError();
 
-    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(),Handlers);
+    return Actions.ActOnCXXTryBlock(TryLoc, TryBlock.take(), Handlers);
   }
 }
 

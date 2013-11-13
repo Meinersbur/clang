@@ -615,6 +615,8 @@ public:
                        const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeAltiVecPixel(bool isAltiVecPixel, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID);
+  bool SetTypeAltiVecBool(bool isAltiVecBool, SourceLocation Loc,
+                       const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeSpecError();
   void UpdateDeclRep(Decl *Rep) {
     assert(isDeclRep((TST) TypeSpecType));
@@ -1500,6 +1502,7 @@ public:
     ObjCCatchContext,    // Objective-C catch exception-declaration
     BlockLiteralContext, // Block literal declarator.
     LambdaExprContext,   // Lambda-expression declarator.
+    LambdaExprParameterContext, // Lambda-expression parameter declarator.
     ConversionIdContext, // C++ conversion-type-id.
     TrailingReturnContext, // C++11 trailing-type-specifier.
     TemplateTypeArgContext, // Template type argument.
@@ -1575,7 +1578,6 @@ public:
   ~Declarator() {
     clear();
   }
-
   /// getDeclSpec - Return the declaration-specifier that this declarator was
   /// declared with.
   const DeclSpec &getDeclSpec() const { return DS; }
@@ -1604,7 +1606,8 @@ public:
   bool isPrototypeContext() const {
     return (Context == PrototypeContext ||
             Context == ObjCParameterContext ||
-            Context == ObjCResultContext);
+            Context == ObjCResultContext ||
+            Context == LambdaExprParameterContext);
   }
 
   /// \brief Get the source range that spans this declarator.
@@ -1668,6 +1671,7 @@ public:
     case AliasDeclContext:
     case AliasTemplateContext:
     case PrototypeContext:
+    case LambdaExprParameterContext:
     case ObjCParameterContext:
     case ObjCResultContext:
     case TemplateParamContext:
@@ -1696,6 +1700,7 @@ public:
     case ForContext:
     case ConditionContext:
     case PrototypeContext:
+    case LambdaExprParameterContext:
     case TemplateParamContext:
     case CXXCatchContext:
     case ObjCCatchContext:
@@ -1713,6 +1718,39 @@ public:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
       return false;
+    }
+    llvm_unreachable("unknown context kind!");
+  }
+
+  /// diagnoseIdentifier - Return true if the identifier is prohibited and
+  /// should be diagnosed (because it cannot be anything else).
+  bool diagnoseIdentifier() const {
+    switch (Context) {
+    case FileContext:
+    case KNRTypeListContext:
+    case MemberContext:
+    case BlockContext:
+    case ForContext:
+    case ConditionContext:
+    case PrototypeContext:
+    case LambdaExprParameterContext:
+    case TemplateParamContext:
+    case CXXCatchContext:
+    case ObjCCatchContext:
+    case TypeNameContext:
+    case ConversionIdContext:
+    case ObjCParameterContext:
+    case ObjCResultContext:
+    case BlockLiteralContext:
+    case CXXNewContext:
+    case LambdaExprContext:
+      return false;
+
+    case AliasDeclContext:
+    case AliasTemplateContext:
+    case TemplateTypeArgContext:
+    case TrailingReturnContext:
+      return true;
     }
     llvm_unreachable("unknown context kind!");
   }
@@ -1748,6 +1786,7 @@ public:
     case KNRTypeListContext:
     case MemberContext:
     case PrototypeContext:
+    case LambdaExprParameterContext:
     case ObjCParameterContext:
     case ObjCResultContext:
     case TemplateParamContext:
@@ -1934,6 +1973,7 @@ public:
     case AliasDeclContext:
     case AliasTemplateContext:
     case PrototypeContext:
+    case LambdaExprParameterContext:
     case ObjCParameterContext:
     case ObjCResultContext:
     case TemplateParamContext:
@@ -1995,7 +2035,7 @@ public:
 
   /// \brief Return a source range list of C++11 attributes associated
   /// with the declarator.
-  void getCXX11AttributeRanges(SmallVector<SourceRange, 4> &Ranges) {
+  void getCXX11AttributeRanges(SmallVectorImpl<SourceRange> &Ranges) {
     AttributeList *AttrList = Attrs.getList();
     while (AttrList) {
       if (AttrList->isCXX11Attribute())
@@ -2038,6 +2078,16 @@ public:
     return (FunctionDefinitionKind)FunctionDefinition; 
   }
 
+  /// Returns true if this declares a real member and not a friend.
+  bool isFirstDeclarationOfMember() {
+    return getContext() == MemberContext && !getDeclSpec().isFriendSpecified();
+  }
+
+  /// Returns true if this declares a static member.  This cannot be called on a
+  /// declarator outside of a MemberContext because we won't know until
+  /// redeclaration time if the decl is static.
+  bool isStaticMember();
+
   void setRedeclaration(bool Val) { Redeclaration = Val; }
   bool isRedeclaration() const { return Redeclaration; }
 };
@@ -2057,7 +2107,8 @@ public:
   enum Specifier {
     VS_None = 0,
     VS_Override = 1,
-    VS_Final = 2
+    VS_Final = 2,
+    VS_Sealed = 4
   };
 
   VirtSpecifiers() : Specifiers(0) { }
@@ -2068,7 +2119,8 @@ public:
   bool isOverrideSpecified() const { return Specifiers & VS_Override; }
   SourceLocation getOverrideLoc() const { return VS_overrideLoc; }
 
-  bool isFinalSpecified() const { return Specifiers & VS_Final; }
+  bool isFinalSpecified() const { return Specifiers & (VS_Final | VS_Sealed); }
+  bool isFinalSpelledSealed() const { return Specifiers & VS_Sealed; }
   SourceLocation getFinalLoc() const { return VS_finalLoc; }
 
   void clear() { Specifiers = 0; }

@@ -538,13 +538,42 @@ bool Sema::CheckQualifiedMemberReference(Expr *BaseExpr,
 namespace {
 
 // Callback to only accept typo corrections that are either a ValueDecl or a
-// FunctionTemplateDecl.
+// FunctionTemplateDecl and are declared in the current record or, for a C++
+// classes, one of its base classes.
 class RecordMemberExprValidatorCCC : public CorrectionCandidateCallback {
  public:
+  explicit RecordMemberExprValidatorCCC(const RecordType *RTy)
+      : Record(RTy->getDecl()) {}
+
   virtual bool ValidateCandidate(const TypoCorrection &candidate) {
     NamedDecl *ND = candidate.getCorrectionDecl();
-    return ND && (isa<ValueDecl>(ND) || isa<FunctionTemplateDecl>(ND));
+    // Don't accept candidates that cannot be member functions, constants,
+    // variables, or templates.
+    if (!ND || !(isa<ValueDecl>(ND) || isa<FunctionTemplateDecl>(ND)))
+      return false;
+
+    // Accept candidates that occur in the current record.
+    if (Record->containsDecl(ND))
+      return true;
+
+    if (const CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(Record)) {
+      // Accept candidates that occur in any of the current class' base classes.
+      for (CXXRecordDecl::base_class_const_iterator BS = RD->bases_begin(),
+                                                    BSEnd = RD->bases_end();
+           BS != BSEnd; ++BS) {
+        if (const RecordType *BSTy = dyn_cast_or_null<RecordType>(
+                BS->getType().getTypePtrOrNull())) {
+          if (BSTy->getDecl()->containsDecl(ND))
+            return true;
+        }
+      }
+    }
+
+    return false;
   }
+
+ private:
+  const RecordDecl *const Record;
 };
 
 }
@@ -600,17 +629,12 @@ LookupMemberExprInRecord(Sema &SemaRef, LookupResult &R,
   // We didn't find anything with the given name, so try to correct
   // for typos.
   DeclarationName Name = R.getLookupName();
-  RecordMemberExprValidatorCCC Validator;
+  RecordMemberExprValidatorCCC Validator(RTy);
   TypoCorrection Corrected = SemaRef.CorrectTypo(R.getLookupNameInfo(),
                                                  R.getLookupKind(), NULL,
                                                  &SS, Validator, DC);
   R.clear();
   if (Corrected.isResolved() && !Corrected.isKeyword()) {
-    std::string CorrectedStr(
-        Corrected.getAsString(SemaRef.getLangOpts()));
-    std::string CorrectedQuotedStr(
-        Corrected.getQuoted(SemaRef.getLangOpts()));
-
     R.setLookupName(Corrected.getCorrection());
     for (TypoCorrection::decl_iterator DI = Corrected.begin(),
                                        DIEnd = Corrected.end();
@@ -619,19 +643,17 @@ LookupMemberExprInRecord(Sema &SemaRef, LookupResult &R,
     }
     R.resolveKind();
 
-    SemaRef.Diag(R.getNameLoc(), diag::err_no_member_suggest)
-      << Name << DC << CorrectedQuotedStr << SS.getRange()
-      << FixItHint::CreateReplacement(Corrected.getCorrectionRange(),
-                                      CorrectedStr);
-
     // If we're typo-correcting to an overloaded name, we don't yet have enough
     // information to do overload resolution, so we don't know which previous
     // declaration to point to.
-    if (!Corrected.isOverloaded()) {
-      NamedDecl *ND = Corrected.getCorrectionDecl();
-      SemaRef.Diag(ND->getLocation(), diag::note_previous_decl)
-        << ND->getDeclName();
-    }
+    if (Corrected.isOverloaded())
+      Corrected.setCorrectionDecl(0);
+    bool DroppedSpecifier =
+        Corrected.WillReplaceSpecifier() &&
+        Name.getAsString() == Corrected.getAsString(SemaRef.getLangOpts());
+    SemaRef.diagnoseTypo(Corrected,
+                         SemaRef.PDiag(diag::err_no_member_suggest)
+                           << Name << DC << DroppedSpecifier << SS.getRange());
   }
 
   return false;
@@ -701,6 +723,7 @@ ExprResult
 Sema::BuildAnonymousStructUnionMemberReference(const CXXScopeSpec &SS,
                                                SourceLocation loc,
                                                IndirectFieldDecl *indirectField,
+                                               DeclAccessPair foundDecl,
                                                Expr *baseObjectExpr,
                                                SourceLocation opLoc) {
   // First, build the expression that refers to the base object.
@@ -778,15 +801,15 @@ Sema::BuildAnonymousStructUnionMemberReference(const CXXScopeSpec &SS,
   if (!baseVariable) {
     FieldDecl *field = cast<FieldDecl>(*FI);
     
-    // FIXME: use the real found-decl info!
-    DeclAccessPair foundDecl = DeclAccessPair::make(field, field->getAccess());
-    
     // Make a nameInfo that properly uses the anonymous name.
     DeclarationNameInfo memberNameInfo(field->getDeclName(), loc);
     
     result = BuildFieldReferenceExpr(*this, result, baseObjectIsPointer,
                                      EmptySS, field, foundDecl,
                                      memberNameInfo).take();
+    if (!result)
+      return ExprError();
+
     baseObjectIsPointer = false;
     
     // FIXME: check qualified member access
@@ -797,14 +820,15 @@ Sema::BuildAnonymousStructUnionMemberReference(const CXXScopeSpec &SS,
   
   while (FI != FEnd) {
     FieldDecl *field = cast<FieldDecl>(*FI++);
-    
+
     // FIXME: these are somewhat meaningless
     DeclarationNameInfo memberNameInfo(field->getDeclName(), loc);
-    DeclAccessPair foundDecl = DeclAccessPair::make(field, field->getAccess());
-    
+    DeclAccessPair fakeFoundDecl =
+        DeclAccessPair::make(field, field->getAccess());
+
     result = BuildFieldReferenceExpr(*this, result, /*isarrow*/ false,
-                                     (FI == FEnd? SS : EmptySS), field, 
-                                     foundDecl, memberNameInfo).take();
+                                     (FI == FEnd? SS : EmptySS), field,
+                                     fakeFoundDecl, memberNameInfo).take();
   }
   
   return Owned(result);
@@ -988,7 +1012,8 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
     // We may have found a field within an anonymous union or struct
     // (C++ [class.union]).
     return BuildAnonymousStructUnionMemberReference(SS, MemberLoc, FD,
-                                                    BaseExpr, OpLoc);
+                                                    FoundDecl, BaseExpr,
+                                                    OpLoc);
 
   if (VarDecl *Var = dyn_cast<VarDecl>(MemberDecl)) {
     return Owned(BuildMemberExpr(*this, Context, BaseExpr, IsArrow, SS,
@@ -1131,10 +1156,8 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
       //   foo->bar
       // This is actually well-formed in C++ if MyRecord has an
       // overloaded operator->, but that should have been dealt with
-      // by now.
-      Diag(OpLoc, diag::err_typecheck_member_reference_suggestion)
-        << BaseType << int(IsArrow) << BaseExpr.get()->getSourceRange()
-        << FixItHint::CreateReplacement(OpLoc, ".");
+      // by now--or a diagnostic message already issued if a problem
+      // was encountered while looking for the overloaded operator->.
       IsArrow = false;
     } else if (BaseType->isFunctionType()) {
       goto fail;
@@ -1204,14 +1227,10 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
                                                  LookupMemberName, NULL, NULL,
                                                  Validator, IDecl)) {
         IV = Corrected.getCorrectionDeclAs<ObjCIvarDecl>();
-        Diag(R.getNameLoc(),
-             diag::err_typecheck_member_reference_ivar_suggest)
-          << IDecl->getDeclName() << MemberName << IV->getDeclName()
-          << FixItHint::CreateReplacement(R.getNameLoc(),
-                                          IV->getNameAsString());
-        Diag(IV->getLocation(), diag::note_previous_decl)
-          << IV->getDeclName();
-        
+        diagnoseTypo(Corrected,
+                     PDiag(diag::err_typecheck_member_reference_ivar_suggest)
+                          << IDecl->getDeclName() << MemberName);
+
         // Figure out the class that declares the ivar.
         assert(!ClassDeclared);
         Decl *D = cast<Decl>(IV->getDeclContext());
@@ -1686,7 +1705,8 @@ Sema::BuildImplicitMemberExpr(const CXXScopeSpec &SS,
   // (C++ [class.union]).
   // FIXME: template-ids inside anonymous structs?
   if (IndirectFieldDecl *FD = R.getAsSingle<IndirectFieldDecl>())
-    return BuildAnonymousStructUnionMemberReference(SS, R.getNameLoc(), FD);
+    return BuildAnonymousStructUnionMemberReference(SS, R.getNameLoc(), FD,
+                                                    R.begin().getPair());
   
   // If this is known to be an instance access, go ahead and build an
   // implicit 'this' expression now.

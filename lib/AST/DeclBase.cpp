@@ -291,6 +291,16 @@ bool Decl::isUsed(bool CheckUsedAttr) const {
   return false; 
 }
 
+void Decl::markUsed(ASTContext &C) {
+  if (Used)
+    return;
+
+  if (C.getASTMutationListener())
+    C.getASTMutationListener()->DeclarationMarkedUsed(this);
+
+  Used = true;
+}
+
 bool Decl::isReferenced() const { 
   if (Referenced)
     return true;
@@ -538,6 +548,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
       return IDNS_Namespace;
 
     case FunctionTemplate:
+    case VarTemplate:
       return IDNS_Ordinary;
 
     case ClassTemplate:
@@ -560,6 +571,8 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case ClassTemplateSpecialization:
     case ClassTemplatePartialSpecialization:
     case ClassScopeFunctionSpecialization:
+    case VarTemplateSpecialization:
+    case VarTemplatePartialSpecialization:
     case ObjCImplementation:
     case ObjCCategory:
     case ObjCCategoryImpl:
@@ -913,11 +926,8 @@ void DeclContext::reconcileExternalVisibleStorage() {
   NeedToReconcileExternalVisibleStorage = false;
 
   StoredDeclsMap &Map = *LookupPtr.getPointer();
-  ExternalASTSource *Source = getParentASTContext().getExternalSource();
-  for (StoredDeclsMap::iterator I = Map.begin(); I != Map.end(); ++I) {
-    I->second.removeExternalDecls();
-    Source->FindExternalVisibleDeclsByName(this, I->first);
-  }
+  for (StoredDeclsMap::iterator I = Map.begin(); I != Map.end(); ++I)
+    I->second.setHasExternalDecls();
 }
 
 /// \brief Load the declarations within this lexical storage from an
@@ -970,8 +980,7 @@ ExternalASTSource::SetNoExternalVisibleDeclsForName(const DeclContext *DC,
   if (!(Map = DC->LookupPtr.getPointer()))
     Map = DC->CreateStoredDeclsMap(Context);
 
-  // Add an entry to the map for this name, if it's not already present.
-  (*Map)[Name];
+  (*Map)[Name].removeExternalDecls();
 
   return DeclContext::lookup_result();
 }
@@ -1170,7 +1179,8 @@ StoredDeclsMap *DeclContext::buildLookup() {
   SmallVector<DeclContext *, 2> Contexts;
   collectAllContexts(Contexts);
   for (unsigned I = 0, N = Contexts.size(); I != N; ++I)
-    buildLookupImpl(Contexts[I]);
+    buildLookupImpl<&DeclContext::decls_begin,
+                    &DeclContext::decls_end>(Contexts[I]);
 
   // We no longer have any lazy decls.
   LookupPtr.setInt(false);
@@ -1182,8 +1192,10 @@ StoredDeclsMap *DeclContext::buildLookup() {
 /// declarations contained within DCtx, which will either be this
 /// DeclContext, a DeclContext linked to it, or a transparent context
 /// nested within it.
+template<DeclContext::decl_iterator (DeclContext::*Begin)() const,
+         DeclContext::decl_iterator (DeclContext::*End)() const>
 void DeclContext::buildLookupImpl(DeclContext *DCtx) {
-  for (decl_iterator I = DCtx->decls_begin(), E = DCtx->decls_end();
+  for (decl_iterator I = (DCtx->*Begin)(), E = (DCtx->*End)();
        I != E; ++I) {
     Decl *D = *I;
 
@@ -1207,7 +1219,7 @@ void DeclContext::buildLookupImpl(DeclContext *DCtx) {
     // context (recursively).
     if (DeclContext *InnerCtx = dyn_cast<DeclContext>(D))
       if (InnerCtx->isTransparentContext() || InnerCtx->isInlineNamespace())
-        buildLookupImpl(InnerCtx);
+        buildLookupImpl<Begin, End>(InnerCtx);
   }
 }
 
@@ -1230,16 +1242,14 @@ DeclContext::lookup(DeclarationName Name) {
     if (!Map)
       Map = CreateStoredDeclsMap(getParentASTContext());
 
-    // If a PCH/module has a result for this name, and we have a local
-    // declaration, we will have imported the PCH/module result when adding the
-    // local declaration or when reconciling the module.
+    // If we have a lookup result with no external decls, we are done.
     std::pair<StoredDeclsMap::iterator, bool> R =
         Map->insert(std::make_pair(Name, StoredDeclsList()));
-    if (!R.second)
+    if (!R.second && !R.first->second.hasExternalDecls())
       return R.first->second.getLookupResult();
 
     ExternalASTSource *Source = getParentASTContext().getExternalSource();
-    if (Source->FindExternalVisibleDeclsByName(this, Name)) {
+    if (Source->FindExternalVisibleDeclsByName(this, Name) || R.second) {
       if (StoredDeclsMap *Map = LookupPtr.getPointer()) {
         StoredDeclsMap::iterator I = Map->find(Name);
         if (I != Map->end())
@@ -1262,6 +1272,46 @@ DeclContext::lookup(DeclarationName Name) {
     return lookup_result(lookup_iterator(0), lookup_iterator(0));
 
   return I->second.getLookupResult();
+}
+
+DeclContext::lookup_result
+DeclContext::noload_lookup(DeclarationName Name) {
+  assert(DeclKind != Decl::LinkageSpec &&
+         "Should not perform lookups into linkage specs!");
+  if (!hasExternalVisibleStorage())
+    return lookup(Name);
+
+  DeclContext *PrimaryContext = getPrimaryContext();
+  if (PrimaryContext != this)
+    return PrimaryContext->noload_lookup(Name);
+
+  StoredDeclsMap *Map = LookupPtr.getPointer();
+  if (LookupPtr.getInt()) {
+    // Carefully build the lookup map, without deserializing anything.
+    SmallVector<DeclContext *, 2> Contexts;
+    collectAllContexts(Contexts);
+    for (unsigned I = 0, N = Contexts.size(); I != N; ++I)
+      buildLookupImpl<&DeclContext::noload_decls_begin,
+                      &DeclContext::noload_decls_end>(Contexts[I]);
+
+    // We no longer have any lazy decls.
+    LookupPtr.setInt(false);
+
+    // There may now be names for which we have local decls but are
+    // missing the external decls. FIXME: Just set the hasExternalDecls
+    // flag on those names that have external decls.
+    NeedToReconcileExternalVisibleStorage = true;
+
+    Map = LookupPtr.getPointer();
+  }
+
+  if (!Map)
+    return lookup_result(lookup_iterator(0), lookup_iterator(0));
+
+  StoredDeclsMap::iterator I = Map->find(Name);
+  return I != Map->end()
+             ? I->second.getLookupResult()
+             : lookup_result(lookup_iterator(0), lookup_iterator(0));
 }
 
 void DeclContext::localUncachedLookup(DeclarationName Name,
@@ -1345,14 +1395,7 @@ void DeclContext::makeDeclVisibleInContextWithFlags(NamedDecl *D, bool Internal,
   assert(this == getPrimaryContext() && "expected a primary DC");
 
   // Skip declarations within functions.
-  // FIXME: We shouldn't need to build lookup tables for function declarations
-  // ever, and we can't do so correctly because we can't model the nesting of
-  // scopes which occurs within functions. We use "qualified" lookup into
-  // function declarations when handling friend declarations inside nested
-  // classes, and consequently accept the following invalid code:
-  //
-  //   void f() { void g(); { int g; struct S { friend void g(); }; } }
-  if (isFunctionOrMethod() && !isa<FunctionDecl>(D))
+  if (isFunctionOrMethod())
     return;
 
   // Skip declarations which should be invisible to name lookup.
@@ -1413,7 +1456,18 @@ void DeclContext::makeDeclVisibleInContextImpl(NamedDecl *D, bool Internal) {
 
   // Insert this declaration into the map.
   StoredDeclsList &DeclNameEntries = (*Map)[D->getDeclName()];
-  if (DeclNameEntries.isNull()) {
+
+  if (Internal) {
+    // If this is being added as part of loading an external declaration,
+    // this may not be the only external declaration with this name.
+    // In this case, we never try to replace an existing declaration; we'll
+    // handle that when we finalize the list of declarations for this name.
+    DeclNameEntries.setHasExternalDecls();
+    DeclNameEntries.AddSubsequentDecl(D);
+    return;
+  }
+
+  else if (DeclNameEntries.isNull()) {
     DeclNameEntries.setOnlyValue(D);
     return;
   }

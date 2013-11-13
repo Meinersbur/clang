@@ -75,6 +75,7 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   case Stmt::SEHExceptStmtClass:
   case Stmt::SEHFinallyStmtClass:
   case Stmt::MSDependentExistsStmtClass:
+  case Stmt::OMPParallelDirectiveClass:
     llvm_unreachable("invalid statement class to emit generically");
   case Stmt::NullStmtClass:
   case Stmt::CompoundStmtClass:
@@ -135,8 +136,10 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   case Stmt::SwitchStmtClass:   EmitSwitchStmt(cast<SwitchStmt>(*S));     break;
   case Stmt::GCCAsmStmtClass:   // Intentional fall-through.
   case Stmt::MSAsmStmtClass:    EmitAsmStmt(cast<AsmStmt>(*S));           break;
-  case Stmt::CapturedStmtClass:
-    EmitCapturedStmt(cast<CapturedStmt>(*S), CR_Default);
+  case Stmt::CapturedStmtClass: {
+    const CapturedStmt *CS = cast<CapturedStmt>(S);
+    EmitCapturedStmt(*CS, CS->getCapturedRegionKind());
+    }
     break;
   case Stmt::ObjCAtTryStmtClass:
     EmitObjCAtTryStmt(cast<ObjCAtTryStmt>(*S));
@@ -165,8 +168,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
     break;
   case Stmt::CXXForRangeStmtClass:
     EmitCXXForRangeStmt(cast<CXXForRangeStmt>(*S));
+    break;
   case Stmt::SEHTryStmtClass:
-    // FIXME Not yet implemented
+    EmitSEHTryStmt(cast<SEHTryStmt>(*S));
     break;
   }
 }
@@ -425,12 +429,7 @@ void CodeGenFunction::EmitIndirectGotoStmt(const IndirectGotoStmt &S) {
 void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   // C99 6.8.4.1: The first substatement is executed if the expression compares
   // unequal to 0.  The condition must be a scalar type.
-  RunCleanupsScope ConditionScope(*this);
-
-  // Also open a debugger-visible lexical scope for the condition.
-  CGDebugInfo *DI = getDebugInfo();
-  if (DI)
-    DI->EmitLexicalBlockStart(Builder, S.getSourceRange().getBegin());
+  LexicalScope ConditionScope(*this, S.getSourceRange());
 
   if (S.getConditionVariable())
     EmitAutoVarDecl(*S.getConditionVariable());
@@ -452,8 +451,6 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
         RunCleanupsScope ExecutedScope(*this);
         EmitStmt(Executed);
       }
-      if (DI)
-        DI->EmitLexicalBlockEnd(Builder, S.getSourceRange().getEnd());
       return;
     }
   }
@@ -490,9 +487,6 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
       Builder.SetCurrentDebugLocation(llvm::DebugLoc());
     EmitBranch(ContBlock);
   }
-
-  if (DI)
-    DI->EmitLexicalBlockEnd(Builder, S.getSourceRange().getEnd());
 
   // Emit the continuation block for code after the if.
   EmitBlock(ContBlock, true);
@@ -1353,7 +1347,7 @@ SimplifyConstraint(const char *Constraint, const TargetInfo &Target,
       break;
     case '#': // Ignore the rest of the constraint alternative.
       while (Constraint[1] && Constraint[1] != ',')
-	Constraint++;
+        Constraint++;
       break;
     case ',':
       Result += "|";
@@ -1417,11 +1411,12 @@ AddVariableConstraints(const std::string &Constraint, const Expr &AsmExpr,
 llvm::Value*
 CodeGenFunction::EmitAsmInputLValue(const TargetInfo::ConstraintInfo &Info,
                                     LValue InputValue, QualType InputType,
-                                    std::string &ConstraintStr) {
+                                    std::string &ConstraintStr,
+                                    SourceLocation Loc) {
   llvm::Value *Arg;
   if (Info.allowsRegister() || !Info.allowsMemory()) {
     if (CodeGenFunction::hasScalarEvaluationKind(InputType)) {
-      Arg = EmitLoadOfLValue(InputValue).getScalarVal();
+      Arg = EmitLoadOfLValue(InputValue, Loc).getScalarVal();
     } else {
       llvm::Type *Ty = ConvertType(InputType);
       uint64_t Size = CGM.getDataLayout().getTypeSizeInBits(Ty);
@@ -1454,7 +1449,8 @@ llvm::Value* CodeGenFunction::EmitAsmInput(
 
   InputExpr = InputExpr->IgnoreParenNoopCasts(getContext());
   LValue Dest = EmitLValue(InputExpr);
-  return EmitAsmInputLValue(Info, Dest, InputExpr->getType(), ConstraintStr);
+  return EmitAsmInputLValue(Info, Dest, InputExpr->getType(), ConstraintStr,
+                            InputExpr->getExprLoc());
 }
 
 /// getAsmSrcLocInfo - Return the !srcloc metadata node to attach to an inline
@@ -1599,7 +1595,8 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
       const Expr *InputExpr = S.getOutputExpr(i);
       llvm::Value *Arg = EmitAsmInputLValue(Info, Dest, InputExpr->getType(),
-                                            InOutConstraints);
+                                            InOutConstraints,
+                                            InputExpr->getExprLoc());
 
       if (llvm::Type* AdjTy =
           getTargetHooks().adjustInlineAsmType(*this, OutputConstraint,
@@ -1810,7 +1807,7 @@ CodeGenFunction::EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K) {
   // Emit the CapturedDecl
   CodeGenFunction CGF(CGM, true);
   CGF.CapturedStmtInfo = new CGCapturedStmtInfo(S, K);
-  llvm::Function *F = CGF.GenerateCapturedStmtFunction(CD, RD);
+  llvm::Function *F = CGF.GenerateCapturedStmtFunction(CD, RD, S.getLocStart());
   delete CGF.CapturedStmtInfo;
 
   // Emit call to the helper function.
@@ -1822,12 +1819,10 @@ CodeGenFunction::EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K) {
 /// Creates the outlined function for a CapturedStmt.
 llvm::Function *
 CodeGenFunction::GenerateCapturedStmtFunction(const CapturedDecl *CD,
-                                              const RecordDecl *RD) {
+                                              const RecordDecl *RD,
+                                              SourceLocation Loc) {
   assert(CapturedStmtInfo &&
     "CapturedStmtInfo should be set when generating the captured function");
-
-  // Check if we should generate debug info for this function.
-  maybeInitializeDebugInfo();
 
   // Build the argument list.
   ASTContext &Ctx = CGM.getContext();
@@ -1860,8 +1855,7 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedDecl *CD,
     LValue LV = MakeNaturalAlignAddrLValue(CapturedStmtInfo->getContextValue(),
                                            Ctx.getTagDeclType(RD));
     LValue ThisLValue = EmitLValueForField(LV, FD);
-
-    CXXThisValue = EmitLoadOfLValue(ThisLValue).getScalarVal();
+    CXXThisValue = EmitLoadOfLValue(ThisLValue, Loc).getScalarVal();
   }
 
   CapturedStmtInfo->EmitBody(*this, CD->getBody());

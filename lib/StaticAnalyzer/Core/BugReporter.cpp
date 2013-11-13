@@ -246,6 +246,41 @@ static void adjustCallLocations(PathPieces &Pieces,
   }
 }
 
+/// Remove edges in and out of C++ default initializer expressions. These are
+/// for fields that have in-class initializers, as opposed to being initialized
+/// explicitly in a constructor or braced list.
+static void removeEdgesToDefaultInitializers(PathPieces &Pieces) {
+  for (PathPieces::iterator I = Pieces.begin(), E = Pieces.end(); I != E;) {
+    if (PathDiagnosticCallPiece *C = dyn_cast<PathDiagnosticCallPiece>(*I))
+      removeEdgesToDefaultInitializers(C->path);
+
+    if (PathDiagnosticMacroPiece *M = dyn_cast<PathDiagnosticMacroPiece>(*I))
+      removeEdgesToDefaultInitializers(M->subPieces);
+
+    if (PathDiagnosticControlFlowPiece *CF =
+          dyn_cast<PathDiagnosticControlFlowPiece>(*I)) {
+      const Stmt *Start = CF->getStartLocation().asStmt();
+      const Stmt *End = CF->getEndLocation().asStmt();
+      if (Start && isa<CXXDefaultInitExpr>(Start)) {
+        I = Pieces.erase(I);
+        continue;
+      } else if (End && isa<CXXDefaultInitExpr>(End)) {
+        PathPieces::iterator Next = llvm::next(I);
+        if (Next != E) {
+          if (PathDiagnosticControlFlowPiece *NextCF =
+                dyn_cast<PathDiagnosticControlFlowPiece>(*Next)) {
+            NextCF->setStartLocation(CF->getStartLocation());
+          }
+        }
+        I = Pieces.erase(I);
+        continue;
+      }
+    }
+
+    I++;
+  }
+}
+
 /// Remove all pieces with invalid locations as these cannot be serialized.
 /// We might have pieces with invalid locations as a result of inlining Body
 /// Farm generated functions.
@@ -1592,8 +1627,8 @@ static const Stmt *getTerminatorCondition(const CFGBlock *B) {
   return S;
 }
 
-static const char *StrEnteringLoop = "Entering loop body";
-static const char *StrLoopBodyZero = "Loop body executed 0 times";
+static const char StrEnteringLoop[] = "Entering loop body";
+static const char StrLoopBodyZero[] = "Loop body executed 0 times";
 
 static bool
 GenerateAlternateExtensivePathDiagnostic(PathDiagnostic& PD,
@@ -1794,8 +1829,7 @@ GenerateAlternateExtensivePathDiagnostic(PathDiagnostic& PD,
               if (!IsInLoopBody) {
                 str = StrLoopBodyZero;
               }
-            }
-            else {
+            } else {
               str = StrEnteringLoop;
             }
 
@@ -1808,9 +1842,8 @@ GenerateAlternateExtensivePathDiagnostic(PathDiagnostic& PD,
                             PE->getLocation(), PDB.LC);
               PD.getActivePath().push_front(PE);
             }
-          }
-          else if (isa<BreakStmt>(Term) || isa<ContinueStmt>(Term) ||
-                   isa<GotoStmt>(Term)) {
+          } else if (isa<BreakStmt>(Term) || isa<ContinueStmt>(Term) ||
+                     isa<GotoStmt>(Term)) {
             PathDiagnosticLocation L(Term, SM, PDB.LC);
             addEdgeToPath(PD.getActivePath(), PrevLoc, L, PDB.LC);
           }
@@ -2235,7 +2268,7 @@ static void removePunyEdges(PathPieces &path,
     SourceLocation FirstLoc = start->getLocStart();
     SourceLocation SecondLoc = end->getLocStart();
 
-    if (!SM.isFromSameFile(FirstLoc, SecondLoc))
+    if (!SM.isWrittenInSameFile(FirstLoc, SecondLoc))
       continue;
     if (SM.isBeforeInTranslationUnit(SecondLoc, FirstLoc))
       std::swap(SecondLoc, FirstLoc);
@@ -2490,7 +2523,7 @@ static void dropFunctionEntryEdge(PathPieces &Path,
 //===----------------------------------------------------------------------===//
 // Methods for BugType and subclasses.
 //===----------------------------------------------------------------------===//
-BugType::~BugType() { }
+void BugType::anchor() { }
 
 void BugType::FlushReports(BugReporter &BR) {}
 
@@ -2653,10 +2686,8 @@ void BugReport::pushInterestingSymbolsAndRegions() {
 }
 
 void BugReport::popInterestingSymbolsAndRegions() {
-  delete interestingSymbols.back();
-  interestingSymbols.pop_back();
-  delete interestingRegions.back();
-  interestingRegions.pop_back();
+  delete interestingSymbols.pop_back_val();
+  delete interestingRegions.pop_back_val();
 }
 
 const Stmt *BugReport::getStmt() const {
@@ -2743,7 +2774,7 @@ void BugReporter::FlushReports() {
   SmallVector<const BugType*, 16> bugTypes;
   for (BugTypesTy::iterator I=BugTypes.begin(), E=BugTypes.end(); I!=E; ++I)
     bugTypes.push_back(*I);
-  for (SmallVector<const BugType*, 16>::iterator
+  for (SmallVectorImpl<const BugType *>::iterator
          I = bugTypes.begin(), E = bugTypes.end(); I != E; ++I)
     const_cast<BugType*>(*I)->FlushReports(*this);
 
@@ -3167,7 +3198,6 @@ bool GRBugReporter::generatePathDiagnostic(PathDiagnostic& PD,
 
       // Redirect all call pieces to have valid locations.
       adjustCallLocations(PD.getMutablePieces());
-
       removePiecesWithInvalidLocations(PD.getMutablePieces());
 
       if (ActiveScheme == PathDiagnosticConsumer::AlternateExtensive) {
@@ -3184,9 +3214,11 @@ bool GRBugReporter::generatePathDiagnostic(PathDiagnostic& PD,
         dropFunctionEntryEdge(PD.getMutablePieces(), LCM, SM);
       }
 
-      // Remove messages that are basically the same.
+      // Remove messages that are basically the same, and edges that may not
+      // make sense.
       // We have to do this after edge optimization in the Extensive mode.
       removeRedundantMsgs(PD.getMutablePieces());
+      removeEdgesToDefaultInitializers(PD.getMutablePieces());
     }
 
     // We found a report and didn't suppress it.
@@ -3204,6 +3236,25 @@ void BugReporter::Register(BugType *BT) {
 }
 
 void BugReporter::emitReport(BugReport* R) {
+  // Defensive checking: throw the bug away if it comes from a BodyFarm-
+  // generated body. We do this very early because report processing relies
+  // on the report's location being valid.
+  // FIXME: Valid bugs can occur in BodyFarm-generated bodies, so really we
+  // need to just find a reasonable location like we do later on with the path
+  // pieces.
+  if (const ExplodedNode *E = R->getErrorNode()) {
+    const LocationContext *LCtx = E->getLocationContext();
+    if (LCtx->getAnalysisDeclContext()->isBodyAutosynthesized())
+      return;
+  }
+  
+  bool ValidSourceLoc = R->getLocation(getSourceManager()).isValid();
+  assert(ValidSourceLoc);
+  // If we mess up in a release build, we'd still prefer to just drop the bug
+  // instead of trying to go on.
+  if (!ValidSourceLoc)
+    return;
+
   // Compute the bug report's hash to determine its equivalence class.
   llvm::FoldingSetNodeID ID;
   R->Profile(ID);
@@ -3413,13 +3464,15 @@ void BugReporter::EmitBasicReport(const Decl *DeclWithIssue,
                                   StringRef name,
                                   StringRef category,
                                   StringRef str, PathDiagnosticLocation Loc,
-                                  SourceRange* RBeg, unsigned NumRanges) {
+                                  ArrayRef<SourceRange> Ranges) {
 
   // 'BT' is owned by BugReporter.
   BugType *BT = getBugTypeForName(name, category);
   BugReport *R = new BugReport(*BT, str, Loc);
   R->setDeclWithIssue(DeclWithIssue);
-  for ( ; NumRanges > 0 ; --NumRanges, ++RBeg) R->addRange(*RBeg);
+  for (ArrayRef<SourceRange>::iterator I = Ranges.begin(), E = Ranges.end();
+       I != E; ++I)
+    R->addRange(*I);
   emitReport(R);
 }
 

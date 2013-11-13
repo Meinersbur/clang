@@ -18,6 +18,7 @@
 #include "CXString.h"
 #include "CXType.h"
 #include "clang-c/Index.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -48,6 +49,7 @@ static CXCursorKind GetCursorKind(const Attr *A) {
     case attr::Override: return CXCursor_CXXOverrideAttr;
     case attr::Annotate: return CXCursor_AnnotateAttr;
     case attr::AsmLabel: return CXCursor_AsmLabelAttr;
+    case attr::Packed: return CXCursor_PackedAttr;
   }
 
   return CXCursor_UnexposedAttr;
@@ -75,7 +77,7 @@ CXCursor cxcursor::MakeCXCursor(const Decl *D, CXTranslationUnit TU,
         RegionOfInterest.getBegin() == RegionOfInterest.getEnd()) {
       SmallVector<SourceLocation, 16> SelLocs;
       cast<ObjCMethodDecl>(D)->getSelectorLocs(SelLocs);
-      SmallVector<SourceLocation, 16>::iterator
+      SmallVectorImpl<SourceLocation>::iterator
         I=std::find(SelLocs.begin(), SelLocs.end(),RegionOfInterest.getBegin());
       if (I != SelLocs.end())
         SelectorIdIndex = I - SelLocs.begin();
@@ -232,6 +234,7 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::ParenListExprClass:
   case Stmt::PredefinedExprClass:
   case Stmt::ShuffleVectorExprClass:
+  case Stmt::ConvertVectorExprClass:
   case Stmt::UnaryExprOrTypeTraitExprClass:
   case Stmt::UnaryTypeTraitExprClass:
   case Stmt::VAArgExprClass:
@@ -493,7 +496,7 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
         RegionOfInterest.getBegin() == RegionOfInterest.getEnd()) {
       SmallVector<SourceLocation, 16> SelLocs;
       cast<ObjCMessageExpr>(S)->getSelectorLocs(SelLocs);
-      SmallVector<SourceLocation, 16>::iterator
+      SmallVectorImpl<SourceLocation>::iterator
         I=std::find(SelLocs.begin(), SelLocs.end(),RegionOfInterest.getBegin());
       if (I != SelLocs.end())
         SelectorIdIndex = I - SelLocs.begin();
@@ -505,6 +508,10 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::MSDependentExistsStmtClass:
     K = CXCursor_UnexposedStmt;
     break;
+  case Stmt::OMPParallelDirectiveClass:
+    K = CXCursor_OMPParallelDirective;
+    break;
+  
   }
   
   CXCursor C = { K, 0, { Parent, S, TU } };
@@ -837,7 +844,7 @@ void cxcursor::getOverriddenCursors(CXCursor cursor,
   SmallVector<const NamedDecl *, 8> OverDecls;
   D->getASTContext().getOverriddenMethods(D, OverDecls);
 
-  for (SmallVector<const NamedDecl *, 8>::iterator
+  for (SmallVectorImpl<const NamedDecl *>::iterator
          I = OverDecls.begin(), E = OverDecls.end(); I != E; ++I) {
     overridden.push_back(MakeCXCursor(*I, TU));
   }

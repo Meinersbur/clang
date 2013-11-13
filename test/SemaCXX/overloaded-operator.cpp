@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s 
+// RUN: %clang_cc1 -fsyntax-only -verify -std=c++11 %s 
 class X { };
 
 X operator+(X, X);
@@ -439,5 +439,16 @@ namespace test10 {
     // resolution for operator| resolve the overload of 'bar'.
     a[&bar<float>];
     a[bar<float>];
+  }
+}
+
+struct InvalidOperatorEquals {
+  InvalidOperatorEquals operator=() = delete; // expected-error {{overloaded 'operator=' must be a binary operator}}
+};
+
+namespace PR7681 {
+  template <typename PT1, typename PT2> class PointerUnion;
+  void foo(PointerUnion<int*, float*> &Result) {
+    Result = 1; // expected-error {{no viable overloaded '='}} // expected-note {{type 'PointerUnion<int *, float *>' is incomplete}}
   }
 }

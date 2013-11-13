@@ -210,6 +210,8 @@ bool PCHValidator::ReadTargetOptions(const TargetOptions &TargetOpts,
 namespace {
   typedef llvm::StringMap<std::pair<StringRef, bool /*IsUndef*/> >
     MacroDefinitionsMap;
+  typedef llvm::DenseMap<DeclarationName, SmallVector<NamedDecl *, 8> >
+    DeclsMap;
 }
 
 /// \brief Collect the macro definitions provided by the given preprocessor
@@ -1101,7 +1103,7 @@ bool ASTReader::ReadBlockAbbrevs(BitstreamCursor &Cursor, unsigned BlockID) {
   }
 }
 
-Token ASTReader::ReadToken(ModuleFile &F, const RecordData &Record,
+Token ASTReader::ReadToken(ModuleFile &F, const RecordDataImpl &Record,
                            unsigned &Idx) {
   Token Tok;
   Tok.startToken();
@@ -2522,9 +2524,10 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
       break;
 
     case SEMA_DECL_REFS:
-      // Later tables overwrite earlier ones.
-      // FIXME: Modules will have some trouble with this.
-      SemaDeclRefs.clear();
+      if (Record.size() != 2) {
+        Error("Invalid SEMA_DECL_REFS block");
+        return true;
+      }
       for (unsigned I = 0, N = Record.size(); I != N; ++I)
         SemaDeclRefs.push_back(getGlobalDeclID(F, Record[I]));
       break;
@@ -2749,6 +2752,11 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
       // FIXME: Not used yet.
       break;
     }
+
+    case LATE_PARSED_TEMPLATE: {
+      LateParsedTemplates.append(Record.begin(), Record.end());
+      break;
+    }
     }
   }
 }
@@ -2812,13 +2820,12 @@ void ASTReader::makeModuleVisible(Module *Mod,
                                   bool Complain) {
   llvm::SmallPtrSet<Module *, 4> Visited;
   SmallVector<Module *, 4> Stack;
-  Stack.push_back(Mod);  
+  Stack.push_back(Mod);
   while (!Stack.empty()) {
-    Mod = Stack.back();
-    Stack.pop_back();
+    Mod = Stack.pop_back_val();
 
     if (NameVisibility <= Mod->NameVisibility) {
-      // This module already has this level of visibility (or greater), so 
+      // This module already has this level of visibility (or greater), so
       // there is nothing more to do.
       continue;
     }
@@ -3022,8 +3029,15 @@ ASTReader::ASTReadResult ASTReader::ReadAST(const std::string &FileName,
     }
   }
   UnresolvedModuleRefs.clear();
+
+  // FIXME: How do we load the 'use'd modules? They may not be submodules.
+  // Might be unnecessary as use declarations are only used to build the
+  // module itself.
   
   InitializeContext();
+
+  if (SemaObj)
+    UpdateSema();
 
   if (DeserializationListener)
     DeserializationListener->ReaderInitialized(this);
@@ -5352,6 +5366,19 @@ ASTReader::ReadTemplateArgumentLoc(ModuleFile &F,
                                                              Record, Index));
 }
 
+const ASTTemplateArgumentListInfo*
+ASTReader::ReadASTTemplateArgumentListInfo(ModuleFile &F,
+                                           const RecordData &Record,
+                                           unsigned &Index) {
+  SourceLocation LAngleLoc = ReadSourceLocation(F, Record, Index);
+  SourceLocation RAngleLoc = ReadSourceLocation(F, Record, Index);
+  unsigned NumArgsAsWritten = Record[Index++];
+  TemplateArgumentListInfo TemplArgsInfo(LAngleLoc, RAngleLoc);
+  for (unsigned i = 0; i != NumArgsAsWritten; ++i)
+    TemplArgsInfo.addArgument(ReadTemplateArgumentLoc(F, Record, Index));
+  return ASTTemplateArgumentListInfo::Create(getContext(), TemplArgsInfo);
+}
+
 Decl *ASTReader::GetExternalDecl(uint32_t ID) {
   return GetDecl(ID);
 }
@@ -5812,15 +5839,13 @@ namespace {
   class DeclContextAllNamesVisitor {
     ASTReader &Reader;
     SmallVectorImpl<const DeclContext *> &Contexts;
-    llvm::DenseMap<DeclarationName, SmallVector<NamedDecl *, 8> > &Decls;
+    DeclsMap &Decls;
     bool VisitAll;
 
   public:
     DeclContextAllNamesVisitor(ASTReader &Reader,
                                SmallVectorImpl<const DeclContext *> &Contexts,
-                               llvm::DenseMap<DeclarationName,
-                                           SmallVector<NamedDecl *, 8> > &Decls,
-                                bool VisitAll)
+                               DeclsMap &Decls, bool VisitAll)
       : Reader(Reader), Contexts(Contexts), Decls(Decls), VisitAll(VisitAll) { }
 
     static bool visit(ModuleFile &M, void *UserData) {
@@ -5871,7 +5896,7 @@ namespace {
 void ASTReader::completeVisibleDeclsMap(const DeclContext *DC) {
   if (!DC->hasExternalVisibleStorage())
     return;
-  llvm::DenseMap<DeclarationName, SmallVector<NamedDecl *, 8> > Decls;
+  DeclsMap Decls;
 
   // Compute the declaration contexts we need to look into. Multiple such
   // declaration contexts occur when two declaration contexts from disjoint
@@ -5894,9 +5919,7 @@ void ASTReader::completeVisibleDeclsMap(const DeclContext *DC) {
   ModuleMgr.visit(&DeclContextAllNamesVisitor::visit, &Visitor);
   ++NumVisibleDeclContextsRead;
 
-  for (llvm::DenseMap<DeclarationName,
-                      SmallVector<NamedDecl *, 8> >::iterator
-         I = Decls.begin(), E = Decls.end(); I != E; ++I) {
+  for (DeclsMap::iterator I = Decls.begin(), E = Decls.end(); I != E; ++I) {
     SetExternalVisibleDeclsForName(DC, I->first, I->second);
   }
   const_cast<DeclContext *>(DC)->setHasExternalVisibleStorage(false);
@@ -6117,27 +6140,38 @@ void ASTReader::InitializeSema(Sema &S) {
   }
   PreloadedDecls.clear();
 
-  // Load the offsets of the declarations that Sema references.
-  // They will be lazily deserialized when needed.
-  if (!SemaDeclRefs.empty()) {
-    assert(SemaDeclRefs.size() == 2 && "More decl refs than expected!");
-    if (!SemaObj->StdNamespace)
-      SemaObj->StdNamespace = SemaDeclRefs[0];
-    if (!SemaObj->StdBadAlloc)
-      SemaObj->StdBadAlloc = SemaDeclRefs[1];
-  }
-
+  // FIXME: What happens if these are changed by a module import?
   if (!FPPragmaOptions.empty()) {
     assert(FPPragmaOptions.size() == 1 && "Wrong number of FP_PRAGMA_OPTIONS");
     SemaObj->FPFeatures.fp_contract = FPPragmaOptions[0];
   }
 
+  // FIXME: What happens if these are changed by a module import?
   if (!OpenCLExtensions.empty()) {
     unsigned I = 0;
 #define OPENCLEXT(nm)  SemaObj->OpenCLFeatures.nm = OpenCLExtensions[I++];
 #include "clang/Basic/OpenCLExtensions.def"
 
     assert(OpenCLExtensions.size() == I && "Wrong number of OPENCL_EXTENSIONS");
+  }
+
+  UpdateSema();
+}
+
+void ASTReader::UpdateSema() {
+  assert(SemaObj && "no Sema to update");
+
+  // Load the offsets of the declarations that Sema references.
+  // They will be lazily deserialized when needed.
+  if (!SemaDeclRefs.empty()) {
+    assert(SemaDeclRefs.size() % 2 == 0);
+    for (unsigned I = 0; I != SemaDeclRefs.size(); I += 2) {
+      if (!SemaObj->StdNamespace)
+        SemaObj->StdNamespace = SemaDeclRefs[I];
+      if (!SemaObj->StdBadAlloc)
+        SemaObj->StdBadAlloc = SemaDeclRefs[I+1];
+    }
+    SemaDeclRefs.clear();
   }
 }
 
@@ -6475,6 +6509,29 @@ void ASTReader::ReadPendingInstantiations(
     Pending.push_back(std::make_pair(D, Loc));
   }  
   PendingInstantiations.clear();
+}
+
+void ASTReader::ReadLateParsedTemplates(
+    llvm::DenseMap<const FunctionDecl *, LateParsedTemplate *> &LPTMap) {
+  for (unsigned Idx = 0, N = LateParsedTemplates.size(); Idx < N;
+       /* In loop */) {
+    FunctionDecl *FD = cast<FunctionDecl>(GetDecl(LateParsedTemplates[Idx++]));
+
+    LateParsedTemplate *LT = new LateParsedTemplate;
+    LT->D = GetDecl(LateParsedTemplates[Idx++]);
+
+    ModuleFile *F = getOwningModuleFile(LT->D);
+    assert(F && "No module");
+
+    unsigned TokN = LateParsedTemplates[Idx++];
+    LT->Toks.reserve(TokN);
+    for (unsigned T = 0; T < TokN; ++T)
+      LT->Toks.push_back(ReadToken(*F, LateParsedTemplates, Idx));
+
+    LPTMap[FD] = LT;
+  }
+
+  LateParsedTemplates.clear();
 }
 
 void ASTReader::LoadSelector(Selector Sel) {
@@ -6924,7 +6981,7 @@ ASTReader::ReadTemplateParameterList(ModuleFile &F,
 
 void
 ASTReader::
-ReadTemplateArgumentList(SmallVector<TemplateArgument, 8> &TemplArgs,
+ReadTemplateArgumentList(SmallVectorImpl<TemplateArgument> &TemplArgs,
                          ModuleFile &F, const RecordData &Record,
                          unsigned &Idx) {
   unsigned NumTemplateArgs = Record[Idx++];
@@ -6934,14 +6991,14 @@ ReadTemplateArgumentList(SmallVector<TemplateArgument, 8> &TemplArgs,
 }
 
 /// \brief Read a UnresolvedSet structure.
-void ASTReader::ReadUnresolvedSet(ModuleFile &F, ASTUnresolvedSet &Set,
+void ASTReader::ReadUnresolvedSet(ModuleFile &F, LazyASTUnresolvedSet &Set,
                                   const RecordData &Record, unsigned &Idx) {
   unsigned NumDecls = Record[Idx++];
   Set.reserve(Context, NumDecls);
   while (NumDecls--) {
-    NamedDecl *D = ReadDeclAs<NamedDecl>(F, Record, Idx);
+    DeclID ID = ReadDeclID(F, Record, Idx);
     AccessSpecifier AS = (AccessSpecifier)Record[Idx++];
-    Set.addDecl(Context, D, AS);
+    Set.addLazyDecl(Context, ID, AS);
   }
 }
 
@@ -7295,10 +7352,14 @@ void ASTReader::ReadComments() {
 
 void ASTReader::finishPendingActions() {
   while (!PendingIdentifierInfos.empty() || !PendingDeclChains.empty() ||
-         !PendingMacroIDs.empty() || !PendingDeclContextInfos.empty()) {
+         !PendingMacroIDs.empty() || !PendingDeclContextInfos.empty() ||
+         !PendingOdrMergeChecks.empty()) {
     // If any identifiers with corresponding top-level declarations have
     // been loaded, load those declarations now.
-    llvm::DenseMap<IdentifierInfo *, SmallVector<Decl *, 2> > TopLevelDecls;
+    typedef llvm::DenseMap<IdentifierInfo *, SmallVector<Decl *, 2> >
+      TopLevelDeclsMap;
+    TopLevelDeclsMap TopLevelDecls;
+
     while (!PendingIdentifierInfos.empty()) {
       // FIXME: std::move
       IdentifierInfo *II = PendingIdentifierInfos.back().first;
@@ -7316,9 +7377,8 @@ void ASTReader::finishPendingActions() {
     PendingDeclChains.clear();
 
     // Make the most recent of the top-level declarations visible.
-    for (llvm::DenseMap<IdentifierInfo *, SmallVector<Decl *, 2> >::iterator
-           TLD = TopLevelDecls.begin(), TLDEnd = TopLevelDecls.end();
-         TLD != TLDEnd; ++TLD) {
+    for (TopLevelDeclsMap::iterator TLD = TopLevelDecls.begin(),
+           TLDEnd = TopLevelDecls.end(); TLD != TLDEnd; ++TLD) {
       IdentifierInfo *II = TLD->first;
       for (unsigned I = 0, N = TLD->second.size(); I != N; ++I) {
         pushExternalDeclIntoScope(cast<NamedDecl>(TLD->second[I]), II);
@@ -7355,6 +7415,64 @@ void ASTReader::finishPendingActions() {
       DeclContext *SemaDC = cast<DeclContext>(GetDecl(Info.SemaDC));
       DeclContext *LexicalDC = cast<DeclContext>(GetDecl(Info.LexicalDC));
       Info.D->setDeclContextsImpl(SemaDC, LexicalDC, getContext());
+    }
+
+    // For each declaration from a merged context, check that the canonical
+    // definition of that context also contains a declaration of the same
+    // entity.
+    while (!PendingOdrMergeChecks.empty()) {
+      NamedDecl *D = PendingOdrMergeChecks.pop_back_val();
+
+      // FIXME: Skip over implicit declarations for now. This matters for things
+      // like implicitly-declared special member functions. This isn't entirely
+      // correct; we can end up with multiple unmerged declarations of the same
+      // implicit entity.
+      if (D->isImplicit())
+        continue;
+
+      DeclContext *CanonDef = D->getDeclContext();
+      DeclContext::lookup_result R = CanonDef->lookup(D->getDeclName());
+
+      bool Found = false;
+      const Decl *DCanon = D->getCanonicalDecl();
+
+      llvm::SmallVector<const NamedDecl*, 4> Candidates;
+      for (DeclContext::lookup_iterator I = R.begin(), E = R.end();
+           !Found && I != E; ++I) {
+        for (Decl::redecl_iterator RI = (*I)->redecls_begin(),
+                                   RE = (*I)->redecls_end();
+             RI != RE; ++RI) {
+          if ((*RI)->getLexicalDeclContext() == CanonDef) {
+            // This declaration is present in the canonical definition. If it's
+            // in the same redecl chain, it's the one we're looking for.
+            if ((*RI)->getCanonicalDecl() == DCanon)
+              Found = true;
+            else
+              Candidates.push_back(cast<NamedDecl>(*RI));
+            break;
+          }
+        }
+      }
+
+      if (!Found) {
+        D->setInvalidDecl();
+
+        Module *CanonDefModule = cast<Decl>(CanonDef)->getOwningModule();
+        Diag(D->getLocation(), diag::err_module_odr_violation_missing_decl)
+          << D << D->getOwningModule()->getFullModuleName()
+          << CanonDef << !CanonDefModule
+          << (CanonDefModule ? CanonDefModule->getFullModuleName() : "");
+
+        if (Candidates.empty())
+          Diag(cast<Decl>(CanonDef)->getLocation(),
+               diag::note_module_odr_violation_no_possible_decls) << D;
+        else {
+          for (unsigned I = 0, N = Candidates.size(); I != N; ++I)
+            Diag(Candidates[I]->getLocation(),
+                 diag::note_module_odr_violation_possible_decl)
+              << Candidates[I];
+        }
+      }
     }
   }
   
@@ -7462,7 +7580,7 @@ void ASTReader::FinishedDeserializing() {
 }
 
 void ASTReader::pushExternalDeclIntoScope(NamedDecl *D, DeclarationName Name) {
-  D = cast<NamedDecl>(D->getMostRecentDecl());
+  D = D->getMostRecentDecl();
 
   if (SemaObj->IdResolver.tryAddTopLevelDecl(D, Name) && SemaObj->TUScope) {
     SemaObj->TUScope->AddDecl(D);
@@ -7498,7 +7616,7 @@ ASTReader::ASTReader(Preprocessor &PP, ASTContext &Context,
     NumVisibleDeclContextsRead(0), TotalVisibleDeclContexts(0),
     TotalModulesSizeInBits(0), NumCurrentElementsDeserializing(0),
     PassingDeclsToConsumer(false),
-    NumCXXBaseSpecifiersLoaded(0)
+    NumCXXBaseSpecifiersLoaded(0), ReadingKind(Read_None)
 {
   SourceMgr.setExternalSLocEntrySource(this);
 }

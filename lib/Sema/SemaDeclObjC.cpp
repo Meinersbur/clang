@@ -406,7 +406,9 @@ void Sema::ActOnStartOfObjCMethodDef(Scope *FnBodyScope, Decl *D) {
         if (Context.getLangOpts().getGC() != LangOptions::NonGC)
           getCurFunction()->ObjCShouldCallSuper = true;
         
-      } else {
+      } else if (MDecl->hasAttr<ObjCRequiresSuperAttr>())
+        getCurFunction()->ObjCShouldCallSuper = true;
+      else {
         const ObjCMethodDecl *SuperMethod =
           SuperClass->lookupMethod(MDecl->getSelector(),
                                    MDecl->isInstanceMethod());
@@ -511,11 +513,9 @@ ActOnStartClassInterface(SourceLocation AtInterfaceLoc,
       if (TypoCorrection Corrected = CorrectTypo(
           DeclarationNameInfo(SuperName, SuperLoc), LookupOrdinaryName, TUScope,
           NULL, Validator)) {
+        diagnoseTypo(Corrected, PDiag(diag::err_undef_superclass_suggest)
+                                    << SuperName << ClassName);
         PrevDecl = Corrected.getCorrectionDeclAs<ObjCInterfaceDecl>();
-        Diag(SuperLoc, diag::err_undef_superclass_suggest)
-          << SuperName << ClassName << PrevDecl->getDeclName();
-        Diag(PrevDecl->getLocation(), diag::note_previous_decl)
-          << PrevDecl->getDeclName();
       }
     }
 
@@ -590,6 +590,29 @@ ActOnStartClassInterface(SourceLocation AtInterfaceLoc,
 
   CheckObjCDeclScope(IDecl);
   return ActOnObjCContainerStartDefinition(IDecl);
+}
+
+/// ActOnTypedefedProtocols - this action finds protocol list as part of the
+/// typedef'ed use for a qualified super class and adds them to the list
+/// of the protocols.
+void Sema::ActOnTypedefedProtocols(SmallVectorImpl<Decl *> &ProtocolRefs,
+                                   IdentifierInfo *SuperName,
+                                   SourceLocation SuperLoc) {
+  if (!SuperName)
+    return;
+  NamedDecl* IDecl = LookupSingleName(TUScope, SuperName, SuperLoc,
+                                      LookupOrdinaryName);
+  if (!IDecl)
+    return;
+  
+  if (const TypedefNameDecl *TDecl = dyn_cast_or_null<TypedefNameDecl>(IDecl)) {
+    QualType T = TDecl->getUnderlyingType();
+    if (T->isObjCObjectType())
+      if (const ObjCObjectType *OPT = T->getAs<ObjCObjectType>())
+        for (ObjCObjectType::qual_iterator I = OPT->qual_begin(),
+             E = OPT->qual_end(); I != E; ++I)
+          ProtocolRefs.push_back(*I);
+  }
 }
 
 /// ActOnCompatibilityAlias - this action is called after complete parsing of
@@ -746,12 +769,9 @@ Sema::FindProtocolDeclaration(bool WarnOnDeclarations,
       TypoCorrection Corrected = CorrectTypo(
           DeclarationNameInfo(ProtocolId[i].first, ProtocolId[i].second),
           LookupObjCProtocolName, TUScope, NULL, Validator);
-      if ((PDecl = Corrected.getCorrectionDeclAs<ObjCProtocolDecl>())) {
-        Diag(ProtocolId[i].second, diag::err_undeclared_protocol_suggest)
-          << ProtocolId[i].first << Corrected.getCorrection();
-        Diag(PDecl->getLocation(), diag::note_previous_decl)
-          << PDecl->getDeclName();
-      }
+      if ((PDecl = Corrected.getCorrectionDeclAs<ObjCProtocolDecl>()))
+        diagnoseTypo(Corrected, PDiag(diag::err_undeclared_protocol_suggest)
+                                    << ProtocolId[i].first);
     }
 
     if (!PDecl) {
@@ -833,7 +853,7 @@ Sema::ActOnForwardProtocolDeclaration(SourceLocation AtProtocolLoc,
     DeclsInGroup.push_back(PDecl);
   }
 
-  return BuildDeclaratorGroup(DeclsInGroup.data(), DeclsInGroup.size(), false);
+  return BuildDeclaratorGroup(DeclsInGroup, false);
 }
 
 Decl *Sema::
@@ -969,7 +989,7 @@ Decl *Sema::ActOnStartClassImplementation(
                       IdentifierInfo *ClassName, SourceLocation ClassLoc,
                       IdentifierInfo *SuperClassname,
                       SourceLocation SuperClassLoc) {
-  ObjCInterfaceDecl* IDecl = 0;
+  ObjCInterfaceDecl *IDecl = 0;
   // Check for another declaration kind with the same name.
   NamedDecl *PrevDecl
     = LookupSingleName(TUScope, ClassName, ClassLoc, LookupOrdinaryName,
@@ -981,24 +1001,19 @@ Decl *Sema::ActOnStartClassImplementation(
     RequireCompleteType(ClassLoc, Context.getObjCInterfaceType(IDecl),
                         diag::warn_undef_interface);
   } else {
-    // We did not find anything with the name ClassName; try to correct for 
+    // We did not find anything with the name ClassName; try to correct for
     // typos in the class name.
     ObjCInterfaceValidatorCCC Validator;
-    if (TypoCorrection Corrected = CorrectTypo(
-        DeclarationNameInfo(ClassName, ClassLoc), LookupOrdinaryName, TUScope,
-        NULL, Validator)) {
-      // Suggest the (potentially) correct interface name. However, put the
-      // fix-it hint itself in a separate note, since changing the name in 
-      // the warning would make the fix-it change semantics.However, don't
-      // provide a code-modification hint or use the typo name for recovery,
-      // because this is just a warning. The program may actually be correct.
-      IDecl = Corrected.getCorrectionDeclAs<ObjCInterfaceDecl>();
-      DeclarationName CorrectedName = Corrected.getCorrection();
-      Diag(ClassLoc, diag::warn_undef_interface_suggest)
-        << ClassName << CorrectedName;
-      Diag(IDecl->getLocation(), diag::note_previous_decl) << CorrectedName
-        << FixItHint::CreateReplacement(ClassLoc, CorrectedName.getAsString());
-      IDecl = 0;
+    TypoCorrection Corrected =
+            CorrectTypo(DeclarationNameInfo(ClassName, ClassLoc),
+                        LookupOrdinaryName, TUScope, NULL, Validator);
+    if (Corrected.getCorrectionDeclAs<ObjCInterfaceDecl>()) {
+      // Suggest the (potentially) correct interface name. Don't provide a
+      // code-modification hint or use the typo name for recovery, because
+      // this is just a warning. The program may actually be correct.
+      diagnoseTypo(Corrected,
+                   PDiag(diag::warn_undef_interface_suggest) << ClassName,
+                   /*ErrorRecovery*/false);
     } else {
       Diag(ClassLoc, diag::warn_undef_interface) << ClassName;
     }
@@ -1100,7 +1115,7 @@ Sema::ActOnFinishObjCImplementation(Decl *ObjCImpDecl, ArrayRef<Decl *> Decls) {
 
   DeclsInGroup.push_back(ObjCImpDecl);
 
-  return BuildDeclaratorGroup(DeclsInGroup.data(), DeclsInGroup.size(), false);
+  return BuildDeclaratorGroup(DeclsInGroup, false);
 }
 
 void Sema::CheckImplementationIvars(ObjCImplementationDecl *ImpDecl,
@@ -1718,9 +1733,8 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
   // implemented in the implementation class. If so, their types match.
   for (ObjCInterfaceDecl::instmeth_iterator I = CDecl->instmeth_begin(),
        E = CDecl->instmeth_end(); I != E; ++I) {
-    if (InsMapSeen.count((*I)->getSelector()))
-        continue;
-    InsMapSeen.insert((*I)->getSelector());
+    if (!InsMapSeen.insert((*I)->getSelector()))
+      continue;
     if (!(*I)->isPropertyAccessor() &&
         !InsMap.count((*I)->getSelector())) {
       if (ImmediateClass)
@@ -1747,11 +1761,11 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
 
   // Check and see if class methods in class interface have been
   // implemented in the implementation class. If so, their types match.
-   for (ObjCInterfaceDecl::classmeth_iterator
-       I = CDecl->classmeth_begin(), E = CDecl->classmeth_end(); I != E; ++I) {
-     if (ClsMapSeen.count((*I)->getSelector()))
-       continue;
-     ClsMapSeen.insert((*I)->getSelector());
+  for (ObjCInterfaceDecl::classmeth_iterator I = CDecl->classmeth_begin(),
+                                             E = CDecl->classmeth_end();
+       I != E; ++I) {
+    if (!ClsMapSeen.insert((*I)->getSelector()))
+      continue;
     if (!ClsMap.count((*I)->getSelector())) {
       if (ImmediateClass)
         WarnUndefinedMethod(IMPDecl->getLocation(), *I, IncompleteImpl,
@@ -1769,6 +1783,16 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
         WarnExactTypedMethods(ImpMethodDecl, MethodDecl,
                               isa<ObjCProtocolDecl>(CDecl));
     }
+  }
+  
+  if (ObjCProtocolDecl *PD = dyn_cast<ObjCProtocolDecl> (CDecl)) {
+    // Also, check for methods declared in protocols inherited by
+    // this protocol.
+    for (ObjCProtocolDecl::protocol_iterator
+          PI = PD->protocol_begin(), E = PD->protocol_end(); PI != E; ++PI)
+      MatchAllMethodDeclarations(InsMap, ClsMap, InsMapSeen, ClsMapSeen,
+                                 IMPDecl, (*PI), IncompleteImpl, false,
+                                 WarnCategoryMethodImpl);
   }
   
   if (ObjCInterfaceDecl *I = dyn_cast<ObjCInterfaceDecl> (CDecl)) {
@@ -1985,8 +2009,8 @@ Sema::ActOnForwardClassDeclaration(SourceLocation AtClassLoc,
     CheckObjCDeclScope(IDecl);
     DeclsInGroup.push_back(IDecl);
   }
-  
-  return BuildDeclaratorGroup(DeclsInGroup.data(), DeclsInGroup.size(), false);
+
+  return BuildDeclaratorGroup(DeclsInGroup, false);
 }
 
 static bool tryMatchRecordTypes(ASTContext &Context,
@@ -2226,7 +2250,7 @@ ObjCMethodDecl *Sema::LookupMethodInGlobalPool(Selector Sel, SourceRange R,
 
   // Gather the non-hidden methods.
   ObjCMethodList &MethList = instance ? Pos->second.first : Pos->second.second;
-  llvm::SmallVector<ObjCMethodDecl *, 4> Methods;
+  SmallVector<ObjCMethodDecl *, 4> Methods;
   for (ObjCMethodList *M = &MethList; M; M = M->getNext()) {
     if (M->Method && !M->Method->isHidden()) {
       // If we're not supposed to warn about mismatches, we're done.
@@ -2333,7 +2357,6 @@ HelperSelectorsForTypoCorrection(
   else if (EditDistance < BestEditDistance) {
     BestMethod.clear();
     BestMethod.push_back(Method);
-    BestEditDistance = EditDistance;
   }
 }
 
@@ -2491,13 +2514,9 @@ Sema::ObjCContainerKind Sema::getObjCContainerKind() const {
   }
 }
 
-// Note: For class/category implemenations, allMethods/allProperties is
-// always null.
-Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd,
-                       Decl **allMethods, unsigned allNum,
-                       Decl **allProperties, unsigned pNum,
-                       DeclGroupPtrTy *allTUVars, unsigned tuvNum) {
-
+// Note: For class/category implementations, allMethods is always null.
+Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd, ArrayRef<Decl *> allMethods,
+                       ArrayRef<DeclGroupPtrTy> allTUVars) {
   if (getObjCContainerKind() == Sema::OCK_None)
     return 0;
 
@@ -2515,7 +2534,7 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd,
   llvm::DenseMap<Selector, const ObjCMethodDecl*> InsMap;
   llvm::DenseMap<Selector, const ObjCMethodDecl*> ClsMap;
 
-  for (unsigned i = 0; i < allNum; i++ ) {
+  for (unsigned i = 0, e = allMethods.size(); i != e; i++ ) {
     ObjCMethodDecl *Method =
       cast_or_null<ObjCMethodDecl>(allMethods[i]);
 
@@ -2682,8 +2701,8 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd,
   }
   if (isInterfaceDeclKind) {
     // Reject invalid vardecls.
-    for (unsigned i = 0; i != tuvNum; i++) {
-      DeclGroupRef DG = allTUVars[i].getAsVal<DeclGroupRef>();
+    for (unsigned i = 0, e = allTUVars.size(); i != e; i++) {
+      DeclGroupRef DG = allTUVars[i].get();
       for (DeclGroupRef::iterator I = DG.begin(), E = DG.end(); I != E; ++I)
         if (VarDecl *VDecl = dyn_cast<VarDecl>(*I)) {
           if (!VDecl->hasExternalStorage())
@@ -2693,8 +2712,8 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd,
   }
   ActOnObjCContainerFinishDefinition();
 
-  for (unsigned i = 0; i != tuvNum; i++) {
-    DeclGroupRef DG = allTUVars[i].getAsVal<DeclGroupRef>();
+  for (unsigned i = 0, e = allTUVars.size(); i != e; i++) {
+    DeclGroupRef DG = allTUVars[i].get();
     for (DeclGroupRef::iterator I = DG.begin(), E = DG.end(); I != E; ++I)
       (*I)->setTopLevelDeclInObjCContainer();
     Consumer.HandleTopLevelDeclInObjCContainer(DG);
@@ -3201,6 +3220,12 @@ Decl *Sema::ActOnMethodDeclaration(
     if (ObjCInterfaceDecl *IDecl = ImpDecl->getClassInterface())
       IMD = IDecl->lookupMethod(ObjCMethod->getSelector(), 
                                 ObjCMethod->isInstanceMethod());
+    if (IMD && IMD->hasAttr<ObjCRequiresSuperAttr>() &&
+        !ObjCMethod->hasAttr<ObjCRequiresSuperAttr>()) {
+      // merge the attribute into implementation.
+      ObjCMethod->addAttr(
+        new (Context) ObjCRequiresSuperAttr(ObjCMethod->getLocation(), Context));
+    }
     if (ObjCMethod->hasAttrs() &&
         containsInvalidMethodImplAttribute(IMD, ObjCMethod->getAttrs())) {
       SourceLocation MethodLoc = IMD->getLocation();
@@ -3475,4 +3500,35 @@ void Sema::DiagnoseUseOfUnimplementedSelectors() {
       Diag((*S).second, diag::warn_unimplemented_selector) << Sel;
   }
   return;
+}
+
+ObjCIvarDecl *
+Sema::GetIvarBackingPropertyAccessor(const ObjCMethodDecl *Method,
+                                     const ObjCPropertyDecl *&PDecl) const {
+  
+  const ObjCInterfaceDecl *IDecl = Method->getClassInterface();
+  if (!IDecl)
+    return 0;
+  Method = IDecl->lookupMethod(Method->getSelector(), true);
+  if (!Method || !Method->isPropertyAccessor())
+    return 0;
+  if ((PDecl = Method->findPropertyDecl()))
+    return PDecl->getPropertyIvarDecl();
+  return 0;
+}
+
+void Sema::DiagnoseUnusedBackingIvarInAccessor(Scope *S) {
+  if (S->hasUnrecoverableErrorOccurred() || !S->isInObjcMethodScope())
+    return;
+  
+  const ObjCMethodDecl *CurMethod = getCurMethodDecl();
+  if (!CurMethod)
+    return;
+  const ObjCPropertyDecl *PDecl;
+  const ObjCIvarDecl *IV = GetIvarBackingPropertyAccessor(CurMethod, PDecl);
+  if (IV && !IV->getBackingIvarReferencedInAccessor()) {
+    Diag(getCurMethodDecl()->getLocation(), diag::warn_unused_property_backing_ivar)
+    << IV->getDeclName();
+    Diag(PDecl->getLocation(), diag::note_property_declare);
+  }
 }

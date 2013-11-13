@@ -16,8 +16,8 @@
 #include "clang/Driver/ToolChain.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/Compiler.h"
-
 #include <vector>
+#include <set>
 
 namespace clang {
 namespace driver {
@@ -50,11 +50,18 @@ protected:
     /// \brief The parsed major, minor, and patch numbers.
     int Major, Minor, Patch;
 
+    /// \brief The text of the parsed major, and major+minor versions.
+    std::string MajorStr, MinorStr;
+
     /// \brief Any textual suffix on the patch number.
     std::string PatchSuffix;
 
     static GCCVersion Parse(StringRef VersionText);
-    bool operator<(const GCCVersion &RHS) const;
+    bool isOlderThan(int RHSMajor, int RHSMinor, int RHSPatch,
+                     StringRef RHSPatchSuffix = StringRef()) const;
+    bool operator<(const GCCVersion &RHS) const {
+      return isOlderThan(RHS.Major, RHS.Minor, RHS.Patch, RHS.PatchSuffix);
+    }
     bool operator>(const GCCVersion &RHS) const { return RHS < *this; }
     bool operator<=(const GCCVersion &RHS) const { return !(*this > RHS); }
     bool operator>=(const GCCVersion &RHS) const { return !(*this < RHS); }
@@ -68,16 +75,21 @@ protected:
   /// information about it. It starts from the host information provided to the
   /// Driver, and has logic for fuzzing that where appropriate.
   class GCCInstallationDetector {
-
     bool IsValid;
+    const Driver &D;
     llvm::Triple GCCTriple;
 
     // FIXME: These might be better as path objects.
     std::string GCCInstallPath;
     std::string GCCBiarchSuffix;
     std::string GCCParentLibPath;
+    std::string GCCMultiLibSuffix;
 
     GCCVersion Version;
+
+    // We retain the list of install paths that were considered and rejected in
+    // order to print out detailed information in verbose mode.
+    std::set<std::string> CandidateGCCInstallPaths;
 
   public:
     GCCInstallationDetector(const Driver &D, const llvm::Triple &TargetTriple,
@@ -99,8 +111,14 @@ protected:
     /// \brief Get the detected GCC parent lib path.
     StringRef getParentLibPath() const { return GCCParentLibPath; }
 
+    /// \brief Get the detected GCC lib path suffix.
+    StringRef getMultiLibSuffix() const { return GCCMultiLibSuffix; }
+
     /// \brief Get the detected GCC version string.
     const GCCVersion &getVersion() const { return Version; }
+
+    /// \brief Print information about the detected GCC installation.
+    void print(raw_ostream &OS) const;
 
   private:
     static void
@@ -116,6 +134,11 @@ protected:
                                 const std::string &LibDir,
                                 StringRef CandidateTriple,
                                 bool NeedsBiarchSuffix = false);
+
+    void findMultiLibSuffix(std::string &Suffix,
+                            llvm::Triple::ArchType TargetArch,
+                            StringRef Path,
+                            const llvm::opt::ArgList &Args);
   };
 
   GCCInstallationDetector GCCInstallation;
@@ -124,6 +147,8 @@ public:
   Generic_GCC(const Driver &D, const llvm::Triple &Triple,
               const llvm::opt::ArgList &Args);
   ~Generic_GCC();
+
+  virtual void printVerboseInfo(raw_ostream &OS) const;
 
   virtual bool IsUnwindTablesDefault() const;
   virtual bool isPICDefault() const;
@@ -502,6 +527,14 @@ public:
   virtual void
   AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                                llvm::opt::ArgStringList &CC1Args) const;
+  virtual bool IsUnwindTablesDefault() const {
+    return true;
+  }
+  virtual bool IsIntegratedAssemblerDefault() const {
+    if (getTriple().getArch() == llvm::Triple::ppc)
+      return true;
+    return Generic_ELF::IsIntegratedAssemblerDefault();
+  }
 
 protected:
   virtual Tool *buildAssembler() const;
@@ -552,7 +585,6 @@ public:
 
   std::string Linker;
   std::vector<std::string> ExtraOpts;
-  bool IsPIEDefault;
 
 protected:
   virtual Tool *buildAssembler() const;
@@ -568,7 +600,7 @@ private:
                                        const llvm::opt::ArgList &DriverArgs,
                                        llvm::opt::ArgStringList &CC1Args);
 
-  std::string computeSysRoot(const llvm::opt::ArgList &Args) const;
+  std::string computeSysRoot() const;
 };
 
 class LLVM_LIBRARY_VISIBILITY Hexagon_TC : public Linux {
@@ -632,6 +664,30 @@ public:
 protected:
   virtual Tool *buildLinker() const;
   virtual Tool *buildAssembler() const;
+};
+
+
+class LLVM_LIBRARY_VISIBILITY XCore : public ToolChain {
+public:
+  XCore(const Driver &D, const llvm::Triple &Triple,
+          const llvm::opt::ArgList &Args);
+protected:
+  virtual Tool *buildAssembler() const;
+  virtual Tool *buildLinker() const;
+public:
+  virtual bool isPICDefault() const;
+  virtual bool isPIEDefault() const;
+  virtual bool isPICDefaultForced() const;
+  virtual bool SupportsProfiling() const;
+  virtual bool hasBlocksRuntime() const;
+  virtual void AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const;
+  virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+                                     llvm::opt::ArgStringList &CC1Args) const;
+  virtual void AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                               llvm::opt::ArgStringList &CC1Args) const;
+  virtual void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                                   llvm::opt::ArgStringList &CmdArgs) const;
 };
 
 } // end namespace toolchains
