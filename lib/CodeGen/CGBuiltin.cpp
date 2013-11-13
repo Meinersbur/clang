@@ -4300,5 +4300,495 @@ Value *CodeGenFunction::EmitPPCBuiltinExpr(unsigned BuiltinID,
     llvm::Function *F = CGM.getIntrinsic(ID);
     return Builder.CreateCall(F, Ops, "");
   }
+
+  // FP2 (Double Hummer)
+  case PPC::BI__builtin_fp2_fpadd:
+  case PPC::BI__builtin_fp2_fpsub:
+  case PPC::BI__builtin_fp2_fpre:
+  case PPC::BI__builtin_fp2_fprsqrte:
+  case PPC::BI__builtin_fp2_fpmul:
+  case PPC::BI__builtin_fp2_fxmul:
+  case PPC::BI__builtin_fp2_fxpmul:
+  case PPC::BI__builtin_fp2_fxsmul:
+  case PPC::BI__builtin_fp2_fpmadd:
+  case PPC::BI__builtin_fp2_fpnmadd:
+  case PPC::BI__builtin_fp2_fpmsub:
+  case PPC::BI__builtin_fp2_fpnmsub:
+  case PPC::BI__builtin_fp2_fxmadd:
+  case PPC::BI__builtin_fp2_fxnmadd:
+  case PPC::BI__builtin_fp2_fxmsub:
+  case PPC::BI__builtin_fp2_fxnmsub:
+  case PPC::BI__builtin_fp2_fxcpmadd:
+  case PPC::BI__builtin_fp2_fxcsmadd:
+  case PPC::BI__builtin_fp2_fxcpnmadd:
+  case PPC::BI__builtin_fp2_fxcsnmadd:
+  case PPC::BI__builtin_fp2_fxcpmsub:
+  case PPC::BI__builtin_fp2_fxcsmsub:
+  case PPC::BI__builtin_fp2_fxcpnmsub:
+  case PPC::BI__builtin_fp2_fxcsnmsub:
+  case PPC::BI__builtin_fp2_fxcpnpma:
+  case PPC::BI__builtin_fp2_fxcsnpma:
+  case PPC::BI__builtin_fp2_fxcpnsma:
+  case PPC::BI__builtin_fp2_fxcsnsma:
+  case PPC::BI__builtin_fp2_fxcxnpma:
+  case PPC::BI__builtin_fp2_fxcxnsma:
+  case PPC::BI__builtin_fp2_fxcxma:
+  case PPC::BI__builtin_fp2_fxcxnms:
+  case PPC::BI__builtin_fp2_fpsel:
+  case PPC::BI__builtin_fp2_fpctiw:
+  case PPC::BI__builtin_fp2_fpctiwz:
+  case PPC::BI__builtin_fp2_fprsp:
+  case PPC::BI__builtin_fp2_fpneg:
+  case PPC::BI__builtin_fp2_fpabs:
+  case PPC::BI__builtin_fp2_fpnabs:
+  case PPC::BI__builtin_fp2_fxmr:
+  case PPC::BI__builtin_fp2_lfps:
+  case PPC::BI__builtin_fp2_lfxs:
+  case PPC::BI__builtin_fp2_lfpd:
+  case PPC::BI__builtin_fp2_lfxd:
+  case PPC::BI__builtin_fp2_stfps:
+  case PPC::BI__builtin_fp2_stfxs:
+  case PPC::BI__builtin_fp2_stfpd:
+  case PPC::BI__builtin_fp2_stfxd:
+  case PPC::BI__builtin_fp2_stfpiw:
+  {
+    switch (BuiltinID) {
+    default: llvm_unreachable("Unsupported fp2 intrinsic!");
+    case PPC::BI__builtin_fp2_fpadd:
+      ID = Intrinsic::ppc_fp2_fpadd;
+      break;
+    case PPC::BI__builtin_fp2_fpsub:
+      ID = Intrinsic::ppc_fp2_fpsub;
+      break;
+    case PPC::BI__builtin_fp2_fpre:
+      ID = Intrinsic::ppc_fp2_fpre;
+      break;
+    case PPC::BI__builtin_fp2_fprsqrte:
+      ID = Intrinsic::ppc_fp2_fprsqrte;
+      break;
+    case PPC::BI__builtin_fp2_fpmul:
+      ID = Intrinsic::ppc_fp2_fpmul;
+      break;
+    case PPC::BI__builtin_fp2_fxmul:
+      ID = Intrinsic::ppc_fp2_fxmul;
+      break;
+    case PPC::BI__builtin_fp2_fxpmul:
+      ID = Intrinsic::ppc_fp2_fxpmul;
+      break;
+    case PPC::BI__builtin_fp2_fxsmul:
+      ID = Intrinsic::ppc_fp2_fxsmul;
+      break;
+    case PPC::BI__builtin_fp2_fpmadd:
+      ID = Intrinsic::ppc_fp2_fpmadd;
+      break;
+    case PPC::BI__builtin_fp2_fpnmadd:
+      ID = Intrinsic::ppc_fp2_fpnmadd;
+      break;
+    case PPC::BI__builtin_fp2_fpmsub:
+      ID = Intrinsic::ppc_fp2_fpmsub;
+      break;
+    case PPC::BI__builtin_fp2_fpnmsub:
+      ID = Intrinsic::ppc_fp2_fpnmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxmadd:
+      ID = Intrinsic::ppc_fp2_fxmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxnmadd:
+      ID = Intrinsic::ppc_fp2_fxnmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxmsub:
+      ID = Intrinsic::ppc_fp2_fxmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxnmsub:
+      ID = Intrinsic::ppc_fp2_fxnmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxcpmadd:
+      ID = Intrinsic::ppc_fp2_fxcpmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxcsmadd:
+      ID = Intrinsic::ppc_fp2_fxcsmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxcpnmadd:
+      ID = Intrinsic::ppc_fp2_fxcpnmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxcsnmadd:
+      ID = Intrinsic::ppc_fp2_fxcsnmadd;
+      break;
+    case PPC::BI__builtin_fp2_fxcpmsub:
+      ID = Intrinsic::ppc_fp2_fxcpmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxcsmsub:
+      ID = Intrinsic::ppc_fp2_fxcsmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxcpnmsub:
+      ID = Intrinsic::ppc_fp2_fxcpnmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxcsnmsub:
+      ID = Intrinsic::ppc_fp2_fxcsnmsub;
+      break;
+    case PPC::BI__builtin_fp2_fxcpnpma:
+      ID = Intrinsic::ppc_fp2_fxcpnpma;
+      break;
+    case PPC::BI__builtin_fp2_fxcsnpma:
+      ID = Intrinsic::ppc_fp2_fxcsnpma;
+      break;
+    case PPC::BI__builtin_fp2_fxcpnsma:
+      ID = Intrinsic::ppc_fp2_fxcpnsma;
+      break;
+    case PPC::BI__builtin_fp2_fxcsnsma:
+      ID = Intrinsic::ppc_fp2_fxcsnsma;
+      break;
+    case PPC::BI__builtin_fp2_fxcxnpma:
+      ID = Intrinsic::ppc_fp2_fxcxnpma;
+      break;
+    case PPC::BI__builtin_fp2_fxcxnsma:
+      ID = Intrinsic::ppc_fp2_fxcxnsma;
+      break;
+    case PPC::BI__builtin_fp2_fxcxma:
+      ID = Intrinsic::ppc_fp2_fxcxma;
+      break;
+    case PPC::BI__builtin_fp2_fxcxnms:
+      ID = Intrinsic::ppc_fp2_fxcxnms;
+      break;
+    case PPC::BI__builtin_fp2_fpsel:
+      ID = Intrinsic::ppc_fp2_fpsel;
+      break;
+    case PPC::BI__builtin_fp2_fpctiw:
+      ID = Intrinsic::ppc_fp2_fpctiw;
+      break;
+    case PPC::BI__builtin_fp2_fpctiwz:
+      ID = Intrinsic::ppc_fp2_fpctiwz;
+      break;
+    case PPC::BI__builtin_fp2_fprsp:
+      ID = Intrinsic::ppc_fp2_fprsp;
+      break;
+    case PPC::BI__builtin_fp2_fpneg:
+      ID = Intrinsic::ppc_fp2_fpneg;
+      break;
+    case PPC::BI__builtin_fp2_fpabs:
+      ID = Intrinsic::ppc_fp2_fpabs;
+      break;
+    case PPC::BI__builtin_fp2_fpnabs:
+      ID = Intrinsic::ppc_fp2_fpnabs;
+      break;
+    case PPC::BI__builtin_fp2_fxmr:
+      ID = Intrinsic::ppc_fp2_fxmr;
+      break;
+    case PPC::BI__builtin_fp2_lfps:
+      ID = Intrinsic::ppc_fp2_lfps;
+      break;
+    case PPC::BI__builtin_fp2_lfxs:
+      ID = Intrinsic::ppc_fp2_lfxs;
+      break;
+    case PPC::BI__builtin_fp2_lfpd:
+      ID = Intrinsic::ppc_fp2_lfpd;
+      break;
+    case PPC::BI__builtin_fp2_lfxd:
+      ID = Intrinsic::ppc_fp2_lfxd;
+      break;
+    case PPC::BI__builtin_fp2_stfps:
+      ID = Intrinsic::ppc_fp2_stfps;
+      break;
+    case PPC::BI__builtin_fp2_stfxs:
+      ID = Intrinsic::ppc_fp2_stfxs;
+      break;
+    case PPC::BI__builtin_fp2_stfpd:
+      ID = Intrinsic::ppc_fp2_stfpd;
+      break;
+    case PPC::BI__builtin_fp2_stfxd:
+      ID = Intrinsic::ppc_fp2_stfxd;
+      break;
+    case PPC::BI__builtin_fp2_stfpiw:
+      ID = Intrinsic::ppc_fp2_stfpiw;
+      break;
+    }
+    llvm::Function *F = CGM.getIntrinsic(ID);
+    return Builder.CreateCall(F, Ops, "");
+  }
+
+  // QPX
+  case PPC::BI__builtin_qpx_qvfabs:
+  case PPC::BI__builtin_qpx_qvfctid:
+  case PPC::BI__builtin_qpx_qvfcfid:
+  case PPC::BI__builtin_qpx_qvfcfidu:
+  case PPC::BI__builtin_qpx_qvfctidu:
+  case PPC::BI__builtin_qpx_qvfctiduz:
+  case PPC::BI__builtin_qpx_qvfctidz:
+  case PPC::BI__builtin_qpx_qvfctiw:
+  case PPC::BI__builtin_qpx_qvfctiwu:
+  case PPC::BI__builtin_qpx_qvfctiwuz:
+  case PPC::BI__builtin_qpx_qvfctiwz:
+  case PPC::BI__builtin_qpx_qvfnabs:
+  case PPC::BI__builtin_qpx_qvfneg:
+  case PPC::BI__builtin_qpx_qvfre:
+  case PPC::BI__builtin_qpx_qvfres:
+  case PPC::BI__builtin_qpx_qvfrim:
+  case PPC::BI__builtin_qpx_qvfrin:
+  case PPC::BI__builtin_qpx_qvfrip:
+  case PPC::BI__builtin_qpx_qvfriz:
+  case PPC::BI__builtin_qpx_qvfrsp:
+  case PPC::BI__builtin_qpx_qvfrsqrte:
+  case PPC::BI__builtin_qpx_qvfrsqrtes:
+  case PPC::BI__builtin_qpx_qvfadd:
+  case PPC::BI__builtin_qpx_qvfcmpeq:
+  case PPC::BI__builtin_qpx_qvfcmpgt:
+  case PPC::BI__builtin_qpx_qvfcmplt:
+  case PPC::BI__builtin_qpx_qvfcpsgn:
+  case PPC::BI__builtin_qpx_qvfmadd:
+  case PPC::BI__builtin_qpx_qvfmsub:
+  case PPC::BI__builtin_qpx_qvfmul:
+  case PPC::BI__builtin_qpx_qvfnmadd:
+  case PPC::BI__builtin_qpx_qvfnmsub:
+  case PPC::BI__builtin_qpx_qvfsel:
+  case PPC::BI__builtin_qpx_qvfsub:
+  case PPC::BI__builtin_qpx_qvftstnan:
+  case PPC::BI__builtin_qpx_qvfxmadd:
+  case PPC::BI__builtin_qpx_qvfxmul:
+  case PPC::BI__builtin_qpx_qvfxxcpnmadd:
+  case PPC::BI__builtin_qpx_qvfxxmadd:
+  case PPC::BI__builtin_qpx_qvfxxnpmadd:
+  case PPC::BI__builtin_qpx_qvflogical:
+  case PPC::BI__builtin_qpx_qvfperm:
+  case PPC::BI__builtin_qpx_qvlpcld:
+  case PPC::BI__builtin_qpx_qvlpcls:
+  case PPC::BI__builtin_qpx_qvlpcrd:
+  case PPC::BI__builtin_qpx_qvlpcrs:
+  case PPC::BI__builtin_qpx_qvgpci:
+  case PPC::BI__builtin_qpx_qvlfcda:
+  case PPC::BI__builtin_qpx_qvlfcd:
+  case PPC::BI__builtin_qpx_qvlfcsa:
+  case PPC::BI__builtin_qpx_qvlfcs:
+  case PPC::BI__builtin_qpx_qvlfda:
+  case PPC::BI__builtin_qpx_qvlfd:
+  case PPC::BI__builtin_qpx_qvlfiwaa:
+  case PPC::BI__builtin_qpx_qvlfiwa:
+  case PPC::BI__builtin_qpx_qvlfiwza:
+  case PPC::BI__builtin_qpx_qvlfiwz:
+  case PPC::BI__builtin_qpx_qvlfsa:
+  case PPC::BI__builtin_qpx_qvlfs:
+  case PPC::BI__builtin_qpx_qvstfcda:
+  case PPC::BI__builtin_qpx_qvstfcd:
+  case PPC::BI__builtin_qpx_qvstfcsa:
+  case PPC::BI__builtin_qpx_qvstfcs:
+  case PPC::BI__builtin_qpx_qvstfda:
+  case PPC::BI__builtin_qpx_qvstfd:
+  case PPC::BI__builtin_qpx_qvstfiwa:
+  case PPC::BI__builtin_qpx_qvstfiw:
+  case PPC::BI__builtin_qpx_qvstfsa:
+  case PPC::BI__builtin_qpx_qvstfs:
+  {
+    switch (BuiltinID) {
+    default: llvm_unreachable("Unsupported qpx intrinsic!");
+    case PPC::BI__builtin_qpx_qvfabs:
+      ID = Intrinsic::ppc_qpx_qvfabs;
+      break;
+    case PPC::BI__builtin_qpx_qvfctid:
+      ID = Intrinsic::ppc_qpx_qvfctid;
+      break;
+    case PPC::BI__builtin_qpx_qvfcfid:
+      ID = Intrinsic::ppc_qpx_qvfcfid;
+      break;
+    case PPC::BI__builtin_qpx_qvfcfidu:
+      ID = Intrinsic::ppc_qpx_qvfcfidu;
+      break;
+    case PPC::BI__builtin_qpx_qvfctidu:
+      ID = Intrinsic::ppc_qpx_qvfctidu;
+      break;
+    case PPC::BI__builtin_qpx_qvfctiduz:
+      ID = Intrinsic::ppc_qpx_qvfctiduz;
+      break;
+    case PPC::BI__builtin_qpx_qvfctidz:
+      ID = Intrinsic::ppc_qpx_qvfctidz;
+      break;
+    case PPC::BI__builtin_qpx_qvfctiw:
+      ID = Intrinsic::ppc_qpx_qvfctiw;
+      break;
+    case PPC::BI__builtin_qpx_qvfctiwu:
+      ID = Intrinsic::ppc_qpx_qvfctiwu;
+      break;
+    case PPC::BI__builtin_qpx_qvfctiwuz:
+      ID = Intrinsic::ppc_qpx_qvfctiwuz;
+      break;
+    case PPC::BI__builtin_qpx_qvfctiwz:
+      ID = Intrinsic::ppc_qpx_qvfctiwz;
+      break;
+    case PPC::BI__builtin_qpx_qvfnabs:
+      ID = Intrinsic::ppc_qpx_qvfnabs;
+      break;
+    case PPC::BI__builtin_qpx_qvfneg:
+      ID = Intrinsic::ppc_qpx_qvfneg;
+      break;
+    case PPC::BI__builtin_qpx_qvfre:
+      ID = Intrinsic::ppc_qpx_qvfre;
+      break;
+    case PPC::BI__builtin_qpx_qvfres:
+      ID = Intrinsic::ppc_qpx_qvfres;
+      break;
+    case PPC::BI__builtin_qpx_qvfrim:
+      ID = Intrinsic::ppc_qpx_qvfrim;
+      break;
+    case PPC::BI__builtin_qpx_qvfrin:
+      ID = Intrinsic::ppc_qpx_qvfrin;
+      break;
+    case PPC::BI__builtin_qpx_qvfrip:
+      ID = Intrinsic::ppc_qpx_qvfrip;
+      break;
+    case PPC::BI__builtin_qpx_qvfriz:
+      ID = Intrinsic::ppc_qpx_qvfriz;
+      break;
+    case PPC::BI__builtin_qpx_qvfrsp:
+      ID = Intrinsic::ppc_qpx_qvfrsp;
+      break;
+    case PPC::BI__builtin_qpx_qvfrsqrte:
+      ID = Intrinsic::ppc_qpx_qvfrsqrte;
+      break;
+    case PPC::BI__builtin_qpx_qvfrsqrtes:
+      ID = Intrinsic::ppc_qpx_qvfrsqrtes;
+      break;
+    case PPC::BI__builtin_qpx_qvfadd:
+      ID = Intrinsic::ppc_qpx_qvfadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfcmpeq:
+      ID = Intrinsic::ppc_qpx_qvfcmpeq;
+      break;
+    case PPC::BI__builtin_qpx_qvfcmpgt:
+      ID = Intrinsic::ppc_qpx_qvfcmpgt;
+      break;
+    case PPC::BI__builtin_qpx_qvfcmplt:
+      ID = Intrinsic::ppc_qpx_qvfcmplt;
+      break;
+    case PPC::BI__builtin_qpx_qvfcpsgn:
+      ID = Intrinsic::ppc_qpx_qvfcpsgn;
+      break;
+    case PPC::BI__builtin_qpx_qvfmadd:
+      ID = Intrinsic::ppc_qpx_qvfmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfmsub:
+      ID = Intrinsic::ppc_qpx_qvfmsub;
+      break;
+    case PPC::BI__builtin_qpx_qvfmul:
+      ID = Intrinsic::ppc_qpx_qvfmul;
+      break;
+    case PPC::BI__builtin_qpx_qvfnmadd:
+      ID = Intrinsic::ppc_qpx_qvfnmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfnmsub:
+      ID = Intrinsic::ppc_qpx_qvfnmsub;
+      break;
+    case PPC::BI__builtin_qpx_qvfsel:
+      ID = Intrinsic::ppc_qpx_qvfsel;
+      break;
+    case PPC::BI__builtin_qpx_qvfsub:
+      ID = Intrinsic::ppc_qpx_qvfsub;
+      break;
+    case PPC::BI__builtin_qpx_qvftstnan:
+      ID = Intrinsic::ppc_qpx_qvftstnan;
+      break;
+    case PPC::BI__builtin_qpx_qvfxmadd:
+      ID = Intrinsic::ppc_qpx_qvfxmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfxmul:
+      ID = Intrinsic::ppc_qpx_qvfxmul;
+      break;
+    case PPC::BI__builtin_qpx_qvfxxcpnmadd:
+      ID = Intrinsic::ppc_qpx_qvfxxcpnmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfxxmadd:
+      ID = Intrinsic::ppc_qpx_qvfxxmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvfxxnpmadd:
+      ID = Intrinsic::ppc_qpx_qvfxxnpmadd;
+      break;
+    case PPC::BI__builtin_qpx_qvflogical:
+      ID = Intrinsic::ppc_qpx_qvflogical;
+      break;
+    case PPC::BI__builtin_qpx_qvfperm:
+      ID = Intrinsic::ppc_qpx_qvfperm;
+      break;
+    case PPC::BI__builtin_qpx_qvlpcld:
+      ID = Intrinsic::ppc_qpx_qvlpcld;
+      break;
+    case PPC::BI__builtin_qpx_qvlpcls:
+      ID = Intrinsic::ppc_qpx_qvlpcls;
+      break;
+    case PPC::BI__builtin_qpx_qvlpcrd:
+      ID = Intrinsic::ppc_qpx_qvlpcrd;
+      break;
+    case PPC::BI__builtin_qpx_qvlpcrs:
+      ID = Intrinsic::ppc_qpx_qvlpcrs;
+      break;
+    case PPC::BI__builtin_qpx_qvgpci:
+      ID = Intrinsic::ppc_qpx_qvgpci;
+      break;
+    case PPC::BI__builtin_qpx_qvlfcda:
+      ID = Intrinsic::ppc_qpx_qvlfcda;
+      break;
+    case PPC::BI__builtin_qpx_qvlfcd:
+      ID = Intrinsic::ppc_qpx_qvlfcd;
+      break;
+    case PPC::BI__builtin_qpx_qvlfcsa:
+      ID = Intrinsic::ppc_qpx_qvlfcsa;
+      break;
+    case PPC::BI__builtin_qpx_qvlfcs:
+      ID = Intrinsic::ppc_qpx_qvlfcs;
+      break;
+    case PPC::BI__builtin_qpx_qvlfda:
+      ID = Intrinsic::ppc_qpx_qvlfda;
+      break;
+    case PPC::BI__builtin_qpx_qvlfd:
+      ID = Intrinsic::ppc_qpx_qvlfd;
+      break;
+    case PPC::BI__builtin_qpx_qvlfiwaa:
+      ID = Intrinsic::ppc_qpx_qvlfiwaa;
+      break;
+    case PPC::BI__builtin_qpx_qvlfiwa:
+      ID = Intrinsic::ppc_qpx_qvlfiwa;
+      break;
+    case PPC::BI__builtin_qpx_qvlfiwza:
+      ID = Intrinsic::ppc_qpx_qvlfiwza;
+      break;
+    case PPC::BI__builtin_qpx_qvlfiwz:
+      ID = Intrinsic::ppc_qpx_qvlfiwz;
+      break;
+    case PPC::BI__builtin_qpx_qvlfsa:
+      ID = Intrinsic::ppc_qpx_qvlfsa;
+      break;
+    case PPC::BI__builtin_qpx_qvlfs:
+      ID = Intrinsic::ppc_qpx_qvlfs;
+      break;
+    case PPC::BI__builtin_qpx_qvstfcda:
+      ID = Intrinsic::ppc_qpx_qvstfcda;
+      break;
+    case PPC::BI__builtin_qpx_qvstfcd:
+      ID = Intrinsic::ppc_qpx_qvstfcd;
+      break;
+    case PPC::BI__builtin_qpx_qvstfcsa:
+      ID = Intrinsic::ppc_qpx_qvstfcsa;
+      break;
+    case PPC::BI__builtin_qpx_qvstfcs:
+      ID = Intrinsic::ppc_qpx_qvstfcs;
+      break;
+    case PPC::BI__builtin_qpx_qvstfda:
+      ID = Intrinsic::ppc_qpx_qvstfda;
+      break;
+    case PPC::BI__builtin_qpx_qvstfd:
+      ID = Intrinsic::ppc_qpx_qvstfd;
+      break;
+    case PPC::BI__builtin_qpx_qvstfiwa:
+      ID = Intrinsic::ppc_qpx_qvstfiwa;
+      break;
+    case PPC::BI__builtin_qpx_qvstfiw:
+      ID = Intrinsic::ppc_qpx_qvstfiw;
+      break;
+    case PPC::BI__builtin_qpx_qvstfsa:
+      ID = Intrinsic::ppc_qpx_qvstfsa;
+      break;
+    case PPC::BI__builtin_qpx_qvstfs:
+      ID = Intrinsic::ppc_qpx_qvstfs;
+      break;
+    }
+    llvm::Function *F = CGM.getIntrinsic(ID);
+    return Builder.CreateCall(F, Ops, "");
+  }
   }
 }

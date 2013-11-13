@@ -2006,6 +2006,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
+  if (Args.hasArg(options::OPT_fopenmp))
+    CmdArgs.push_back("-fopenmp");
+
   // Add the "effective" target triple.
   CmdArgs.push_back("-triple");
   std::string TripleStr = getToolChain().ComputeEffectiveClangTriple(Args);
@@ -4933,7 +4936,7 @@ void darwin::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (Args.hasArg(options::OPT_fopenmp))
     // This is more complicated in gcc...
-    CmdArgs.push_back("-lgomp");
+    CmdArgs.push_back("-liomp5");
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
   
@@ -6411,7 +6414,7 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
       bool OpenMP = Args.hasArg(options::OPT_fopenmp);
       if (OpenMP) {
-        CmdArgs.push_back("-lgomp");
+        CmdArgs.push_back("-liomp5");
 
         // FIXME: Exclude this for platforms whith libgomp that doesn't require
         // librt. Most modern Linux platfroms require it, but some may not.
@@ -6424,7 +6427,23 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
           Args.hasArg(options::OPT_pthreads) || OpenMP)
         CmdArgs.push_back("-lpthread");
 
+      // FIXME: This is BG/Q specific...
+      // For compatibility with the vendor compilers, link
+      // with libdl by default.
+      if (Args.hasArg(options::OPT_static)) {
+        CmdArgs.push_back("-ldl");
+      }
+
       CmdArgs.push_back("-lc");
+
+      // FIXME: This is BG/Q specific...
+      // (libc, etc. pulls in some of these things)
+      if (Args.hasArg(options::OPT_static)) {
+        CmdArgs.push_back("-lnss_files");
+        CmdArgs.push_back("-lnss_dns");
+        CmdArgs.push_back("-lresolv");
+        CmdArgs.push_back("-lm");
+      }
 
       if (Args.hasArg(options::OPT_static))
         CmdArgs.push_back("--end-group");

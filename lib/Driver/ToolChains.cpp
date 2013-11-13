@@ -1044,6 +1044,8 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
     }
 
     // Then look for gcc installed alongside clang.
+    Prefixes.push_back(D.SysRoot);
+    Prefixes.push_back(D.SysRoot + "/usr");
     Prefixes.push_back(D.InstalledDir + "/..");
 
     // And finally in /usr.
@@ -2349,6 +2351,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
   // targeting x86_64, but it is a bi-arch GCC installation, it can also be
   // used to target i386.
   // FIXME: This seems unlikely to be Linux-specific.
+  // This is needed for the BG/P as well.
   ToolChain::path_list &PPaths = getProgramPaths();
   PPaths.push_back(Twine(GCCInstallation.getParentLibPath() + "/../" +
                          GCCInstallation.getTriple().str() + "/bin").str());
@@ -2465,10 +2468,6 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
       addPathIfExists(LibPath + "/../" + Multilib, Paths);
     }
   }
-  addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
-  addPathIfExists(SysRoot + "/lib/../" + Multilib, Paths);
-  addPathIfExists(SysRoot + "/usr/lib/" + MultiarchTriple, Paths);
-  addPathIfExists(SysRoot + "/usr/lib/../" + Multilib, Paths);
 
   // Try walking via the GCC triple path in case of biarch or multiarch GCC
   // installations with strange symlinks.
@@ -2493,6 +2492,11 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     if (StringRef(LibPath).startswith(SysRoot))
       addPathIfExists(LibPath, Paths);
   }
+  addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
+  addPathIfExists(SysRoot + "/lib/../" + Multilib, Paths);
+  addPathIfExists(SysRoot + "/usr/lib/" + MultiarchTriple, Paths);
+  addPathIfExists(SysRoot + "/usr/lib/../" + Multilib, Paths);
+
   addPathIfExists(SysRoot + "/lib", Paths);
   addPathIfExists(SysRoot + "/usr/lib", Paths);
 }
@@ -2715,6 +2719,22 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   addSystemInclude(DriverArgs, CC1Args, Base + "/" + TargetArchDir + Suffix
                    + MIPSABIDirSuffix + BiarchSuffix);
   return true;
+}
+
+void Linux::AddCXXStdlibLibArgs(const ArgList &Args,
+                                 ArgStringList &CmdArgs) const {
+  if (GetCXXStdlibType(Args) == ToolChain::CST_Libcxx) {
+    CmdArgs.push_back("-lc++");
+
+    // For static linking, we also need to explicitly link to libstdc++
+    // for the cxxabi exception objects.
+    if (Args.hasArg(options::OPT_static)) {
+      CmdArgs.push_back("-lrt");
+      CmdArgs.push_back("-lpthread");
+    }
+  }
+
+  CmdArgs.push_back("-lstdc++");
 }
 
 void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,

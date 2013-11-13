@@ -597,6 +597,9 @@ public:
                                llvm::opt::ArgStringList &CC1Args) const;
   virtual bool isPIEDefault() const;
 
+  virtual void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                                   llvm::opt::ArgStringList &CmdArgs) const;
+
   std::string Linker;
   std::vector<std::string> ExtraOpts;
 

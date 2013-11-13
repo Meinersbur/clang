@@ -45,6 +45,7 @@ set(files
   cpuid.h
   unwind.h
   module.map
+  qpxintrin.h
   )
 
 set(output_dir ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/clang/${CLANG_VERSION}/include)
