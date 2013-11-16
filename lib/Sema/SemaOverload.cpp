@@ -10543,16 +10543,16 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, unsigned OpcIn,
         Input = InputInit.take();
       }
 
-      // Determine the result type.
-      QualType ResultTy = FnDecl->getResultType();
-      ExprValueKind VK = Expr::getValueKindForType(ResultTy);
-      ResultTy = ResultTy.getNonLValueExprType(Context);
-
       // Build the actual expression node.
       ExprResult FnExpr = CreateFunctionRefExpr(*this, FnDecl, Best->FoundDecl,
                                                 HadMultipleCandidates, OpLoc);
       if (FnExpr.isInvalid())
         return ExprError();
+
+      // Determine the result type.
+      QualType ResultTy = FnDecl->getResultType();
+      ExprValueKind VK = Expr::getValueKindForType(ResultTy);
+      ResultTy = ResultTy.getNonLValueExprType(Context);
 
       Args[0] = Input;
       CallExpr *TheCall =
@@ -10780,17 +10780,17 @@ Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
           Args[1] = RHS = MarkAsImplicitConversion(Context, Arg1);
         }
 
-        // Determine the result type.
-        QualType ResultTy = FnDecl->getResultType();
-        ExprValueKind VK = Expr::getValueKindForType(ResultTy);
-        ResultTy = ResultTy.getNonLValueExprType(Context);
-
         // Build the actual expression node.
         ExprResult FnExpr = CreateFunctionRefExpr(*this, FnDecl,
                                                   Best->FoundDecl,
                                                   HadMultipleCandidates, OpLoc);
         if (FnExpr.isInvalid())
           return ExprError();
+
+        // Determine the result type.
+        QualType ResultTy = FnDecl->getResultType();
+        ExprValueKind VK = Expr::getValueKindForType(ResultTy);
+        ResultTy = ResultTy.getNonLValueExprType(Context);
 
         CXXOperatorCallExpr *TheCall =
           new (Context) CXXOperatorCallExpr(Context, Op, FnExpr.take(),
@@ -10992,11 +10992,6 @@ Sema::CreateOverloadedArraySubscriptExpr(SourceLocation LLoc,
 
         Args[1] = InputInit.takeAs<Expr>();
 
-        // Determine the result type
-        QualType ResultTy = FnDecl->getResultType();
-        ExprValueKind VK = Expr::getValueKindForType(ResultTy);
-        ResultTy = ResultTy.getNonLValueExprType(Context);
-
         // Build the actual expression node.
         DeclarationNameInfo OpLocInfo(OpName, LLoc);
         OpLocInfo.setCXXOperatorNameRange(SourceRange(LLoc, RLoc));
@@ -11007,6 +11002,11 @@ Sema::CreateOverloadedArraySubscriptExpr(SourceLocation LLoc,
                                                   OpLocInfo.getInfo());
         if (FnExpr.isInvalid())
           return ExprError();
+
+        // Determine the result type
+        QualType ResultTy = FnDecl->getResultType();
+        ExprValueKind VK = Expr::getValueKindForType(ResultTy);
+        ResultTy = ResultTy.getNonLValueExprType(Context);
 
         CXXOperatorCallExpr *TheCall =
           new (Context) CXXOperatorCallExpr(Context, OO_Subscript,

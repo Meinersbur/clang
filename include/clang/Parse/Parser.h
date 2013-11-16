@@ -2090,7 +2090,7 @@ private:
   isCXX11AttributeSpecifier(bool Disambiguate = false,
                             bool OuterMightBeMessageSend = false);
 
-  void DiagnoseUnexpectedNamespace(DeclContext *Context);
+  void DiagnoseUnexpectedNamespace(NamedDecl *Context);
 
   Decl *ParseNamespace(unsigned Context, SourceLocation &DeclEnd,
                        SourceLocation InlineLoc = SourceLocation());

@@ -667,6 +667,10 @@ ANNOTATION(pragma_opencl_extension)
 ANNOTATION(pragma_openmp)
 ANNOTATION(pragma_openmp_end)
 
+// Annotation for module import translated from #include etc.
+ANNOTATION(module_include)
+
+
 ANNOTATION(pragma_molly)
 ANNOTATION(pragma_molly_end)
 
