@@ -767,15 +767,13 @@ public:
                  SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0),
                  bool NoCount = false) {
     tok::TokenKind TokArray[] = {T1, T2};
-    return SkipUntil(TokArray, Flags);
-                     NoCount);
+    return SkipUntil(TokArray, Flags, NoCount);
   }
   bool SkipUntil(tok::TokenKind T1, tok::TokenKind T2, tok::TokenKind T3,
                  SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0), bool NoCount = false) {
 
     tok::TokenKind TokArray[] = {T1, T2, T3};
-    return SkipUntil(TokArray, Flags);
-                     NoCount);
+    return SkipUntil(TokArray, Flags, NoCount);
   }
   bool SkipUntil(ArrayRef<tok::TokenKind> Toks,
                  SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0),

@@ -65,7 +65,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirective() {
       << getOpenMPDirectiveName(DKind);
     break;
   }
-  SkipUntil(tok::annot_pragma_openmp_end, true);
+  SkipUntil(tok::annot_pragma_openmp_end, (SkipUntilFlags)0, true);
   return DeclGroupPtrTy();
 }
 
@@ -160,7 +160,7 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
                                                   Identifiers);
       Directive = Actions.ActOnDeclStmt(Res, Loc, Tok.getLocation());
     }
-    SkipUntil(tok::annot_pragma_openmp_end, true);
+    SkipUntil(tok::annot_pragma_openmp_end, (SkipUntilFlags)0, true);
     break;
   case OMPD_critical:
     // Parse name of critical if any.
@@ -355,12 +355,12 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
     break;
   case OMPD_unknown:
     Diag(Tok, diag::err_omp_unknown_directive);
-    SkipUntil(tok::annot_pragma_openmp_end, true);
+    SkipUntil(tok::annot_pragma_openmp_end, (SkipUntilFlags)0, true);
     break;
   default:
     Diag(Tok, diag::err_omp_unexpected_directive)
       << getOpenMPDirectiveName(DKind);
-    SkipUntil(tok::annot_pragma_openmp_end, true);
+    SkipUntil(tok::annot_pragma_openmp_end, (SkipUntilFlags)0, true);
     break;
   }
   return Directive;
@@ -407,8 +407,8 @@ bool Parser::ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
       IsCorrect = false;
       Diag(PrevTok.getLocation(), diag::err_expected_ident)
         << SourceRange(PrevTok.getLocation(), PrevTokLocation);
-      SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
-                false, true, false, true);
+      SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end, 
+                StopBeforeMatch, true);
     } else {
       DeclarationNameInfo NameInfo = Actions.GetNameFromUnqualifiedId(Name);
       ExprResult Res = Actions.ActOnOpenMPIdExpression(getCurScope(), SS,
@@ -538,7 +538,6 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
     Diag(Tok, diag::err_omp_unexpected_clause)
       << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
     SkipUntil(tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
-              true);
     break;
   }
   return ErrorFound ? 0 : Clause;
@@ -573,8 +572,7 @@ OMPClause *Parser::ParseOpenMPSingleExprClause(OpenMPClauseKind Kind) {
   if (LParen && Tok.isNot(tok::r_paren)) {
     Diag(Tok, diag::err_expected_rparen);
     Diag(LOpen, diag::note_matching) << "(";
-    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end,
-              false, true, false, true);
+    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
   }
   if (Tok.is(tok::r_paren))
     ConsumeAnyToken();
@@ -620,8 +618,7 @@ OMPClause *Parser::ParseOpenMPSingleExprWithTypeClause(OpenMPClauseKind Kind) {
   if (LParen && Tok.isNot(tok::r_paren)) {
     Diag(Tok, diag::err_expected_rparen);
     Diag(LOpen, diag::note_matching) << "(";
-    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end,
-              false, true, false, true);
+    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
   }
   if (Tok.is(tok::r_paren))
     ConsumeAnyToken();
@@ -663,8 +660,7 @@ OMPClause *Parser::ParseOpenMPSimpleClause(OpenMPClauseKind Kind) {
   if (LParen && Tok.isNot(tok::r_paren)) {
     Diag(Tok, diag::err_expected_rparen);
     Diag(LOpen, diag::note_matching) << "(";
-    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end,
-              false, true, false, true);
+    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
   }
   if (Tok.is(tok::r_paren))
     ConsumeAnyToken();
@@ -770,8 +766,7 @@ OMPClause *Parser::ParseOpenMPVarListClause(OpenMPClauseKind Kind) {
   if (LParen && Tok.isNot(tok::r_paren)) {
     Diag(Tok, diag::err_expected_rparen);
     Diag(LOpen, diag::note_matching) << "(";
-    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end,
-              false, true, false, true);
+    SkipUntil(tok::r_paren, tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
   }
   if (Tok.is(tok::r_paren))
     ConsumeAnyToken();

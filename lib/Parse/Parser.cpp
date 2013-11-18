@@ -1984,8 +1984,7 @@ bool BalancedDelimiterTracker::diagnoseOverflow() {
   P.Diag(P.Tok, diag::err_bracket_depth_exceeded)
     << P.getLangOpts().BracketDepth;
   P.Diag(P.Tok, diag::note_bracket_depth);
-  P.SkipUntil(tok::eof, FinalToken, true, false, false,
-              FinalToken == tok::annot_pragma_openmp_end);
+  P.SkipUntil(tok::eof, FinalToken, Parser::StopAtSemi, FinalToken == tok::annot_pragma_openmp_end);
   return true;  
 }
 
