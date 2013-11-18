@@ -32,6 +32,7 @@ using namespace clang;
 ///
 Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirective() {
   assert(Tok.is(tok::annot_pragma_openmp) && "Not an OpenMP directive!");
+  ParenBraceBracketBalancer BalancerRAIIObj(*this);
 
   SourceLocation Loc = ConsumeToken();
   SmallVector<Expr *, 5> Identifiers;
@@ -48,7 +49,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirective() {
       if (Tok.isNot(tok::annot_pragma_openmp_end)) {
         Diag(Tok, diag::warn_omp_extra_tokens_at_eol)
           << getOpenMPDirectiveName(OMPD_threadprivate);
-        SkipUntil(tok::annot_pragma_openmp_end, false, true, false, true);
+        SkipUntil(tok::annot_pragma_openmp_end, StopBeforeMatch, true);
       }
       // Skip the last annot_pragma_openmp_end.
       ConsumeToken();
@@ -64,7 +65,7 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirective() {
       << getOpenMPDirectiveName(DKind);
     break;
   }
-  SkipUntil(tok::annot_pragma_openmp_end, false, false, false, true);
+  SkipUntil(tok::annot_pragma_openmp_end, true);
   return DeclGroupPtrTy();
 }
 
@@ -125,7 +126,9 @@ Parser::DeclGroupPtrTy Parser::ParseOpenMPDeclarativeDirective() {
 StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
                                                    bool StandAloneAllowed) {
   assert(Tok.is(tok::annot_pragma_openmp) && "Not an OpenMP directive!");
-  const unsigned ScopeFlags = Scope::FnScope | Scope::OpenMPDirectiveScope |
+    const unsigned ScopeFlags = Scope::FnScope | Scope::OpenMPDirectiveScope |
+                              Scope::DeclScope;
+  ParenBraceBracketBalancer BalancerRAIIObj(*this);
                               Scope::DeclScope;
   SmallVector<Expr *, 5> Identifiers;
   SmallVector<OMPClause *, 5> Clauses;
@@ -150,14 +153,14 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
       if (Tok.isNot(tok::annot_pragma_openmp_end)) {
         Diag(Tok, diag::warn_omp_extra_tokens_at_eol)
           << getOpenMPDirectiveName(OMPD_threadprivate);
-        SkipUntil(tok::annot_pragma_openmp_end, false, true, false, true);
+        SkipUntil(tok::annot_pragma_openmp_end, StopBeforeMatch, true);
       }
       DeclGroupPtrTy Res =
         Actions.ActOnOpenMPThreadprivateDirective(Loc,
                                                   Identifiers);
       Directive = Actions.ActOnDeclStmt(Res, Loc, Tok.getLocation());
     }
-    SkipUntil(tok::annot_pragma_openmp_end, false, false, false, true);
+    SkipUntil(tok::annot_pragma_openmp_end, true);
     break;
   case OMPD_critical:
     // Parse name of critical if any.
@@ -352,12 +355,12 @@ StmtResult Parser::ParseOpenMPDeclarativeOrExecutableDirective(
     break;
   case OMPD_unknown:
     Diag(Tok, diag::err_omp_unknown_directive);
-    SkipUntil(tok::annot_pragma_openmp_end, false, false, false, true);
+    SkipUntil(tok::annot_pragma_openmp_end, true);
     break;
   default:
     Diag(Tok, diag::err_omp_unexpected_directive)
       << getOpenMPDirectiveName(DKind);
-    SkipUntil(tok::annot_pragma_openmp_end, false, false, false, true);
+    SkipUntil(tok::annot_pragma_openmp_end, true);
     break;
   }
   return Directive;
@@ -393,12 +396,12 @@ bool Parser::ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
         ParseOptionalCXXScopeSpecifier(SS, ParsedType(), false)) {
       IsCorrect = false;
       SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
-                false, true, false, true);
+                StopBeforeMatch, true);
     } else if (ParseUnqualifiedId(SS, false, false, false, ParsedType(),
                                   TemplateKWLoc, Name)) {
       IsCorrect = false;
       SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
-                false, true, false, true);
+                StopBeforeMatch, true);
     } else if (Tok.isNot(tok::comma) && Tok.isNot(tok::r_paren) &&
                Tok.isNot(tok::annot_pragma_openmp_end)) {
       IsCorrect = false;
@@ -529,12 +532,12 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_unknown:
     Diag(Tok, diag::warn_omp_extra_tokens_at_eol)
       << getOpenMPDirectiveName(DKind);
-    SkipUntil(tok::annot_pragma_openmp_end, false, true, false, true);
+    SkipUntil(tok::annot_pragma_openmp_end, StopBeforeMatch, true);
     break;
   default:
     Diag(Tok, diag::err_omp_unexpected_clause)
       << getOpenMPClauseName(CKind) << getOpenMPDirectiveName(DKind);
-    SkipUntil(tok::comma, tok::annot_pragma_openmp_end, false, true, false,
+    SkipUntil(tok::comma, tok::annot_pragma_openmp_end, StopBeforeMatch, true);
               true);
     break;
   }
@@ -755,7 +758,7 @@ OMPClause *Parser::ParseOpenMPVarListClause(OpenMPClauseKind Kind) {
       Vars.push_back(VarExpr.take());
     } else {
       SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end,
-                false, true, false, true);
+                StopBeforeMatch, true);
     }
     // Skip ',' if any
     IsComma = Tok.is(tok::comma);
