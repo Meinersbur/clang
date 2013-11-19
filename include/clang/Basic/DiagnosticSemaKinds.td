@@ -2442,11 +2442,7 @@ def err_ns_bridged_not_interface : Error<
 def err_objc_bridge_not_id : Error<
   "parameter of 'objc_bridge' attribute must be a single name of an Objective-C class">;
 def err_objc_bridge_attribute : Error<
-  "'objc_bridge' attribute must be put on a typedef only">;
-def err_objc_bridge_not_cftype : Error<
-  "'objc_bridge' attribute must be applied to definition of CF types">;
-def err_objc_bridge_not_pointert_to_struct : Error<
-  "'objc_bridge' attribute must be applied to a pointer to struct type">;
+  "'objc_bridge' attribute must be applied to a struct%select{|, C++ class}0 or union">;
 def err_objc_cf_bridged_not_interface : Error<
   "CF object of type %0 is bridged to '%1', which is not an Objective-C class">;
 def err_objc_ns_bridged_invalid_cfobject : Error<
@@ -3779,7 +3775,7 @@ def warn_missing_field_initializers : Warning<
   InGroup<MissingFieldInitializers>, DefaultIgnore;
 def warn_braces_around_scalar_init : Warning<
   "braces around scalar initializer">;
-def warn_many_braces_around_scalar_init : ExtWarn<
+def ext_many_braces_around_scalar_init : ExtWarn<
   "too many braces around scalar initializer">;
 def ext_complex_component_init : Extension<
   "complex initialization specifying real and imaginary components "
