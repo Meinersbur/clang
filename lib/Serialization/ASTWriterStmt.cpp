@@ -1987,6 +1987,13 @@ void ASTStmtWriter::VisitOMPOrderedDirective(OMPOrderedDirective *D) {
   Code = serialization::STMT_OMP_ORDERED_DIRECTIVE;
 }
 
+#ifdef MOLLY
+void ASTStmtWriter::VisitMollyWhereDirective(MollyWhereDirective *D) {
+  // TODO: Implement
+  llvm_unreachable("Not implemented");
+}
+#endif /* MOLLY */
+
 //===----------------------------------------------------------------------===//
 // ASTWriter Implementation
 //===----------------------------------------------------------------------===//

@@ -25,6 +25,9 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
+#ifdef MOLLY
+#include "clang/AST/StmtMolly.h"
+#endif /* MOLLY */
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Designator.h"
 #include "clang/Sema/Lookup.h"
@@ -1546,6 +1549,12 @@ public:
                                    SourceLocation EndLoc) {
     return getSema().ActOnOpenMPFlushClause(VarList, StartLoc, EndLoc);
   }
+
+#ifdef MOLLY
+  StmtResult RebuildMollyWhereDirective(Stmt *AStmt) {
+    return getSema().ActOnMollyWhereDirective(AStmt);
+  }
+#endif /* MOLLY */
 
   /// \brief Rebuild the operand to an Objective-C \@synchronized statement.
   ///
@@ -6966,6 +6975,21 @@ TreeTransform<Derived>::TransformOMPFlushClause(OMPFlushClause *C) {
   return getDerived().RebuildOMPFlushClause(Vars, C->getLocStart(),
                                             C->getLocEnd());
 }
+
+#ifdef MOLLY
+template<typename Derived>
+StmtResult TreeTransform<Derived>::TransformMollyWhereDirective(MollyWhereDirective *D) {
+  auto AStmt = D->getAssociatedStmt();
+  auto trans = getDerived().TransformStmt(AStmt);
+  if (trans.isInvalid())
+    return StmtError();
+
+  if (trans.get() ==AStmt)
+    return D;
+
+  return getDerived().RebuildMollyWhereDirective(trans.take());
+}
+#endif
 
 //===----------------------------------------------------------------------===//
 // Expression transformation

@@ -353,6 +353,12 @@ StmtProfiler::VisitOMPOrderedDirective(const OMPOrderedDirective *S) {
   VisitOMPExecutableDirective(S);
 }
 
+#ifdef MOLLY
+void StmtProfiler::VisitMollyWhereDirective(const MollyWhereDirective *S) {
+    VisitStmt(S);
+}
+#endif /* MOLLY */
+
 void StmtProfiler::VisitExpr(const Expr *S) {
   VisitStmt(S);
 }

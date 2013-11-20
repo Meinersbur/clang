@@ -2084,6 +2084,13 @@ void ASTStmtReader::VisitOMPOrderedDirective(OMPOrderedDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+#ifdef MOLLY
+void ASTStmtReader::VisitMollyWhereDirective(MollyWhereDirective *D) {
+  //TODO: Implement
+  llvm_unreachable("Not implemented");
+}
+#endif /* MOLLY */
+
 //===----------------------------------------------------------------------===//
 // ASTReader Implementation
 //===----------------------------------------------------------------------===//

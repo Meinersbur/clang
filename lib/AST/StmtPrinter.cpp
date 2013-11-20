@@ -893,6 +893,13 @@ void StmtPrinter::VisitOMPOrderedDirective(OMPOrderedDirective *Node) {
   VisitOMPExecutableDirective(Node);
 }
 
+#ifdef MOLLY
+void StmtPrinter::VisitMollyWhereDirective(MollyWhereDirective *Node) {
+  //TODO: reconstruct directive
+  Indent() << "#pragma molly where ...";
+}
+#endif /* MOLLY */
+
 //===----------------------------------------------------------------------===//
 //  Expr printing methods.
 //===----------------------------------------------------------------------===//

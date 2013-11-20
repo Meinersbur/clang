@@ -22,6 +22,10 @@ namespace clang {
       return new (C) MollyWhereDirective(C, AssociatedStmt);
     }
 
+    Stmt *getAssociatedStmt() {
+      return associatedStmt;
+    }
+
 #pragma region Required to implement clang::Stmt
 
     static bool classof(const Stmt *S) {
