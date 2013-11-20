@@ -19,6 +19,9 @@
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenMP.h"
+#ifdef MOLLY 
+#include "clang/AST/StmtMolly.h"
+#endif /* MOLLY */
 
 namespace clang {
 

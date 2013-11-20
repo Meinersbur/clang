@@ -32,6 +32,9 @@
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
+#ifdef MOLLY
+#include "clang/AST/StmtMolly.h"
+#endif /* MOLLY */
 
 // The following three macros are used for meta programming.  The code
 // using them is responsible for defining macro OPERATOR().

@@ -95,6 +95,11 @@ public:
 
     /// \brief This is the scope of OpenMP executable directive
     OpenMPDirectiveScope = 0x8000
+
+#ifdef MOLLY
+    , MollyDirectiveScop = 0x10000
+#endif /* MOLLY */
+
   };
 private:
   /// The parent scope for this scope.  This is null for the translation-unit

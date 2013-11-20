@@ -345,6 +345,12 @@ Retry:
     ProhibitAttributes(Attrs);
     return ParseOpenMPDeclarativeOrExecutableDirective(!OnlyStatement);
 
+#ifdef MOLLY
+  case tok::annot_pragma_molly:
+    ProhibitAttributes(Attrs); // ???
+    return ParseMollyAnnotation(!OnlyStatement);
+#endif /* MOLLY */
+
   }
 
   // If we reached this code, the statement must end in a semicolon.

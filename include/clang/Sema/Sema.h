@@ -180,6 +180,9 @@ namespace clang {
   class IndirectFieldDecl;
   struct DeductionFailureInfo;
   class TemplateSpecCandidateSet;
+#ifdef MOLLY
+  class MollyTransfomClauses;
+#endif
 
 namespace sema {
   class AccessedEntity;
@@ -8145,6 +8148,17 @@ public:
       DC = CatD->getClassInterface();
     return DC;
   }
+
+
+#ifdef MOLLY
+private:
+  MollyTransfomClauses *MollyTransform;
+
+public:
+ void ActOnMollyTransformClause(StringRef islaff, int parallelLevel);
+
+ StmtResult ActOnMollyWhereDirective(Stmt *AStmt);
+#endif
 };
 
 /// \brief RAII object that enters a new expression evaluation context.

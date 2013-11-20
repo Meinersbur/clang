@@ -12,12 +12,17 @@ def MollyDimensions : InheritableAttr {
   let TemplateDependent = 1;
 }
 
+
+
 def MollyFieldLengths : InheritableAttr {
   let Spellings = [GNU<"molly_lengths">, CXX11<"molly","lengths">]; // [CXX11<"molly","lengths">]
   //  let Subjects = [CXXRecord];
   let Args = [VariadicExprArgument<"lengths">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+
+   // Try this to avoid dummy first argument
+  // let HasCustomParsing = 1;
 }
 
 
@@ -133,4 +138,13 @@ def MollyLocalIndexof: InheritableAttr {
 // TODO: Merge with PureAttr ???
 def MollyPure : InheritableAttr {
   let Spellings = [GNU<"molly_pure">, CXX11<"molly","pure">]; 
+}
+
+
+def MollyTransform : InheritableAttr {
+  //let Spellings = [GNU<"molly_transform">,  CXX11<"molly","transform">];
+  let Spellings = []; // Made by #pragma molly
+  let Args = [StringArgument<"islstr">, UnsignedArgument<"nodedims">];
+  bit SemaHandler = 0;
+  let Subjects = [Var];
 }

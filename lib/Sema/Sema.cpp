@@ -93,6 +93,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
     TyposCorrected(0), AnalysisWarnings(*this),
     VarDataSharingAttributesStack(0), CurScope(0),
     Ident_super(0), Ident___float128(0)
+#ifdef MOLLY
+    , MollyTransform(0)
+#endif /* */
 {
   TUScope = 0;
 

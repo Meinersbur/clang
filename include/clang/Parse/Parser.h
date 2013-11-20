@@ -2325,6 +2325,10 @@ private:
                                          MacroInfo *MacroInfo,
                                          unsigned ArgumentIndex);
   virtual void CodeCompleteNaturalLanguage();
+
+#ifdef MOLLY
+  StmtResult ParseMollyAnnotation(bool StandAloneAllowed);
+#endif /* MOLLY */
 };
 
 }  // end namespace clang

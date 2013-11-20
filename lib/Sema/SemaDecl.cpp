@@ -25,6 +25,9 @@
 #include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/StmtCXX.h"
+#ifdef MOLLY
+#include "clang/AST/DeclMolly.h"
+#endif /* MOLLY */
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
@@ -8979,6 +8982,25 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
         Tag->setDeclaratorForAnonDecl(FirstDeclaratorInGroup);
     }
   }
+
+#ifdef MOLLY 
+  // Add #pragma molly transform meta information
+  // FIXME: It is not clear how to add multiple such attributes, multiple attributes of the same not allowed; probably have to fold them
+  if (MollyTransform) {
+    for (auto itDecl = Decls.begin(), endDecl = Decls.end(); itDecl!=endDecl; ++itDecl) {
+      auto D = *itDecl;
+
+      auto &clauses = MollyTransform->getClauses();
+      for (auto itClause = clauses.begin(), endClauses = clauses.end(); itClause!=endClauses;++itClause) {
+        auto &clause = *itClause;
+        D->addAttr(::new (Context) MollyTransformAttrAttr(SourceRange(), getASTContext(), clause.getIslStr(), clause.getClusterDims()));
+      }
+    }
+
+    delete MollyTransform;
+    MollyTransform = nullptr;
+  }
+#endif /* MOLLY */
 
   return BuildDeclaratorGroup(Decls, DS.containsPlaceholderType());
 }
