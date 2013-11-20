@@ -55,7 +55,10 @@ enum AttributeDeclKind {
   ExpectedVariableFieldOrTag,
   ExpectedTypeOrNamespace,
   ExpectedObjectiveCInterface,
-  ExpectedMethodOrProperty
+  ExpectedMethodOrProperty,
+  ExpectedStructOrUnion,
+  ExpectedStructOrUnionOrClass,
+  ExpectedType
 };
 
 //===----------------------------------------------------------------------===//
@@ -1247,7 +1250,8 @@ static void handleExtVectorTypeAttr(Sema &S, Scope *scope, Decl *D,
   if (TD == 0) {
     // __attribute__((ext_vector_type(N))) can only be applied to typedefs
     // and type-ids.
-    S.Diag(Attr.getLoc(), diag::err_typecheck_ext_vector_not_typedef);
+    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_decl_type) <<
+      Attr.getName() << ExpectedType;
     return;
   }
 
@@ -3660,7 +3664,7 @@ static void handleConstantAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                CUDAConstantAttr(Attr.getRange(), S.Context,
                                 Attr.getAttributeSpellingListIndex()));
   } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "constant";
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
   }
 }
 
@@ -3683,7 +3687,7 @@ static void handleDeviceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                CUDADeviceAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "device";
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
   }
 }
 
@@ -3714,7 +3718,7 @@ static void handleGlobalAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                CUDAGlobalAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "global";
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
   }
 }
 
@@ -3730,7 +3734,7 @@ static void handleHostAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                CUDAHostAttr(Attr.getRange(), S.Context,
                             Attr.getAttributeSpellingListIndex()));
   } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "host";
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
   }
 }
 
@@ -3746,7 +3750,7 @@ static void handleSharedAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                CUDASharedAttr(Attr.getRange(), S.Context,
                               Attr.getAttributeSpellingListIndex()));
   } else {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "shared";
+    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
   }
 }
 
@@ -4452,8 +4456,10 @@ static void handleNSBridgedAttr(Sema &S, Scope *Sc, Decl *D,
 static void handleObjCBridgeAttr(Sema &S, Scope *Sc, Decl *D,
                                 const AttributeList &Attr) {
   if (!isa<RecordDecl>(D)) {
-    S.Diag(D->getLocStart(), diag::err_objc_bridge_attribute)
-      << S.getLangOpts().CPlusPlus;
+    S.Diag(Attr.getLoc(), diag::err_attribute_wrong_decl_type)
+    << Attr.getName()
+    << (S.getLangOpts().CPlusPlus ? ExpectedStructOrUnionOrClass
+                                  : ExpectedStructOrUnion);
     return;
   }
   
