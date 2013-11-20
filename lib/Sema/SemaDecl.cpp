@@ -8987,16 +8987,19 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
   // Add #pragma molly transform meta information
   // FIXME: It is not clear how to add multiple such attributes, multiple attributes of the same not allowed; probably have to fold them
   if (MollyTransform) {
+    bool used = false;
     for (auto itDecl = Decls.begin(), endDecl = Decls.end(); itDecl!=endDecl; ++itDecl) {
       auto D = *itDecl;
-
+      if (!isa<VarDecl>(D)) continue;
       auto &clauses = MollyTransform->getClauses();
       for (auto itClause = clauses.begin(), endClauses = clauses.end(); itClause!=endClauses;++itClause) {
         auto &clause = *itClause;
         D->addAttr(::new (Context) MollyTransformAttr(SourceRange(), getASTContext(), clause.getIslStr(), clause.getClusterDims()));
+        used = true;
       }
     }
 
+    assert(used && "WARN #pragma molly transform not used"); //TODO: Make a warning diagnistic
     delete MollyTransform;
     MollyTransform = nullptr;
   }

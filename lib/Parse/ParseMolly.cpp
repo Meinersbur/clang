@@ -24,34 +24,34 @@ public:
 
 // Mostly copied from Parser::ParseOpenMPDeclarativeOrExecutableDirective
 StmtResult Parser::ParseMollyAnnotation(bool StandAloneAllowed) {
-   assert(Tok.is(tok::annot_pragma_molly) && "Not a Molly directive!");
+  assert(Tok.is(tok::annot_pragma_molly) && "Not a Molly directive!");
 
-   bool CreateDirective;
-   StmtResult Directive;
-   {
-   ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScop | Scope::DeclScope);
-   Sema::CompoundScopeRAII CompoundScope(Actions);
+  bool CreateDirective;
+  StmtResult Directive;
+  {
+    ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScop | Scope::DeclScope);
+    Sema::CompoundScopeRAII CompoundScope(Actions);
 
-   Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
-   Actions.ActOnStartOfCompoundStmt();
-   auto AssociatedStmt = ParseStatement();
-   Actions.ActOnFinishOfCompoundStmt();
+    Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
+    Actions.ActOnStartOfCompoundStmt();
+    auto AssociatedStmt = ParseStatement();
+    Actions.ActOnFinishOfCompoundStmt();
 
-   assert(AssociatedStmt.isUsable());
-   if (!AssociatedStmt.isUsable()) {
-     Actions.ActOnCapturedRegionError();
-     CreateDirective = false;
-   } else {
-     AssociatedStmt = Actions.ActOnCapturedRegionEnd(AssociatedStmt.take());
-     CreateDirective = AssociatedStmt.isUsable();
-   }
+    assert(AssociatedStmt.isUsable());
+    if (!AssociatedStmt.isUsable()) {
+      Actions.ActOnCapturedRegionError();
+      CreateDirective = false;
+    } else {
+      AssociatedStmt = Actions.ActOnCapturedRegionEnd(AssociatedStmt.take());
+      CreateDirective = AssociatedStmt.isUsable();
+    }
 
-   if (CreateDirective) {
+    if (CreateDirective) {
       Directive = Actions.ActOnMollyWhereDirective(AssociatedStmt.get());
-   }
-   }
+    }
+  }
 
-   return Directive;
+  return Directive;
 }
 
 

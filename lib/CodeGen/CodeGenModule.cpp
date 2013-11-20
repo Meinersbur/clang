@@ -1918,6 +1918,10 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
   if (CGDebugInfo *DI = getModuleDebugInfo())
     if (getCodeGenOpts().getDebugInfo() >= CodeGenOptions::LimitedDebugInfo)
       DI->EmitGlobalVariable(GV, D);
+
+#ifdef MOLLY
+  this->MollyGen.annotateFieldVar(D, GV);
+#endif /* MOLLY */
 }
 
 llvm::GlobalValue::LinkageTypes

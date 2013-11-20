@@ -20,6 +20,7 @@
 #include "clang/CodeGen/MollyRuntimeMetadata.h"
 #include "clang/AST/GlobalDecl.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/IR/Instructions.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
@@ -68,7 +69,7 @@ llvm::MDNode *MollyRuntimeMetadata::buildMetadata(llvm::Module *llvmModule) {
 
 
 void MollyRuntimeMetadata::addMetadata(llvm::Module *llvmModule){
-  auto metadata = llvmModule-> getOrInsertNamedMetadata("molly.runtime");
+  auto metadata = llvmModule->getOrInsertNamedMetadata("molly.runtime");
   assert(metadata->getNumOperands()==0);
   metadata->addOperand(buildMetadata(llvmModule));
 }
@@ -220,6 +221,32 @@ void FieldTypeMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *met
   this->eltSize = eltSizeMD->getLimitedValue();
 
   funcPtrLocal = cast<llvm::Function>(metadata->getOperand(14));
+}
+
+
+llvm::MDNode *FieldVarMetadata::buildMetadata(llvm::Module *llvmModule) {
+  auto &llvmContext = llvmModule->getContext();
+
+  llvm::Value* metadata[] = {
+    /*[ 0]*/llvm::MDString::get(llvmContext, "fieldvar"), 
+    /*[ 1]*/llvm::MDString::get(llvmContext, islstr),
+    /*[ 2]*/llvm::ConstantInt::get(llvm::Type::getInt64Ty(llvmContext), clusterdims)
+  };
+  llvm::MDNode *fieldNode = llvm::MDNode::get(llvmContext, metadata);
+  return fieldNode;
+}
+
+
+  void FieldVarMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
+assert(metadata->getNumOperands() == 3);
+      auto magic = dyn_cast<MDString>(metadata->getOperand(0));
+  assert(magic->getString() == "fieldvar");
+
+  auto iststrMD = dyn_cast<MDString>(metadata->getOperand(1));
+  islstr = iststrMD->getString();
+
+  auto clusterdimsMD = dyn_cast<llvm::ConstantInt>(metadata->getOperand(2));
+  clusterdims = clusterdimsMD->getLimitedValue();
 }
 
 
@@ -738,3 +765,40 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   result = RValue::get(callInstr);
   return true;
 }
+
+
+ void CodeGenMolly::annotateFieldVar(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar) {
+   auto transformAttr = clangVar->getAttr<MollyTransformAttr>();
+   if (transformAttr) {
+     // #pragma molly transform
+
+     // llvm::GlobalVariable doesn't have attributes (for llvm::CallInst, llvm::InvokeInst and llvm::Function only) nor metadata (for llvm::Instruction and llvm::Module only), so we cannot annotate it with the DataLayout is has
+     // Instead, we augment metadata in an artificial init call in the variable initializer
+   }
+ }
+
+
+  void CodeGenMolly::annotateFieldVarInit(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar, llvm::Function *llvmInitFunc) {
+    auto transformAttr = clangVar->getAttr<MollyTransformAttr>();  // #pragma molly transform
+    if (transformAttr) {
+      // Append an intrinsic llvm.molly.field.init
+      // It will pass the metadata to this field instance
+
+      auto module = llvmVar->getParent();
+
+      auto entry = &llvmInitFunc->getEntryBlock();
+      auto term = entry->getTerminator();
+
+      FieldVarMetadata md;
+      md.islstr = transformAttr->getIslstr();
+      md.clusterdims = transformAttr->getNodedims();
+      auto mdnode = md.buildMetadata(module);
+
+      llvm::Value *args[] = { llvmVar, mdnode };
+      llvm::Type *tys[] = { args[0]->getType() };
+      auto intrInit = Intrinsic::getDeclaration(module, Intrinsic::molly_field_init, tys);
+
+      // Create the init call with the metadata for this var
+      auto call = CallInst::Create(intrInit, args, Twine(), term);
+    }
+  }

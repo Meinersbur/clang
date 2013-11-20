@@ -311,6 +311,10 @@ CodeGenModule::EmitCXXGlobalVarDeclInitFunc(const VarDecl *D,
       DelayedCXXInitPosition.erase(I);
     }
   }
+
+#ifdef MOLLY
+  MollyGen.annotateFieldVarInit(D, Addr, Fn);
+#endif /* MOLLY */
 }
 
 void CodeGenModule::EmitCXXThreadLocalInitFunc() {

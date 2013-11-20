@@ -1,9 +1,9 @@
 #ifndef CLANG_CODEGEN_CGMOLLY_H
 #define CLANG_CODEGEN_CGMOLLY_H
 
-#include <llvm/Support/Compiler.h>
-#include <llvm/ADT/DenseMap.h>
-#include <clang/AST/Type.h>
+#include "llvm/Support/Compiler.h"
+#include "llvm/ADT/DenseMap.h"
+#include "clang/AST/Type.h"
 #include <vector>
 
 namespace llvm {
@@ -12,6 +12,7 @@ namespace llvm {
   class MDNode;
   class Module;
   class CallInst;
+  class GlobalVariable;
 } // namespace llvm
 
 namespace clang {
@@ -27,7 +28,7 @@ namespace clang {
     class CodeGenFunction;
     class RValue;
     class FieldTypeMetadata;
-  }
+  } // namespace CodeGen
 } // namespace clang
 
 
@@ -52,6 +53,8 @@ namespace clang {
 
       void annotateFieldType(const clang::CXXRecordDecl *clangType, llvm::StructType *llvmType);
       void annotateFunction(const clang::FunctionDecl *clangFunc, llvm::Function *llvmFunc);
+      void annotateFieldVar(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar);
+      void annotateFieldVarInit(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar, llvm::Function *llvmInitFunc);
 
       bool EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeGen::CodeGenModule *cgm, clang::CodeGen::CodeGenFunction *cgf, const clang::FunctionDecl *FD, unsigned BuiltinID, const clang::CallExpr *E);
 

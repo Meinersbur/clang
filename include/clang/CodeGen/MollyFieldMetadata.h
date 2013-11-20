@@ -70,6 +70,23 @@ namespace clang {
       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
     }; // class FieldTypeMetadata
 
+
+    class FieldVarMetadata {
+    private:
+      //llvm::MDNode *node;
+
+
+    public:
+       FieldVarMetadata()  {}
+
+       std::string islstr;
+       unsigned clusterdims;
+
+       llvm::MDNode *buildMetadata(llvm::Module *llvmModule);
+       void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
+
+    }; // class FieldVarMetadata
+
   } // namespace CodeGen
 } // namespace clang
 #endif /* CLANG_CODEGEN_MOLLYFIELDMETADATA_H */
