@@ -34,11 +34,11 @@ StmtResult Parser::ParseMollyAnnotation(bool StandAloneAllowed) {
   StmtResult Directive;
    StmtResult AssociatedStmt;
   {
-    ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScope | Scope::DeclScope); // Flags taken from #pragma omp parallel
+    //ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScope | Scope::DeclScope); // Flags taken from #pragma omp parallel
 
     //Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
     {
-    Sema::CompoundScopeRAII CompoundScope(Actions);
+    //Sema::CompoundScopeRAII CompoundScope(Actions);
     AssociatedStmt = ParseStatement();
   }
 

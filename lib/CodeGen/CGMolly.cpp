@@ -252,6 +252,25 @@ void FieldVarMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *meta
 }
 
 
+llvm::MDNode *InstructionWhereMetadata::buildMetadata(llvm::Module *llvmModule) {
+  auto &llvmContext = llvmModule->getContext();
+
+  llvm::Value *whereVals[] = {
+    llvm::MDString::get(llvmContext, "where"),
+    llvm::MDString::get(llvmContext, islstr)
+  };
+  auto mdNode = llvm::MDNode::get(llvmContext, whereVals);
+  return mdNode;
+}
+void InstructionWhereMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
+  assert(metadata->getNumOperands() == 2);
+  auto magic = dyn_cast<MDString>(metadata->getOperand(0));
+  assert(magic->getString() == "where");
+
+  auto iststrMD = dyn_cast<MDString>(metadata->getOperand(1));
+  islstr = iststrMD->getString();
+}
+
 CodeGenMolly::~CodeGenMolly() {
   for (auto it = fieldsFound.begin(), end = fieldsFound.end(); it!=end; ++it) {
     delete it->second;
@@ -842,15 +861,13 @@ static bool isWhereableInstruction(llvm::Instruction *instr) {
 void CodeGenFunction::EmitMollyWhereDirective(const MollyWhereDirective *S) {
   assert(S);
   auto &llvmContext = getLLVMContext();
+  auto llvmModule = &CGM.getModule();
 
-  llvm::Value *whereVals[] = {
-    llvm::MDString::get(llvmContext, "where"),
-    llvm::MDString::get(llvmContext, S->getIslStr())
-  };
-  auto whereMD = llvm::MDNode::get(llvmContext, whereVals);
+  InstructionWhereMetadata mdBuilder(S->getIslStr());
+  auto whereMD = mdBuilder.buildMetadata(llvmModule);
 
-  // Create a block
-  auto IsolatedBlock = createBasicBlock("where.body");
+  // Create a block; TODO: Unnecessay, the metadata is applied on instructions, not blocks; But maybe detecting new blocks is faster???
+  auto IsolatedBlock = createBasicBlock("where.body"); 
   auto ContBlock = createBasicBlock("where.end");
 
   Builder.SetCurrentDebugLocation(llvm::DebugLoc());
@@ -872,6 +889,7 @@ void CodeGenFunction::EmitMollyWhereDirective(const MollyWhereDirective *S) {
   EmitStmt(S->getAssociatedStmt());
 
   // Find all the stmts added
+  int cnt = 0;
   for (auto itBlock = CurFn->begin(), endBlock = CurFn->end(); itBlock!=endBlock; ++itBlock) {
     auto bb = &*itBlock;
     for (auto itInstr = bb->begin(), endInstr = bb->end(); itInstr!=endInstr;++itInstr) {
@@ -881,7 +899,7 @@ void CodeGenFunction::EmitMollyWhereDirective(const MollyWhereDirective *S) {
         continue;
 
       auto itOld = oldInstrs.find(instr);
-      if (itOld!=oldInstrs.end()) 
+      if (itOld != oldInstrs.end()) 
         continue; // Not a new one
 
       // Apply metadata on them
@@ -889,6 +907,7 @@ void CodeGenFunction::EmitMollyWhereDirective(const MollyWhereDirective *S) {
       assert(!prevMD && "Multiple wheres?");
 
       instr->setMetadata("where", whereMD);
+      cnt += 1;
     }
   }
 

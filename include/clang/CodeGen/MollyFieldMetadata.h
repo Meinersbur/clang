@@ -6,6 +6,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ArrayRef.h"
 //#include "CGBuilder.h" // typedef CGBuilderTy
+#include "llvm/ADT/StringRef.h"
 
 namespace llvm {
   class StructType;
@@ -86,6 +87,21 @@ namespace clang {
        void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
 
     }; // class FieldVarMetadata
+
+
+
+    class InstructionWhereMetadata {
+    public:
+      std::string islstr;
+
+    public:
+      InstructionWhereMetadata() {}
+      InstructionWhereMetadata(llvm::StringRef islstr) : islstr(islstr) {}
+
+      llvm::MDNode *buildMetadata(llvm::Module *llvmModule);
+      void readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata);
+    }; // class InstructionWhereMetadata
+
 
   } // namespace CodeGen
 } // namespace clang
