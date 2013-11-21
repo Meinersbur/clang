@@ -4776,7 +4776,14 @@ TEST_F(FormatTest, FormatsBracedListsInColumnLayout) {
 }
 
 TEST_F(FormatTest, PullTrivialFunctionDefinitionsIntoSingleLine) {
+  FormatStyle DoNotMerge = getLLVMStyle();
+  DoNotMerge.AllowShortFunctionsOnASingleLine = false;
+
   verifyFormat("void f() { return 42; }");
+  verifyFormat("void f() {\n"
+               "  return 42;\n"
+               "}",
+               DoNotMerge);
   verifyFormat("void f() {\n"
                "  // Comment\n"
                "}");
@@ -4790,6 +4797,13 @@ TEST_F(FormatTest, PullTrivialFunctionDefinitionsIntoSingleLine) {
                "}");
   verifyFormat("void f() {} // comment");
   verifyFormat("void f() { int a; } // comment");
+  verifyFormat("void f() {\n"
+               "} // comment",
+               DoNotMerge);
+  verifyFormat("void f() {\n"
+               "  int a;\n"
+               "} // comment",
+               DoNotMerge);
   verifyFormat("void f() {\n"
                "} // comment",
                getLLVMStyleWithColumns(15));
@@ -5506,6 +5520,17 @@ TEST_F(FormatTest, FormatObjCMethodExpr) {
       "                    der:NO]);\n"
       "}",
       getLLVMStyleWithColumns(70));
+  verifyFormat("{\n"
+               "  popup_window_.reset([[RenderWidgetPopupWindow alloc]\n"
+               "      initWithContentRect:NSMakeRect(origin_global.x,\n"
+               "                                     origin_global.y,\n"
+               "                                     pos.width(),\n"
+               "                                     pos.height())\n"
+               "                styleMask:NSBorderlessWindowMask\n"
+               "                  backing:NSBackingStoreBuffered\n"
+               "                    defer:NO]);\n"
+               "}",
+               getChromiumStyle());
   verifyFormat("[contentsContainer replaceSubview:[subviews objectAtIndex:0]\n"
                "                             with:contentsNativeView];");
 
@@ -6613,10 +6638,7 @@ TEST_F(FormatTest, LinuxBraceBreaking) {
                "      b();\n"
                "    }\n"
                "  }\n"
-               "  void g()\n"
-               "  {\n"
-               "    return;\n"
-               "  }\n"
+               "  void g() { return; }\n"
                "}\n"
                "}",
                BreakBeforeBrace);
@@ -6634,10 +6656,7 @@ TEST_F(FormatTest, StroustrupBraceBreaking) {
                "      b();\n"
                "    }\n"
                "  }\n"
-               "  void g()\n"
-               "  {\n"
-               "    return;\n"
-               "  }\n"
+               "  void g() { return; }\n"
                "}\n"
                "}",
                BreakBeforeBrace);
@@ -6658,10 +6677,7 @@ TEST_F(FormatTest, AllmanBraceBreaking) {
                "      b();\n"
                "    }\n"
                "  }\n"
-               "  void g()\n"
-               "  {\n"
-               "    return;\n"
-               "  }\n"
+               "  void g() { return; }\n"
                "}\n"
                "}",
                BreakBeforeBrace);
@@ -6822,6 +6838,7 @@ TEST_F(FormatTest, ParsesConfiguration) {
   CHECK_PARSE_BOOL(AlignEscapedNewlinesLeft);
   CHECK_PARSE_BOOL(AlignTrailingComments);
   CHECK_PARSE_BOOL(AllowAllParametersOfDeclarationOnNextLine);
+  CHECK_PARSE_BOOL(AllowShortFunctionsOnASingleLine);
   CHECK_PARSE_BOOL(AllowShortIfStatementsOnASingleLine);
   CHECK_PARSE_BOOL(AllowShortLoopsOnASingleLine);
   CHECK_PARSE_BOOL(AlwaysBreakTemplateDeclarations);
@@ -7126,7 +7143,7 @@ TEST_F(FormatTest, FormatsWithWebKitStyle) {
                "    : aaaaaaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
                "    , aaaaaaaaaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaa, // break\n"
                "                               aaaaaaaaaaaaaa)\n"
-               "    , aaaaaaaaaaaaaaaaaaaaaaa()\n{\n}",
+               "    , aaaaaaaaaaaaaaaaaaaaaaa() {}",
                Style);
 
   // Access specifiers should be aligned left.
@@ -7307,6 +7324,14 @@ TEST_F(FormatTest, SpacesInAngles) {
   
   Spaces.SpacesInAngles = false;
   verifyFormat("A<A<int>>();", Spaces);
+}
+
+
+TEST_F(FormatTest, UnderstandsJavaScript) {
+  verifyFormat("a === b;");
+  verifyFormat("aaaaaaa === b;", getLLVMStyleWithColumns(10));
+  verifyFormat("a !== b;");
+  verifyFormat("aaaaaaa !== b;", getLLVMStyleWithColumns(10));
 }
 
 } // end namespace tooling

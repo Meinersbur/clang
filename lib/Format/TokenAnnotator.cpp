@@ -538,6 +538,7 @@ private:
       // Reset token type in case we have already looked at it and then
       // recovered from an error (e.g. failure to find the matching >).
       if (CurrentToken->Type != TT_LambdaLSquare &&
+          CurrentToken->Type != TT_FunctionLBrace &&
           CurrentToken->Type != TT_ImplicitStringLiteral)
         CurrentToken->Type = TT_Unknown;
       if (CurrentToken->Role)
@@ -1180,7 +1181,7 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
   if (Right.Type == TT_ObjCSelectorName)
     return 0;
   if (Left.is(tok::colon) && Left.Type == TT_ObjCMethodExpr)
-    return 50;
+    return 500;
 
   if (Left.is(tok::l_paren) && InFunctionDecl)
     return 100;
@@ -1363,6 +1364,10 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
   if (Tok.isOneOf(tok::arrowstar, tok::periodstar) ||
       Tok.Previous->isOneOf(tok::arrowstar, tok::periodstar))
     return false;
+  // JavaScript identity operators ===, !==.
+  if (Tok.Previous->isOneOf(tok::equalequal, tok::exclaimequal) &&
+      Tok.is(tok::equal))
+    return false;
   if (!Style.SpaceBeforeAssignmentOperators &&
       Tok.getPrecedence() == prec::Assignment)
     return false;
@@ -1451,6 +1456,9 @@ bool TokenAnnotator::canBreakBefore(const AnnotatedLine &Line,
       Left.Type == TT_UnaryOperator || Left.is(tok::kw_operator))
     return false;
   if (Left.is(tok::equal) && Line.Type == LT_VirtualFunctionDecl)
+    return false;
+  // JavaScript identity operators ===, !==.
+  if (Left.isOneOf(tok::equalequal, tok::exclaimequal) && Right.is(tok::equal))
     return false;
   if (Left.Previous) {
     if (Left.is(tok::l_paren) && Right.is(tok::l_paren) &&
