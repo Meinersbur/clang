@@ -97,7 +97,7 @@ public:
     OpenMPDirectiveScope = 0x8000
 
 #ifdef MOLLY
-    , MollyDirectiveScop = 0x10000
+    , MollyDirectiveScope = 0x10000
 #endif /* MOLLY */
 
   };

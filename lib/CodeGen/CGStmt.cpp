@@ -218,6 +218,15 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   case Stmt::SEHTryStmtClass:
     EmitSEHTryStmt(cast<SEHTryStmt>(*S));
     break;
+
+#ifdef MOLLY
+  case Stmt::MollyWhereDirectiveClass:
+    EmitMollyWhereDirective(cast<MollyWhereDirective>(S));
+    break;
+#endif /* MOLLY */
+
+  default:
+    llvm_unreachable("Did you forget to write a code generator for this?");
   }
 }
 

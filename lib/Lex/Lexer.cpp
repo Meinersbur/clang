@@ -2863,7 +2863,7 @@ bool Lexer::Lex(Token &Result) {
   IsAtPhysicalStartOfLine = false;
   bool isRawLex = isLexingRawMode();
   (void) isRawLex;
-  bool returnedToken = LexTokenInternal(Result, atPhysicalStartOfLine);
+   bool returnedToken = LexTokenInternal(Result, atPhysicalStartOfLine);
   // (After the LexTokenInternal call, the lexer might be destroyed.)
   assert((returnedToken || !isRawLex) && "Raw lex must succeed");
   return returnedToken;

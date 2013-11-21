@@ -1551,8 +1551,8 @@ public:
   }
 
 #ifdef MOLLY
-  StmtResult RebuildMollyWhereDirective(Stmt *AStmt) {
-    return getSema().ActOnMollyWhereDirective(AStmt);
+  StmtResult RebuildMollyWhereDirective(Stmt *AStmt, StringRef islstr) {
+    return getSema().ActOnMollyWhereDirective(AStmt, islstr);
   }
 #endif /* MOLLY */
 
@@ -6987,7 +6987,7 @@ StmtResult TreeTransform<Derived>::TransformMollyWhereDirective(MollyWhereDirect
   if (trans.get() ==AStmt)
     return D;
 
-  return getDerived().RebuildMollyWhereDirective(trans.take());
+  return getDerived().RebuildMollyWhereDirective(trans.take(), D->getIslStr());
 }
 #endif
 

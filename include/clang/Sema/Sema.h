@@ -8159,7 +8159,7 @@ private:
 public:
  void ActOnMollyTransformClause(StringRef islaff, int parallelLevel);
 
- StmtResult ActOnMollyWhereDirective(Stmt *AStmt);
+ StmtResult ActOnMollyWhereDirective(Stmt *AStmt, StringRef islstr);
 #endif
 };
 

@@ -21,6 +21,8 @@
 #include "clang/AST/GlobalDecl.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/IR/Instructions.h"
+#include "clang/AST/StmtMolly.h"
+#include "llvm/IR/IntrinsicInst.h"
 
 using namespace clang;
 using namespace clang::CodeGen;
@@ -237,9 +239,9 @@ llvm::MDNode *FieldVarMetadata::buildMetadata(llvm::Module *llvmModule) {
 }
 
 
-  void FieldVarMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
-assert(metadata->getNumOperands() == 3);
-      auto magic = dyn_cast<MDString>(metadata->getOperand(0));
+void FieldVarMetadata::readMetadata(llvm::Module *llvmModule, llvm::MDNode *metadata) {
+  assert(metadata->getNumOperands() == 3);
+  auto magic = dyn_cast<MDString>(metadata->getOperand(0));
   assert(magic->getString() == "fieldvar");
 
   auto iststrMD = dyn_cast<MDString>(metadata->getOperand(1));
@@ -767,38 +769,129 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
 }
 
 
- void CodeGenMolly::annotateFieldVar(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar) {
-   auto transformAttr = clangVar->getAttr<MollyTransformAttr>();
-   if (transformAttr) {
-     // #pragma molly transform
+void CodeGenMolly::annotateFieldVar(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar) {
+  auto transformAttr = clangVar->getAttr<MollyTransformAttr>();
+  if (transformAttr) {
+    // #pragma molly transform
 
-     // llvm::GlobalVariable doesn't have attributes (for llvm::CallInst, llvm::InvokeInst and llvm::Function only) nor metadata (for llvm::Instruction and llvm::Module only), so we cannot annotate it with the DataLayout is has
-     // Instead, we augment metadata in an artificial init call in the variable initializer
-   }
- }
+    // llvm::GlobalVariable doesn't have attributes (for llvm::CallInst, llvm::InvokeInst and llvm::Function only) nor metadata (for llvm::Instruction and llvm::Module only), so we cannot annotate it with the DataLayout is has
+    // Instead, we augment metadata in an artificial init call in the variable initializer
+  }
+}
 
 
-  void CodeGenMolly::annotateFieldVarInit(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar, llvm::Function *llvmInitFunc) {
-    auto transformAttr = clangVar->getAttr<MollyTransformAttr>();  // #pragma molly transform
-    if (transformAttr) {
-      // Append an intrinsic llvm.molly.field.init
-      // It will pass the metadata to this field instance
+void CodeGenMolly::annotateFieldVarInit(const clang::VarDecl *clangVar, llvm::GlobalVariable *llvmVar, llvm::Function *llvmInitFunc) {
+  auto transformAttr = clangVar->getAttr<MollyTransformAttr>();  // #pragma molly transform
+  if (transformAttr) {
+    // Append an intrinsic llvm.molly.field.init
+    // It will pass the metadata to this field instance
 
-      auto module = llvmVar->getParent();
+    auto module = llvmVar->getParent();
 
-      auto entry = &llvmInitFunc->getEntryBlock();
-      auto term = entry->getTerminator();
+    auto entry = &llvmInitFunc->getEntryBlock();
+    auto term = entry->getTerminator();
 
-      FieldVarMetadata md;
-      md.islstr = transformAttr->getIslstr();
-      md.clusterdims = transformAttr->getNodedims();
-      auto mdnode = md.buildMetadata(module);
+    FieldVarMetadata md;
+    md.islstr = transformAttr->getIslstr();
+    md.clusterdims = transformAttr->getNodedims();
+    auto mdnode = md.buildMetadata(module);
 
-      llvm::Value *args[] = { llvmVar, mdnode };
-      llvm::Type *tys[] = { args[0]->getType() };
-      auto intrInit = Intrinsic::getDeclaration(module, Intrinsic::molly_field_init, tys);
+    llvm::Value *args[] = { llvmVar, mdnode };
+    llvm::Type *tys[] = { args[0]->getType() };
+    auto intrInit = Intrinsic::getDeclaration(module, Intrinsic::molly_field_init, tys);
 
-      // Create the init call with the metadata for this var
-      auto call = CallInst::Create(intrInit, args, Twine(), term);
+    // Create the init call with the metadata for this var
+    auto call = CallInst::Create(intrInit, args, Twine(), term);
+  }
+} // void CodeGenMolly::annotateFieldVarInit
+
+
+static bool isWhereableInstruction(llvm::Instruction *instr) {
+  if (isa<TerminatorInst>(instr))
+    return false; // Flow stmts are executed when needed
+
+  if (isa<PHINode>(instr))
+    return false; // PHI nodes are a consequence of the control flow 
+
+  if (isa<AllocaInst>(instr))
+    return false; // alloca is executed on every node
+
+  if (auto call = dyn_cast<llvm::IntrinsicInst>(instr)) {
+    switch (call->getIntrinsicID()) {
+    case Intrinsic::dbg_declare:
+    case Intrinsic::dbg_value:
+    case Intrinsic::invariant_start:
+    case Intrinsic::invariant_end:
+    case Intrinsic::lifetime_start:
+    case Intrinsic::lifetime_end:
+    case Intrinsic::objectsize:
+    case Intrinsic::ptr_annotation:
+    case Intrinsic::var_annotation:
+      return false; // Non-executable instructions
+    default:
+      break; // Continue investigating
     }
   }
+
+  //TODO: May also automatically skip loop management instructions
+
+  return true;
+}
+
+
+void CodeGenFunction::EmitMollyWhereDirective(const MollyWhereDirective *S) {
+  assert(S);
+  auto &llvmContext = getLLVMContext();
+
+  llvm::Value *whereVals[] = {
+    llvm::MDString::get(llvmContext, "where"),
+    llvm::MDString::get(llvmContext, S->getIslStr())
+  };
+  auto whereMD = llvm::MDNode::get(llvmContext, whereVals);
+
+  // Create a block
+  auto IsolatedBlock = createBasicBlock("where.body");
+  auto ContBlock = createBasicBlock("where.end");
+
+  Builder.SetCurrentDebugLocation(llvm::DebugLoc());
+  EmitBlock(IsolatedBlock);
+
+  DenseSet<Instruction *> oldInstrs;
+  for (auto itBlock = CurFn->begin(), endBlock = CurFn->end(); itBlock!=endBlock; ++itBlock) {
+    auto bb = &*itBlock;
+    for (auto itInstr = bb->begin(), endInstr = bb->end(); itInstr!=endInstr;++itInstr) {
+      auto instr = &*itInstr;
+
+      if (!isWhereableInstruction(instr))
+        continue; // Will be ignored anyway
+
+      oldInstrs.insert(instr); // This is a workaround, annotating every instruction when created (like DebugInfo) is too invasive
+    }
+  }
+
+  EmitStmt(S->getAssociatedStmt());
+
+  // Find all the stmts added
+  for (auto itBlock = CurFn->begin(), endBlock = CurFn->end(); itBlock!=endBlock; ++itBlock) {
+    auto bb = &*itBlock;
+    for (auto itInstr = bb->begin(), endInstr = bb->end(); itInstr!=endInstr;++itInstr) {
+      auto instr = &*itInstr;
+
+      if (!isWhereableInstruction(instr))
+        continue;
+
+      auto itOld = oldInstrs.find(instr);
+      if (itOld!=oldInstrs.end()) 
+        continue; // Not a new one
+
+      // Apply metadata on them
+      auto prevMD = instr->getMetadata("where");
+      assert(!prevMD && "Multiple wheres?");
+
+      instr->setMetadata("where", whereMD);
+    }
+  }
+
+  Builder.SetCurrentDebugLocation(llvm::DebugLoc());
+  EmitBlock(ContBlock);
+} // void CodeGenFunction::EmitMollyWhereDirective

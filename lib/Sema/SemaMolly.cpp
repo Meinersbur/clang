@@ -14,6 +14,6 @@ void Sema::ActOnMollyTransformClause(llvm::StringRef islaff, int parallelLevel) 
 }
 
 
- StmtResult Sema::ActOnMollyWhereDirective(Stmt *AStmt) {
-   return Owned(MollyWhereDirective::Create(Context, AStmt));
- }
+StmtResult Sema::ActOnMollyWhereDirective(Stmt *AStmt, StringRef islstr) {
+  return Owned(MollyWhereDirective::Create(Context, AStmt, islstr));
+}

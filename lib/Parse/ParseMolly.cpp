@@ -18,6 +18,7 @@ struct PragmaMollyInfo {
   //int clusterdims;
 
 public:
+  //~PragmaMollyInfo() {}
   PragmaMollyInfo(StringRef islstr) : islstr(islstr){}
 }; // struct PragmaMollyInfo
 
@@ -25,32 +26,38 @@ public:
 // Mostly copied from Parser::ParseOpenMPDeclarativeOrExecutableDirective
 StmtResult Parser::ParseMollyAnnotation(bool StandAloneAllowed) {
   assert(Tok.is(tok::annot_pragma_molly) && "Not a Molly directive!");
+  auto info = static_cast<PragmaMollyInfo*>(Tok.getAnnotationValue()); assert(info);
+  Tok.setAnnotationValue(nullptr);
+  ConsumeToken();
 
   bool CreateDirective;
   StmtResult Directive;
+   StmtResult AssociatedStmt;
   {
-    ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScop | Scope::DeclScope);
-    Sema::CompoundScopeRAII CompoundScope(Actions);
+    ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScope | Scope::DeclScope); // Flags taken from #pragma omp parallel
 
-    Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
-    Actions.ActOnStartOfCompoundStmt();
-    auto AssociatedStmt = ParseStatement();
-    Actions.ActOnFinishOfCompoundStmt();
+    //Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
+    {
+    Sema::CompoundScopeRAII CompoundScope(Actions);
+    AssociatedStmt = ParseStatement();
+  }
 
     assert(AssociatedStmt.isUsable());
     if (!AssociatedStmt.isUsable()) {
-      Actions.ActOnCapturedRegionError();
+      //Actions.ActOnCapturedRegionError();
       CreateDirective = false;
     } else {
-      AssociatedStmt = Actions.ActOnCapturedRegionEnd(AssociatedStmt.take());
+      //AssociatedStmt = Actions.ActOnCapturedRegionEnd(AssociatedStmt.take());
       CreateDirective = AssociatedStmt.isUsable();
     }
 
     if (CreateDirective) {
-      Directive = Actions.ActOnMollyWhereDirective(AssociatedStmt.get());
+      Directive = Actions.ActOnMollyWhereDirective(AssociatedStmt.get(), info->islstr);
     }
   }
 
+  info->~PragmaMollyInfo();
+  PP.getPreprocessorAllocator().Deallocate(info);
   return Directive;
 }
 
@@ -92,6 +99,12 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
       llvm_unreachable("rparen expected");
     }
 
+    Token eodTok;
+    PP.Lex(eodTok);
+    if (eodTok.isNot(tok::eod)) {
+      llvm_unreachable("end-of-pragma expected");
+    }
+
     // PragmaPack creates an annotation token that the the parser will handle. Why? Better distinction between Lexer and Parser?
     //   Possible answer: maybe because Parser can check whether it is placed correctly 
     //   Or maybe to support _Pragma
@@ -115,10 +128,16 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
       llvm_unreachable("rparen expected");
     }
 
+    Token eodTok;
+    PP.Lex(eodTok);
+    if (eodTok.isNot(tok::eod)) {
+      llvm_unreachable("end-of-pragma expected");
+    }
+
     PragmaMollyInfo *Info = (PragmaMollyInfo*)PP.getPreprocessorAllocator().Allocate(sizeof(PragmaMollyInfo), llvm::alignOf<PragmaMollyInfo>());
     new (Info) PragmaMollyInfo(islstr);
 
-    Token *Toks = (Token*) PP.getPreprocessorAllocator().Allocate(sizeof(Token) * 1, llvm::alignOf<Token>());
+    Token *Toks = new Token[1]; //(Token*) PP.getPreprocessorAllocator().Allocate(sizeof(Token) * 1, llvm::alignOf<Token>());
     Token &Annot = Toks[0];
     Annot.startToken();
     Annot.setKind(tok::annot_pragma_molly);
@@ -127,12 +146,5 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
     PP.EnterTokenStream(Toks, 1, /*DisableMacroExpansion=*/true, /*OwnsTokens=*/true);
   } else {
     llvm_unreachable("operation keyword expected");
-  }
-
-  Token eodTok;
-  PP.Lex(eodTok);
-  if (eodTok.isNot(tok::eod)) {
-    PP.Diag(eodTok.getLocation(), diag::err_pragma_detect_mismatch_malformed);
-    return;
   }
 }

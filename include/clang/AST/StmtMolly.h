@@ -12,18 +12,27 @@ namespace clang {
   class MollyWhereDirective : public Stmt {
     //ASTContext *Context;
     Stmt *associatedStmt;
+    std::string islstr;
 
   private:
-    MollyWhereDirective(ASTContext &C, Stmt *AssociatedStmt) : Stmt(Stmt::MollyWhereDirectiveClass), associatedStmt(AssociatedStmt) {
+    MollyWhereDirective(ASTContext &C, Stmt *AssociatedStmt, StringRef islstr) : Stmt(Stmt::MollyWhereDirectiveClass), associatedStmt(AssociatedStmt), islstr(islstr) {
     }
 
   public:
-    static MollyWhereDirective *Create(ASTContext &C, Stmt *AssociatedStmt)  {
-      return new (C) MollyWhereDirective(C, AssociatedStmt);
+    static MollyWhereDirective *Create(ASTContext &C, Stmt *AssociatedStmt, StringRef islstr) {
+      return new (C) MollyWhereDirective(C, AssociatedStmt, islstr);
+    }
+
+    const Stmt *getAssociatedStmt() const {
+      return associatedStmt;
     }
 
     Stmt *getAssociatedStmt() {
       return associatedStmt;
+    }
+
+    StringRef getIslStr() const {
+      return islstr;
     }
 
 #pragma region Required to implement clang::Stmt

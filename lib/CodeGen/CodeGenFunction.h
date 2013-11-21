@@ -2677,6 +2677,10 @@ private:
   /// GetPointeeAlignment - Given an expression with a pointer type, emit the
   /// value and compute our best estimate of the alignment of the pointee.
   std::pair<llvm::Value*, unsigned> EmitPointerWithAlignment(const Expr *Addr);
+
+#ifdef MOLLY
+  void EmitMollyWhereDirective(const MollyWhereDirective *S);
+#endif /* MOLLY */
 };
 
 /// Helper class with most of the code for saving a value for a
