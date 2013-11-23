@@ -3882,6 +3882,10 @@ TEST_F(FormatTest, WrapsTemplateDeclarations) {
       "template <typename T1, typename T2 = char, typename T3 = char,\n"
       "          typename T4 = char>\n"
       "void f();");
+  verifyFormat("template <typename aaaaaaaaaaa, typename bbbbbbbbbbbbb,\n"
+               "          template <typename> class cccccccccccccccccccccc,\n"
+               "          typename ddddddddddddd>\n"
+               "class C {};");
   verifyFormat(
       "aaaaaaaaaaaaaaaaaaaaaaaa<aaaaaaaaaaaaaaaaa, aaaaaaaaaaaaaaaaa>(\n"
       "    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa);");
@@ -4671,6 +4675,7 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
     verifyFormat("new int[3]{ 1, 2, 3 };");
     verifyFormat("return { arg1, arg2 };");
     verifyFormat("return { arg1, SomeType{ parameter } };");
+    verifyFormat("int count = set<int>{ f(), g(), h() }.size();");
     verifyFormat("new T{ arg1, arg2 };");
     verifyFormat("f(MyMap[{ composite, key }]);");
     verifyFormat("class Class {\n"
@@ -4693,6 +4698,14 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
     verifyFormat(
         "std::this_thread::sleep_for(\n"
         "    std::chrono::nanoseconds{ std::chrono::seconds{ 1 } } / 5);");
+    verifyFormat("std::vector<MyValues> aaaaaaaaaaaaaaaaaaa{\n"
+                 "  aaaaaaa,      aaaaaaaaaa,\n"
+                 "  aaaaa,        aaaaaaaaaaaaaaa,\n"
+                 "  aaa,          aaaaaaaaaa,\n"
+                 "  a,            aaaaaaaaaaaaaaaaaaaaa,\n"
+                 "  aaaaaaaaaaaa, aaaaaaaaaaaaaaaaaaa + aaaaaaaaaaaaaaaaaaa,\n"
+                 "  aaaaaaa,      a\n"
+                 "};");
 
     FormatStyle NoSpaces = getLLVMStyle();
     NoSpaces.Cpp11BracedListStyle = true;
@@ -4706,6 +4719,7 @@ TEST_F(FormatTest, LayoutCxx11ConstructorBraceInitializers) {
     verifyFormat("new int[3]{1, 2, 3};", NoSpaces);
     verifyFormat("return {arg1, arg2};", NoSpaces);
     verifyFormat("return {arg1, SomeType{parameter}};", NoSpaces);
+    verifyFormat("int count = set<int>{f(), g(), h()}.size();", NoSpaces);
     verifyFormat("new T{arg1, arg2};", NoSpaces);
     verifyFormat("f(MyMap[{composite, key}]);", NoSpaces);
     verifyFormat("class Class {\n"
@@ -7326,12 +7340,19 @@ TEST_F(FormatTest, SpacesInAngles) {
   verifyFormat("A<A<int>>();", Spaces);
 }
 
-
 TEST_F(FormatTest, UnderstandsJavaScript) {
+  verifyFormat("a == = b;");
+  verifyFormat("a != = b;");
+
   verifyFormat("a === b;");
-  verifyFormat("aaaaaaa === b;", getLLVMStyleWithColumns(10));
+  verifyFormat("aaaaaaa ===\n    b;", getLLVMStyleWithColumns(10));
   verifyFormat("a !== b;");
-  verifyFormat("aaaaaaa !== b;", getLLVMStyleWithColumns(10));
+  verifyFormat("aaaaaaa !==\n    b;", getLLVMStyleWithColumns(10));
+  verifyFormat("if (a + b + c +\n"
+               "        d !==\n"
+               "    e + f + g)\n"
+               "  q();",
+               getLLVMStyleWithColumns(20));
 }
 
 } // end namespace tooling
