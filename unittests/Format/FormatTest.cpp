@@ -187,10 +187,10 @@ TEST_F(FormatTest, FormatsCorrectRegionForLeadingWhitespace) {
                    26, 0, getLLVMStyleWithColumns(12)));
   EXPECT_EQ("#define A  \\\n"
             "  int a;   \\\n"
-            "    int b;",
+            "  int b;",
             format("#define A  \\\n"
                    "  int a;   \\\n"
-                   "    int b;",
+                   "  int b;",
                    25, 0, getLLVMStyleWithColumns(12)));
 }
 
@@ -6991,6 +6991,16 @@ TEST_F(FormatTest, CountsUTF8CharactersProperly) {
 }
 
 TEST_F(FormatTest, SplitsUTF8Strings) {
+  // Non-printable characters' width is currently considered to be the length in
+  // bytes in UTF8. The characters can be displayed in very different manner
+  // (zero-width, single width with a substitution glyph, expanded to their code
+  // (e.g. "<8d>"), so there's no single correct way to handle them.
+  EXPECT_EQ("\"aaaaÄ\"\n"
+            "\"\xc2\x8d\";",
+            format("\"aaaaÄ\xc2\x8d\";", getLLVMStyleWithColumns(10)));
+  EXPECT_EQ("\"aaaaaaaÄ\"\n"
+            "\"\xc2\x8d\";",
+            format("\"aaaaaaaÄ\xc2\x8d\";", getLLVMStyleWithColumns(10)));
   EXPECT_EQ(
       "\"Однажды, в \"\n"
       "\"студёную \"\n"
@@ -7024,6 +7034,8 @@ TEST_F(FormatTest, HandlesDoubleWidthCharsInMultiLineStrings) {
 }
 
 TEST_F(FormatTest, SplitsUTF8LineComments) {
+  EXPECT_EQ("// aaaaÄ\xc2\x8d",
+            format("// aaaaÄ\xc2\x8d", getLLVMStyleWithColumns(10)));
   EXPECT_EQ("// Я из лесу\n"
             "// вышел; был\n"
             "// сильный\n"
