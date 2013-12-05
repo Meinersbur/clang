@@ -8,6 +8,7 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_unittest(FormatTests
   FormatTest.cpp
+  FormatTestJS.cpp
 LINK_LIBS
   clangAST
   clangFormat

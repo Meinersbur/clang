@@ -1651,7 +1651,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, llvm::Value *Arg,
     DeclPtr = Arg;
     // Push a destructor cleanup for this parameter if the ABI requires it.
     if (HasNonScalarEvalKind &&
-        getTarget().getCXXABI().isArgumentDestroyedByCallee()) {
+        getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
       if (const CXXRecordDecl *RD = Ty->getAsCXXRecordDecl()) {
         if (RD->hasNonTrivialDestructor())
           pushDestroy(QualType::DK_cxx_destructor, DeclPtr, Ty);
