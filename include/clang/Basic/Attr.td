@@ -40,6 +40,10 @@ def NonBitField : SubsetSubject<Field,
 def ObjCInstanceMethod : SubsetSubject<ObjCMethod,
                                        [{S->isInstanceMethod()}]>;
 
+def ObjCInterfaceDeclInitMethod : SubsetSubject<ObjCMethod,
+                               [{S->getMethodFamily() == OMF_init &&
+                                 isa<ObjCInterfaceDecl>(S->getDeclContext())}]>;
+
 def Struct : SubsetSubject<Record,
                            [{!S->isUnion()}]>;
 
@@ -699,7 +703,8 @@ def ObjCSuppressProtocol : InheritableAttr {
 
 def ObjCDesignatedInitializer : Attr {
   let Spellings = [GNU<"objc_designated_initializer">];
-  let Subjects = SubjectList<[ObjCMethod], ErrorDiag>;
+  let Subjects = SubjectList<[ObjCInterfaceDeclInitMethod], ErrorDiag,
+                             "ExpectedObjCInterfaceDeclInitMethod">;
 }
 
 def Overloadable : Attr {
@@ -920,10 +925,7 @@ def WeakRef : InheritableAttr {
 }
 
 def X86ForceAlignArgPointer : InheritableAttr, TargetSpecificAttr {
-  let Spellings = [GNU<"force_align_arg_pointer">];
-  // Technically, this appertains to a FunctionDecl, but the target-specific
-  // code silently allows anything function-like (such as typedefs or function
-  // pointers), but does not apply the attribute to them.
+  let Spellings = [];
 }
 
 // Attribute to disable AddressSanitizer (or equivalent) checks.
@@ -1208,7 +1210,7 @@ def SelectAny : InheritableAttr {
   let LangOpts = [MicrosoftExt];
 }
 
-def Win64 : InheritableAttr {
+def Win64 : IgnoredAttr {
   let Spellings = [Keyword<"__w64">];
   let LangOpts = [MicrosoftExt];
 }

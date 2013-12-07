@@ -2056,7 +2056,7 @@ void ASTWriter::WriteSubStmt(Stmt *S,
   ParentStmtInserterRAII ParentStmtInserter(S, ParentStmts);
 #endif
 
-  // Redirect ASTWriter::AddStmt to collect sub stmts.
+  // Redirect ASTWriter::AddStmt to collect sub-stmts.
   SmallVector<Stmt *, 16> SubStmts;
   CollectedStmts = &SubStmts;
 
@@ -2069,16 +2069,16 @@ void ASTWriter::WriteSubStmt(Stmt *S,
     SourceManager &SrcMgr
       = DeclIDs.begin()->first->getASTContext().getSourceManager();
     S->dump(SrcMgr);
-    llvm_unreachable("Unhandled sub statement writing AST file");
+    llvm_unreachable("Unhandled sub-statement writing AST file");
   }
 #endif
 
   // Revert ASTWriter::AddStmt.
   CollectedStmts = &StmtsToEmit;
 
-  // Write the sub stmts in reverse order, last to first. When reading them back
+  // Write the sub-stmts in reverse order, last to first. When reading them back
   // we will read them in correct order by "pop"ing them from the Stmts stack.
-  // This simplifies reading and allows to store a variable number of sub stmts
+  // This simplifies reading and allows to store a variable number of sub-stmts
   // without knowing it in advance.
   while (!SubStmts.empty())
     WriteSubStmt(SubStmts.pop_back_val(), SubStmtEntries, ParentStmts);
@@ -2095,7 +2095,7 @@ void ASTWriter::FlushStmts() {
 
   // We expect to be the only consumer of the two temporary statement maps,
   // assert that they are empty.
-  assert(SubStmtEntries.empty() && "unexpected entries in sub stmt map");
+  assert(SubStmtEntries.empty() && "unexpected entries in sub-stmt map");
   assert(ParentStmts.empty() && "unexpected entries in parent stmt map");
 
   for (unsigned I = 0, N = StmtsToEmit.size(); I != N; ++I) {

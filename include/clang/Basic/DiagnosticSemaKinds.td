@@ -2037,7 +2037,8 @@ def warn_attribute_wrong_decl_type : Warning<
   "variables and fields|variables, data members and tag types|"
   "types and namespaces|Objective-C interfaces|methods and properties|"
   "struct or union|struct, union or class|types|"
-  "Objective-C instance methods|variables, functions and classes}1">,
+  "Objective-C instance methods|init methods of interface declarations|"
+  "variables, functions and classes}1">,
   InGroup<IgnoredAttributes>;
 def err_attribute_wrong_decl_type : Error<
   "%0 attribute only applies to %select{functions|unions|"
@@ -2049,7 +2050,8 @@ def err_attribute_wrong_decl_type : Error<
   "variables and fields|variables, data members and tag types|"
   "types and namespaces|Objective-C interfaces|methods and properties|"
   "struct or union|struct, union or class|types|"
-  "Objective-C instance methods|variables, functions and classes}1">;
+  "Objective-C instance methods|init methods of interface declarations|"
+  "variables, functions and classes}1">;
 def warn_type_attribute_wrong_type : Warning<
   "'%0' only applies to %select{function|pointer|"
   "Objective-C object or block pointer}1 types; type here is %2">,
@@ -2428,10 +2430,6 @@ def note_protocol_decl : Note<
   "protocol is declared here">;
 
 // objc_designated_initializer attribute diagnostics.
-def err_attr_objc_designated_not_init_family : Error<
-  "'objc_designated_initializer' only applies to methods of the init family">;
-def err_attr_objc_designated_not_interface : Error<
-  "'objc_designated_initializer' only applies to methods of interface declarations">;
 def warn_objc_designated_init_missing_super_call : Warning<
   "designated initializer missing a 'super' call to a designated initializer of the super class">,
   InGroup<ObjCDesignatedInit>;
@@ -2468,6 +2466,23 @@ def warn_objc_invalid_bridge : Warning<
 def warn_objc_invalid_bridge_to_cf : Warning<
   "%0 cannot bridge to %1">, InGroup<ObjCBridge>;
 
+// objc_bridge_related attribute diagnostics.
+def err_objc_bridged_related_invalid_class : Error<
+  "could not find ObjectiveC class %0 to convert %1 to %2">;
+def err_objc_bridged_related_invalid_class_name : Error<
+  "%0 must be name of an ObjectiveC class to be able to convert %1 to %2">;
+def err_objc_bridged_related_class_method : Error<
+  "class method %0 for conversion of CF type %1 to an "
+ "ObjectiveC object of type %2 not found">;
+def err_objc_bridged_related_instance_method : Error<
+  "instance method %0 for conversion of an ObjectiveC type %1 to a CF "
+ "object  of type %2 not found">;
+def err_objc_bridged_related_known_method : Error<
+ "%0 must be explicitly converted to %1, use %2 method for this conversion">;
+def err_objc_bridged_related_unknown_method : Error<
+ "%0 must be explicitly converted to %1, define and then use "
+ "%select{a singular class|an instance}3 method in %2 for this conversion">;
+  
 // Function Parameter Semantic Analysis.
 def err_param_with_void_type : Error<"argument may not have 'void' type">;
 def err_void_only_param : Error<

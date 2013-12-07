@@ -3793,24 +3793,9 @@ static void handleObjCBridgeRelatedAttr(Sema &S, Scope *Sc, Decl *D,
 
 static void handleObjCDesignatedInitializer(Sema &S, Decl *D,
                                             const AttributeList &Attr) {
-  SourceLocation Loc = Attr.getLoc();
-  ObjCMethodDecl *Method = cast<ObjCMethodDecl>(D);
-
-  if (Method->getMethodFamily() != OMF_init) {
-    S.Diag(D->getLocStart(), diag::err_attr_objc_designated_not_init_family)
-    << SourceRange(Loc, Loc);
-    return;
-  }
-  ObjCInterfaceDecl *IFace =
-      dyn_cast<ObjCInterfaceDecl>(Method->getDeclContext());
-  if (!IFace) {
-    S.Diag(D->getLocStart(), diag::err_attr_objc_designated_not_interface)
-    << SourceRange(Loc, Loc);
-    return;
-  }
-
+  ObjCInterfaceDecl *IFace = cast<ObjCInterfaceDecl>(D->getDeclContext());
   IFace->setHasDesignatedInitializers();
-  Method->addAttr(::new (S.Context)
+  D->addAttr(::new (S.Context)
                   ObjCDesignatedInitializerAttr(Attr.getRange(), S.Context,
                                          Attr.getAttributeSpellingListIndex()));
 }
@@ -4185,8 +4170,6 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     handleSimpleAttribute<MultipleInheritanceAttr>(S, D, Attr); break;
   case AttributeList::AT_VirtualInheritance:
     handleSimpleAttribute<VirtualInheritanceAttr>(S, D, Attr); break;
-  case AttributeList::AT_Win64:
-    handleSimpleAttribute<Win64Attr>(S, D, Attr); break;
   case AttributeList::AT_ForceInline:
     handleSimpleAttribute<ForceInlineAttr>(S, D, Attr); break;
   case AttributeList::AT_SelectAny:
