@@ -14,7 +14,8 @@ add_clang_library(clangSerialization
   GlobalModuleIndex.cpp
   Module.cpp
   ModuleManager.cpp
-  LINK_LIBS clangSema
+LINK_LIBS
+  clangSema
   )
 
 add_dependencies(clangSerialization

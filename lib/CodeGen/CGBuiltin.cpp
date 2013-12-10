@@ -1770,6 +1770,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
   bool OverloadCvtInt = false;
   bool OverloadWideInt = false;
   bool OverloadNarrowInt = false;
+  bool OverloadScalarRetInt = false;
   const char *s = NULL;
 
   SmallVector<Value *, 4> Ops;
@@ -1996,43 +1997,45 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
   case AArch64::BI__builtin_neon_vpaddd_u64:
     Int = Intrinsic::aarch64_neon_vpadd; s = "vpadd";
     break;
+  case AArch64::BI__builtin_neon_vaddv_f32:
+  case AArch64::BI__builtin_neon_vaddvq_f32:
+  case AArch64::BI__builtin_neon_vaddvq_f64:
   case AArch64::BI__builtin_neon_vpadds_f32:
-    Int = Intrinsic::aarch64_neon_vpfadd; s = "vpfadd";
-    break;
   case AArch64::BI__builtin_neon_vpaddd_f64:
-    Int = Intrinsic::aarch64_neon_vpfaddq; s = "vpfaddq";
-    break;
+    Int = Intrinsic::aarch64_neon_vpfadd;
+    s = "vpfadd"; OverloadScalarRetInt = true; break;
   // Scalar Reduce Pairwise Floating Point Max
+  case AArch64::BI__builtin_neon_vmaxv_f32:
   case AArch64::BI__builtin_neon_vpmaxs_f32:
-    Int = Intrinsic::aarch64_neon_vpmax; s = "vpmax";
-    break;
+  case AArch64::BI__builtin_neon_vmaxvq_f64:
   case AArch64::BI__builtin_neon_vpmaxqd_f64:
-    Int = Intrinsic::aarch64_neon_vpmaxq; s = "vpmaxq";
-    break;
+    Int = Intrinsic::aarch64_neon_vpmax;
+    s = "vpmax"; OverloadScalarRetInt = true; break;
   // Scalar Reduce Pairwise Floating Point Min
+  case AArch64::BI__builtin_neon_vminv_f32:
   case AArch64::BI__builtin_neon_vpmins_f32:
-    Int = Intrinsic::aarch64_neon_vpmin; s = "vpmin";
-    break;
+  case AArch64::BI__builtin_neon_vminvq_f64:
   case AArch64::BI__builtin_neon_vpminqd_f64:
-    Int = Intrinsic::aarch64_neon_vpminq; s = "vpminq";
-    break;
+    Int = Intrinsic::aarch64_neon_vpmin;
+    s = "vpmin"; OverloadScalarRetInt = true; break;
   // Scalar Reduce Pairwise Floating Point Maxnm
+  case AArch64::BI__builtin_neon_vmaxnmv_f32:
   case AArch64::BI__builtin_neon_vpmaxnms_f32:
-    Int = Intrinsic::aarch64_neon_vpfmaxnm; s = "vpfmaxnm";
-    break;
+  case AArch64::BI__builtin_neon_vmaxnmvq_f64:
   case AArch64::BI__builtin_neon_vpmaxnmqd_f64:
-    Int = Intrinsic::aarch64_neon_vpfmaxnmq; s = "vpfmaxnmq";
-    break;
+    Int = Intrinsic::aarch64_neon_vpfmaxnm;
+    s = "vpfmaxnm"; OverloadScalarRetInt = true; break;
   // Scalar Reduce Pairwise Floating Point Minnm
+  case AArch64::BI__builtin_neon_vminnmv_f32:
   case AArch64::BI__builtin_neon_vpminnms_f32:
-    Int = Intrinsic::aarch64_neon_vpfminnm; s = "vpfminnm";
-    break;
+  case AArch64::BI__builtin_neon_vminnmvq_f64:
   case AArch64::BI__builtin_neon_vpminnmqd_f64:
-    Int = Intrinsic::aarch64_neon_vpfminnmq; s = "vpfminnmq";
-    break;
+    Int = Intrinsic::aarch64_neon_vpfminnm;
+    s = "vpfminnm"; OverloadScalarRetInt = true; break;
   // The followings are intrinsics with scalar results generated AcrossVec vectors
   case AArch64::BI__builtin_neon_vaddlv_s8:
   case AArch64::BI__builtin_neon_vaddlv_s16:
+  case AArch64::BI__builtin_neon_vaddlv_s32:
   case AArch64::BI__builtin_neon_vaddlvq_s8:
   case AArch64::BI__builtin_neon_vaddlvq_s16:
   case AArch64::BI__builtin_neon_vaddlvq_s32:
@@ -2040,6 +2043,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = true; s = "saddlv"; break;
   case AArch64::BI__builtin_neon_vaddlv_u8:
   case AArch64::BI__builtin_neon_vaddlv_u16:
+  case AArch64::BI__builtin_neon_vaddlv_u32:
   case AArch64::BI__builtin_neon_vaddlvq_u8:
   case AArch64::BI__builtin_neon_vaddlvq_u16:
   case AArch64::BI__builtin_neon_vaddlvq_u32:
@@ -2047,6 +2051,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = true; s = "uaddlv"; break;
   case AArch64::BI__builtin_neon_vmaxv_s8:
   case AArch64::BI__builtin_neon_vmaxv_s16:
+  case AArch64::BI__builtin_neon_vmaxv_s32:
   case AArch64::BI__builtin_neon_vmaxvq_s8:
   case AArch64::BI__builtin_neon_vmaxvq_s16:
   case AArch64::BI__builtin_neon_vmaxvq_s32:
@@ -2054,6 +2059,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = false; s = "smaxv"; break;
   case AArch64::BI__builtin_neon_vmaxv_u8:
   case AArch64::BI__builtin_neon_vmaxv_u16:
+  case AArch64::BI__builtin_neon_vmaxv_u32:
   case AArch64::BI__builtin_neon_vmaxvq_u8:
   case AArch64::BI__builtin_neon_vmaxvq_u16:
   case AArch64::BI__builtin_neon_vmaxvq_u32:
@@ -2061,6 +2067,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = false; s = "umaxv"; break;
   case AArch64::BI__builtin_neon_vminv_s8:
   case AArch64::BI__builtin_neon_vminv_s16:
+  case AArch64::BI__builtin_neon_vminv_s32:
   case AArch64::BI__builtin_neon_vminvq_s8:
   case AArch64::BI__builtin_neon_vminvq_s16:
   case AArch64::BI__builtin_neon_vminvq_s32:
@@ -2068,6 +2075,7 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = false; s = "sminv"; break;
   case AArch64::BI__builtin_neon_vminv_u8:
   case AArch64::BI__builtin_neon_vminv_u16:
+  case AArch64::BI__builtin_neon_vminv_u32:
   case AArch64::BI__builtin_neon_vminvq_u8:
   case AArch64::BI__builtin_neon_vminvq_u16:
   case AArch64::BI__builtin_neon_vminvq_u32:
@@ -2075,39 +2083,30 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     AcrossVec = true; ExtendEle = false; s = "uminv"; break;
   case AArch64::BI__builtin_neon_vaddv_s8:
   case AArch64::BI__builtin_neon_vaddv_s16:
+  case AArch64::BI__builtin_neon_vaddv_s32:
   case AArch64::BI__builtin_neon_vaddvq_s8:
   case AArch64::BI__builtin_neon_vaddvq_s16:
   case AArch64::BI__builtin_neon_vaddvq_s32:
   case AArch64::BI__builtin_neon_vaddvq_s64:
   case AArch64::BI__builtin_neon_vaddv_u8:
   case AArch64::BI__builtin_neon_vaddv_u16:
+  case AArch64::BI__builtin_neon_vaddv_u32:
   case AArch64::BI__builtin_neon_vaddvq_u8:
   case AArch64::BI__builtin_neon_vaddvq_u16:
   case AArch64::BI__builtin_neon_vaddvq_u32:
   case AArch64::BI__builtin_neon_vaddvq_u64:
-  case AArch64::BI__builtin_neon_vaddv_f32:
-  case AArch64::BI__builtin_neon_vaddvq_f32:
-  case AArch64::BI__builtin_neon_vaddvq_f64:
     Int = Intrinsic::aarch64_neon_vaddv;
     AcrossVec = true; ExtendEle = false; s = "vaddv"; break;      
-  case AArch64::BI__builtin_neon_vmaxv_f32:
   case AArch64::BI__builtin_neon_vmaxvq_f32:
-  case AArch64::BI__builtin_neon_vmaxvq_f64:
     Int = Intrinsic::aarch64_neon_vmaxv;
     AcrossVec = true; ExtendEle = false; s = "vmaxv"; break;
-  case AArch64::BI__builtin_neon_vminv_f32:
   case AArch64::BI__builtin_neon_vminvq_f32:
-  case AArch64::BI__builtin_neon_vminvq_f64:
     Int = Intrinsic::aarch64_neon_vminv;
     AcrossVec = true; ExtendEle = false; s = "vminv"; break;
-  case AArch64::BI__builtin_neon_vmaxnmv_f32:
   case AArch64::BI__builtin_neon_vmaxnmvq_f32:
-  case AArch64::BI__builtin_neon_vmaxnmvq_f64:
     Int = Intrinsic::aarch64_neon_vmaxnmv;
     AcrossVec = true; ExtendEle = false; s = "vmaxnmv"; break;
-  case AArch64::BI__builtin_neon_vminnmv_f32:
   case AArch64::BI__builtin_neon_vminnmvq_f32:
-  case AArch64::BI__builtin_neon_vminnmvq_f64:
     Int = Intrinsic::aarch64_neon_vminnmv;
     AcrossVec = true; ExtendEle = false; s = "vminnmv"; break;
   // Scalar Integer Saturating Doubling Multiply Half High
@@ -2589,12 +2588,22 @@ static Value *EmitAArch64ScalarBuiltinExpr(CodeGenFunction &CGF,
     F = CGF.CGM.getIntrinsic(Int, Tys);
     assert(E->getNumArgs() == 1);
   } else if (OverloadInt) {
-    // Determine the type of this overloaded AArch64 intrinsic
+    // Determine the type of this overloaded AArch64 intrinsic and convert the
+    // scalar types to one-vector element types.
     llvm::Type *Ty = CGF.ConvertType(E->getCallReturnType());
     llvm::VectorType *VTy = llvm::VectorType::get(Ty, 1);
     assert(VTy);
 
     F = CGF.CGM.getIntrinsic(Int, VTy);
+  } else if (OverloadScalarRetInt) {
+    // Determine the type of this overloaded AArch64 intrinsic
+    const Expr *Arg = E->getArg(E->getNumArgs()-1);
+    llvm::Type *Ty = CGF.ConvertType(Arg->getType());
+    llvm::VectorType *VTy = cast<llvm::VectorType>(Ty);
+    llvm::Type *RTy = VTy->getElementType();
+
+    llvm::Type *Tys[2] = {RTy, VTy};
+    F = CGF.CGM.getIntrinsic(Int, Tys);
   } else if (OverloadWideInt || OverloadNarrowInt) {
     // Determine the type of this overloaded AArch64 intrinsic
     const Expr *Arg = E->getArg(E->getNumArgs()-1);

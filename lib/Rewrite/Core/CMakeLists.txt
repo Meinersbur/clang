@@ -4,7 +4,6 @@ add_clang_library(clangRewriteCore
   RewriteRope.cpp
   Rewriter.cpp
   TokenRewriter.cpp
-  LINK_LIBS clangBasic clangAST clangParse
   )
 
 add_dependencies(clangRewriteCore
@@ -16,4 +15,8 @@ add_dependencies(clangRewriteCore
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
+LINK_LIBS
+  clangBasic
+  clangAST
+  clangParse
   )

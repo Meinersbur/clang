@@ -120,6 +120,8 @@ namespace {
 
     virtual void HandleTranslationUnit(ASTContext &Ctx) {
       if (Diags.hasErrorOccurred()) {
+        if (Builder)
+          Builder->clear();
         M.reset();
         return;
       }

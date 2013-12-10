@@ -3,6 +3,10 @@ clang_tablegen(Checkers.inc -gen-clang-sa-checkers
   SOURCE Checkers.td
   TARGET ClangSACheckers)
 
+set(LLVM_LINK_COMPONENTS
+  Support
+  )
+
 add_clang_library(clangStaticAnalyzerCheckers
   AllocationDiagnostics.cpp
   AnalyzerStatsChecker.cpp
@@ -84,3 +88,6 @@ add_dependencies(clangStaticAnalyzerCheckers
   ClangStmtNodes
   ClangSACheckers
   )
+
+  clangAnalysis
+  clangBasic

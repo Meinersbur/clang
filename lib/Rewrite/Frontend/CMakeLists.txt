@@ -1,3 +1,7 @@
+set(LLVM_LINK_COMPONENTS
+  Support
+  )
+
 add_clang_library(clangRewriteFrontend
   FixItRewriter.cpp
   FrontendActions.cpp
@@ -7,7 +11,6 @@ add_clang_library(clangRewriteFrontend
   RewriteModernObjC.cpp
   RewriteObjC.cpp
   RewriteTest.cpp
-  LINK_LIBS clangBasic clangAST clangParse clangFrontend clangRewriteCore
   )
 
 add_dependencies(clangRewriteFrontend
@@ -19,4 +22,14 @@ add_dependencies(clangRewriteFrontend
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
+  )
+
+target_link_libraries(clangRewriteFrontend
+  clangAST
+  clangBasic
+  clangEdit
+  clangFrontend
+  clangLex
+  clangParse
+  clangRewriteCore
   )

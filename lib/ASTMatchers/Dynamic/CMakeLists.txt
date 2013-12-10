@@ -10,5 +10,7 @@ LINK_LIBS
   )
 
 add_dependencies(clangDynamicASTMatchers
+  clangAST
   clangASTMatchers
+  clangBasic
   )

@@ -1,15 +1,5 @@
 set(LLVM_LINK_COMPONENTS support)
 
-set(LLVM_LINK_LIBS
-  clangBasic
-  clangFrontend
-  clangAST
-  clangASTMatchers
-  clangRewriteCore
-  clangRewriteFrontend
-  clangTooling
-  )
-
 add_clang_library(clangFormat
   BreakableToken.cpp
   ContinuationIndenter.cpp
@@ -18,6 +8,14 @@ add_clang_library(clangFormat
   TokenAnnotator.cpp
   UnwrappedLineParser.cpp
   WhitespaceManager.cpp
+LINK_LIBS
+  clangBasic
+  clangFrontend
+  clangAST
+  clangASTMatchers
+  clangRewriteCore
+  clangRewriteFrontend
+  clangTooling
   )
 
 add_dependencies(clangFormat

@@ -50,3 +50,7 @@ add_dependencies(clangStaticAnalyzerCore
   ClangDiagnosticCommon
   ClangStmtNodes
   )
+
+  clangAnalysis
+  clangBasic
+  clangLex

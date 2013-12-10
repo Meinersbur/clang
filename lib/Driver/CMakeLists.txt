@@ -1,8 +1,8 @@
-set(LLVM_LINK_LIBS
-  clangBasic
-  LLVMOption
-  LLVMTransformUtils
-)
+set(LLVM_LINK_COMPONENTS
+  Option
+  Support
+  TransformUtils
+  )
 
 add_clang_library(clangDriver
   Action.cpp
@@ -19,6 +19,8 @@ add_clang_library(clangDriver
   WindowsToolChain.cpp
   Tools.cpp
   Types.cpp
+LINK_LIBS
+  clangBasic
   )
 
 add_dependencies(clangDriver
