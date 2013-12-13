@@ -773,7 +773,7 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   if (intrincId==Intrinsic::molly_field_init) {
     //auto md = fieldsFound[structTy];
     //args.push_back(md->buildMetadata(&cgm->getModule()));
-    args.push_back( llvm::MDNode::get(llvmContext, ArrayRef<llvm::Value*>() )); // Metadata not known yet, must be added later
+    args.push_back(llvm::MDNode::get(llvmContext, ArrayRef<llvm::Value*>() )); // Metadata not known yet, must be added later
   }
 
   Function *func = cgm->getIntrinsic(intrincId, argtypes);

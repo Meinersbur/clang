@@ -11,6 +11,14 @@ add_clang_library(clangRewriteFrontend
   RewriteModernObjC.cpp
   RewriteObjC.cpp
   RewriteTest.cpp
+LINK_LIBS
+  clangAST
+  clangBasic
+  clangEdit
+  clangFrontend
+  clangLex
+  clangParse
+  clangRewriteCore
   )
 
 add_dependencies(clangRewriteFrontend
@@ -22,14 +30,4 @@ add_dependencies(clangRewriteFrontend
   ClangDiagnosticCommon
   ClangDiagnosticFrontend
   ClangStmtNodes
-  )
-
-target_link_libraries(clangRewriteFrontend
-  clangAST
-  clangBasic
-  clangEdit
-  clangFrontend
-  clangLex
-  clangParse
-  clangRewriteCore
   )

@@ -146,5 +146,5 @@ def MollyTransform : InheritableAttr {
   let Spellings = []; // Made by #pragma molly
   let Args = [StringArgument<"islstr">, UnsignedArgument<"nodedims">];
   bit SemaHandler = 0;
-  let Subjects = [Var];
+//  let Subjects = [Var];
 }

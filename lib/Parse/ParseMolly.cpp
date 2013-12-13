@@ -12,9 +12,12 @@
 using namespace clang;
 using namespace std;
 
+#ifndef MOLLY
+#error Must define MOLLY
+#endif
 
 struct PragmaMollyInfo {
-  std::string islstr; 
+  std::string islstr;
   //int clusterdims;
 
 public:
@@ -32,21 +35,22 @@ StmtResult Parser::ParseMollyAnnotation(bool StandAloneAllowed) {
 
   bool CreateDirective;
   StmtResult Directive;
-   StmtResult AssociatedStmt;
+  StmtResult AssociatedStmt;
   {
     //ParseScope MollyDirectiveScope(this, Scope::FnScope | Scope::MollyDirectiveScope | Scope::DeclScope); // Flags taken from #pragma omp parallel
 
     //Actions.ActOnCapturedRegionStart(SourceLocation(), getCurScope(), CR_Default, 1);
     {
-    //Sema::CompoundScopeRAII CompoundScope(Actions);
-    AssociatedStmt = ParseStatement();
-  }
+      //Sema::CompoundScopeRAII CompoundScope(Actions);
+      AssociatedStmt = ParseStatement();
+    }
 
     assert(AssociatedStmt.isUsable());
     if (!AssociatedStmt.isUsable()) {
       //Actions.ActOnCapturedRegionError();
       CreateDirective = false;
-    } else {
+    }
+    else {
       //AssociatedStmt = Actions.ActOnCapturedRegionEnd(AssociatedStmt.take());
       CreateDirective = AssociatedStmt.isUsable();
     }
@@ -113,7 +117,8 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
     // I don't know which approach is better
     Actions.ActOnMollyTransformClause(islstr, dstlvl);
 
-  } else if (OpII->isStr("where")) {
+  }
+  else if (OpII->isStr("where")) {
     Token LParTok;
     PP.Lex(LParTok);
     if (LParTok.isNot(tok::l_paren)) {
@@ -135,7 +140,7 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
     }
 
     PragmaMollyInfo *Info = (PragmaMollyInfo*)PP.getPreprocessorAllocator().Allocate(sizeof(PragmaMollyInfo), llvm::alignOf<PragmaMollyInfo>());
-    new (Info) PragmaMollyInfo(islstr);
+    new (Info)PragmaMollyInfo(islstr);
 
     Token *Toks = new Token[1]; //(Token*) PP.getPreprocessorAllocator().Allocate(sizeof(Token) * 1, llvm::alignOf<Token>());
     Token &Annot = Toks[0];
@@ -144,7 +149,8 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
     Annot.setAnnotationValue(const_cast<void*>(static_cast<const void*>(Info)));
 
     PP.EnterTokenStream(Toks, 1, /*DisableMacroExpansion=*/true, /*OwnsTokens=*/true);
-  } else {
+  }
+  else {
     llvm_unreachable("operation keyword expected");
   }
 }
