@@ -27,5 +27,4 @@ add_dependencies(clangStaticAnalyzerFrontend
 
   clangAnalysis
   clangBasic
-  clangLex
   clangStaticAnalyzerCore

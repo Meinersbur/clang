@@ -18,8 +18,6 @@ endif()
 if(CLANG_ENABLE_STATIC_ANALYZER)
   list(APPEND _additional_libs 
     clangStaticAnalyzerFrontend
-    clangStaticAnalyzerCheckers
-    clangStaticAnalyzerCore
     )
 endif()
 

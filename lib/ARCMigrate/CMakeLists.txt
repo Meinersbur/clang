@@ -30,9 +30,7 @@ LINK_LIBS
   clangEdit
   clangFrontend
   clangLex
-  clangParse
   clangRewriteCore
-  clangRewriteFrontend
   clangSema
   clangSerialization
   clangStaticAnalyzerCheckers

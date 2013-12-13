@@ -910,7 +910,9 @@ enum AttributeDeclKind {
   ExpectedType,
   ExpectedObjCInstanceMethod,
   ExpectedObjCInterfaceDeclInitMethod,
-  ExpectedFunctionVariableOrClass
+  ExpectedFunctionVariableOrClass,
+  ExpectedObjectiveCProtocol,
+  ExpectedFunctionOrGlobalVar
 };
 
 }  // end namespace clang

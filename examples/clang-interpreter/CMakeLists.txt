@@ -1,15 +1,9 @@
 set(LLVM_LINK_COMPONENTS
-  jit
-  interpreter
+  Core
+  ExecutionEngine
+  JIT
+  Support
   nativecodegen
-  asmparser
-  bitreader
-  bitwriter
-  irreader
-  codegen
-  ipo
-  linker
-  selectiondag
   )
 
 add_clang_executable(clang-interpreter
@@ -20,3 +14,7 @@ add_clang_executable(clang-interpreter
 add_dependencies(clang-interpreter
   clang-headers
   )
+
+  clangCodeGen
+  clangDriver
+  clangFrontend

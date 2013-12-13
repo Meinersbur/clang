@@ -1,15 +1,21 @@
 set( LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
-  asmparser
-  bitreader
-  bitwriter
-  irreader
-  codegen
-  instrumentation
-  ipo
-  linker
-  selectiondag
+  Analysis
+  Core
+  IPA
+  IPO
+  InstCombine
+  Instrumentation
+  MC
+  MCParser
+  ObjCARCOpts
+  Option
+  ScalarOpts
+  Support
+  TransformUtils
+  Vectorize
   )
+  
   
 set(LLVM_LINK_LIBS)
   
@@ -34,28 +40,20 @@ if(CLANG_ENABLE_REWRITER)
     )
 endif()
 
-  
 
 
 add_clang_executable(clang
   driver.cpp
   cc1_main.cpp
   cc1as_main.cpp
-  LINK_LIBS
-  clangFrontendTool
-  clangAST
-  clangAnalysis
+LINK_LIBS
   clangBasic
-  clangCodeGen
   clangDriver
-  clangEdit
   clangFrontend
-  clangLex
-  clangParse
-  clangEdit
-  clangSema
-  clangSerialization
+  clangFrontendTool
   )
+
+
 
 set_target_properties(clang PROPERTIES VERSION ${CLANG_EXECUTABLE_VERSION})
 set_target_properties(clang PROPERTIES ENABLE_EXPORTS 1)

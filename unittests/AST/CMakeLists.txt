@@ -1,3 +1,6 @@
+set(LLVM_LINK_COMPONENTS
+  Support
+  )
 
 add_clang_unittest(ASTTests
   ASTContextParentMapTest.cpp
@@ -10,5 +13,9 @@ add_clang_unittest(ASTTests
   SourceLocationTest.cpp
   StmtPrinterTest.cpp
 LINK_LIBS
-  clangAST clangASTMatchers clangTooling
+  clangAST
+  clangASTMatchers
+  clangBasic
+  clangFrontend
+  clangTooling
   )

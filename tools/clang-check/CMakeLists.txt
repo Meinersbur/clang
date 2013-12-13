@@ -1,18 +1,18 @@
 set(LLVM_LINK_COMPONENTS
-  ${LLVM_TARGETS_TO_BUILD}
-  asmparser
-  bitreader
-  support
-  mc
+  Option
+  Support
   )
 
 add_clang_executable(clang-check
   ClangCheck.cpp
   LINK_LIBS
-  clangTooling
+  clangAST
   clangBasic
+  clangDriver
+  clangFrontend
   clangRewriteFrontend
   clangStaticAnalyzerFrontend
+  clangTooling
   )
 
 install(TARGETS clang-check

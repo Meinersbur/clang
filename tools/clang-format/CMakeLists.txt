@@ -1,9 +1,11 @@
 set(LLVM_LINK_COMPONENTS support)
-set(LLVM_USED_LIBS clangFormat clangTooling clangBasic clangAST)
 
 add_clang_executable(clang-format
   ClangFormat.cpp
   LINK_LIBS clangFormat clangTooling clangBasic clangRewriteFrontend
+  clangBasic
+  clangLex
+  clangRewriteCore
   )
 
 install(TARGETS clang-format RUNTIME DESTINATION bin)

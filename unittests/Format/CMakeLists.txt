@@ -1,17 +1,11 @@
 set(LLVM_LINK_COMPONENTS
-  ${LLVM_TARGETS_TO_BUILD}
-  asmparser
-  bitreader
-  support
-  mc
+  Support
   )
 
 add_clang_unittest(FormatTests
   FormatTest.cpp
   FormatTestJS.cpp
 LINK_LIBS
-  clangAST
   clangFormat
   clangTooling
-  clangRewriteCore
   )

@@ -53,6 +53,9 @@ def TLSVar : SubsetSubject<Var,
 def SharedVar : SubsetSubject<Var,
                               [{S->hasGlobalStorage() && !S->getTLSKind()}]>;
 
+def GlobalVar : SubsetSubject<Var,
+                             [{S->hasGlobalStorage()}]>;
+
 // A single argument to an attribute
 class Argument<string name, bit optional> {
   string Name = name;
@@ -695,10 +698,9 @@ def ObjCRootClass : InheritableAttr {
   let Subjects = SubjectList<[ObjCInterface], ErrorDiag>;
 }
 
-def ObjCSuppressProtocol : InheritableAttr {
-  let Spellings = [GNU<"objc_suppress_protocol_methods">];
-  let Subjects = SubjectList<[ObjCInterface], ErrorDiag>;
-  let Args = [IdentifierArgument<"Protocol">];
+def ObjCExplicitProtocolImpl : InheritableAttr {
+  let Spellings = [GNU<"objc_protocol_requires_explicit_implementation">];
+  let Subjects = SubjectList<[ObjCProtocol], ErrorDiag>;
 }
 
 def ObjCDesignatedInitializer : Attr {
@@ -770,6 +772,7 @@ def ReqdWorkGroupSize : InheritableAttr {
   let Spellings = [GNU<"reqd_work_group_size">];
   let Args = [UnsignedArgument<"XDim">, UnsignedArgument<"YDim">,
               UnsignedArgument<"ZDim">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
 }
 
 def WorkGroupSizeHint :  InheritableAttr {
@@ -777,6 +780,7 @@ def WorkGroupSizeHint :  InheritableAttr {
   let Args = [UnsignedArgument<"XDim">, 
               UnsignedArgument<"YDim">,
               UnsignedArgument<"ZDim">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
 }
 
 def InitPriority : InheritableAttr {
@@ -788,6 +792,8 @@ def InitPriority : InheritableAttr {
 def Section : InheritableAttr {
   let Spellings = [GNU<"section">, CXX11<"gnu", "section">];
   let Args = [StringArgument<"Name">];
+  let Subjects = SubjectList<[Function, GlobalVar], ErrorDiag,
+                             "ExpectedFunctionOrGlobalVar">;
 }
 
 def Sentinel : InheritableAttr {
@@ -873,6 +879,7 @@ def VectorSize : TypeAttr {
 def VecTypeHint : InheritableAttr {
   let Spellings = [GNU<"vec_type_hint">];
   let Args = [TypeArgument<"TypeHint">];
+  let Subjects = SubjectList<[Function], ErrorDiag>;
 }
 
 def Visibility : InheritableAttr {

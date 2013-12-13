@@ -2573,6 +2573,11 @@ public:
   /// function type typedefs and typename template arguments.
   void adjustMemberFunctionCC(QualType &T, bool IsStatic);
 
+  // Check if there is an explicit attribute, but only look through parens.
+  // The intent is to look for an attribute on the current declarator, but not
+  // one that came from a typedef.
+  bool hasExplicitCallingConv(QualType &T);
+
   /// Get the outermost AttributedType node that sets a calling convention.
   /// Valid types should not have multiple attributes with different CCs.
   const AttributedType *getCallingConvAttributedType(QualType T) const;
@@ -2581,8 +2586,6 @@ public:
   StmtResult ProcessStmtAttributes(Stmt *Stmt, AttributeList *Attrs,
                                    SourceRange Range);
 
-  void WarnUndefinedMethod(SourceLocation ImpLoc, ObjCMethodDecl *method,
-                           bool &IncompleteImpl, unsigned DiagID);
   void WarnConflictingTypedMethods(ObjCMethodDecl *Method,
                                    ObjCMethodDecl *MethodDecl,
                                    bool IsProtocolMethodDecl);
@@ -2599,15 +2602,6 @@ public:
 
   typedef llvm::SmallPtrSet<Selector, 8> SelectorSet;
   typedef llvm::DenseMap<Selector, ObjCMethodDecl*> ProtocolsMethodsMap;
-
-  /// CheckProtocolMethodDefs - This routine checks unimplemented
-  /// methods declared in protocol, and those referenced by it.
-  void CheckProtocolMethodDefs(SourceLocation ImpLoc,
-                               ObjCProtocolDecl *PDecl,
-                               bool& IncompleteImpl,
-                               const SelectorSet &InsMap,
-                               const SelectorSet &ClsMap,
-                               ObjCContainerDecl *CDecl);
 
   /// CheckImplementationIvars - This routine checks if the instance variables
   /// listed in the implelementation match those listed in the interface.
@@ -4226,20 +4220,6 @@ public:
                                  SourceLocation KWLoc,
                                  TypeSourceInfo *T,
                                  SourceLocation RParen);
-
-  /// ActOnBinaryTypeTrait - Parsed one of the bianry type trait support
-  /// pseudo-functions.
-  ExprResult ActOnBinaryTypeTrait(BinaryTypeTrait OTT,
-                                  SourceLocation KWLoc,
-                                  ParsedType LhsTy,
-                                  ParsedType RhsTy,
-                                  SourceLocation RParen);
-
-  ExprResult BuildBinaryTypeTrait(BinaryTypeTrait BTT,
-                                  SourceLocation KWLoc,
-                                  TypeSourceInfo *LhsT,
-                                  TypeSourceInfo *RhsT,
-                                  SourceLocation RParen);
 
   /// \brief Parsed one of the type trait support pseudo-functions.
   ExprResult ActOnTypeTrait(TypeTrait Kind, SourceLocation KWLoc,
@@ -6920,7 +6900,8 @@ public:
                                         bool CfToNs);
   
   bool CheckObjCBridgeRelatedConversions(SourceLocation Loc,
-                                         QualType DestType, QualType SrcType);
+                                         QualType DestType, QualType SrcType,
+                                         Expr *SrcExpr);
   
   bool checkInitMethod(ObjCMethodDecl *method, QualType receiverTypeIfCall);
 

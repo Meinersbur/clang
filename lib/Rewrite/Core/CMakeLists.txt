@@ -18,5 +18,4 @@ add_dependencies(clangRewriteCore
 LINK_LIBS
   clangBasic
   clangAST
-  clangParse
   )
