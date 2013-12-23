@@ -2599,6 +2599,7 @@ private:
                                   std::string &ConstraintStr,
                                   SourceLocation Loc);
 
+public:
   /// EmitCallArgs - Emit call arguments for a function.
   template <typename T>
   void EmitCallArgs(CallArgList &Args, const T *CallArgTypeInfo,
@@ -2672,6 +2673,7 @@ private:
                     CallExpr::const_arg_iterator ArgBeg,
                     CallExpr::const_arg_iterator ArgEnd, bool ForceColumnInfo);
 
+private:
   const TargetCodeGenInfo &getTargetHooks() const {
     return CGM.getTargetCodeGenInfo();
   }

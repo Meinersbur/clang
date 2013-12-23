@@ -217,6 +217,9 @@ struct FormatToken {
 
   /// \brief If this is the first ObjC selector name in an ObjC method
   /// definition or call, this contains the length of the longest name.
+  ///
+  /// This being set to 0 means that the selectors should not be colon-aligned,
+  /// e.g. because several of them are block-type.
   unsigned LongestObjCSelectorName;
 
   /// \brief Stores the number of required fake parentheses and the
@@ -266,6 +269,7 @@ struct FormatToken {
   }
 
   bool isNot(tok::TokenKind Kind) const { return Tok.isNot(Kind); }
+  bool isStringLiteral() const { return tok::isStringLiteral(Tok.getKind()); }
 
   bool isObjCAtKeyword(tok::ObjCKeywordKind Kind) const {
     return Tok.isObjCAtKeyword(Kind);
