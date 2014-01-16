@@ -941,7 +941,7 @@ void ObjCMethodDecl::createImplicitParams(ASTContext &Context,
   setSelfDecl(self);
 
   if (selfIsConsumed)
-    self->addAttr(new (Context) NSConsumedAttr(SourceLocation(), Context));
+    self->addAttr(NSConsumedAttr::CreateImplicit(Context));
 
   if (selfIsPseudoStrong)
     self->setARCPseudoStrong(true);
@@ -1440,8 +1440,7 @@ ObjCIvarDecl *ObjCIvarDecl::Create(ASTContext &C, ObjCContainerDecl *DC,
                                    SourceLocation IdLoc, IdentifierInfo *Id,
                                    QualType T, TypeSourceInfo *TInfo,
                                    AccessControl ac, Expr *BW,
-                                   bool synthesized,
-                                   bool backingIvarReferencedInAccessor) {
+                                   bool synthesized) {
   if (DC) {
     // Ivar's can only appear in interfaces, implementations (via synthesized
     // properties), and class extensions (via direct declaration, or synthesized
@@ -1469,13 +1468,12 @@ ObjCIvarDecl *ObjCIvarDecl::Create(ASTContext &C, ObjCContainerDecl *DC,
   }
 
   return new (C, DC) ObjCIvarDecl(DC, StartLoc, IdLoc, Id, T, TInfo, ac, BW,
-                                  synthesized, backingIvarReferencedInAccessor);
+                                  synthesized);
 }
 
 ObjCIvarDecl *ObjCIvarDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) ObjCIvarDecl(0, SourceLocation(), SourceLocation(), 0,
-                                  QualType(), 0, ObjCIvarDecl::None, 0, false,
-                                  false);
+                                  QualType(), 0, ObjCIvarDecl::None, 0, false);
 }
 
 const ObjCInterfaceDecl *ObjCIvarDecl::getContainingInterface() const {

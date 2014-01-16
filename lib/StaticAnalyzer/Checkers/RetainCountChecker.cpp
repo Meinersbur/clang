@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "AllocationDiagnostics.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -20,6 +21,7 @@
 #include "clang/Analysis/DomainSpecific/CocoaConventions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/StaticAnalyzer/Checkers/ObjCRetainCount.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -28,7 +30,6 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
-#include "clang/StaticAnalyzer/Checkers/ObjCRetainCount.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/ImmutableList.h"
@@ -37,8 +38,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include <cstdarg>
-
-#include "AllocationDiagnostics.h"
 
 using namespace clang;
 using namespace ento;
@@ -653,11 +652,11 @@ public:
      AF(BPAlloc), ScratchArgs(AF.getEmptyMap()),
      ObjCAllocRetE(gcenabled
                     ? RetEffect::MakeGCNotOwned()
-                    : (usesARC ? RetEffect::MakeARCNotOwned()
+                    : (usesARC ? RetEffect::MakeNotOwned(RetEffect::ObjC)
                                : RetEffect::MakeOwned(RetEffect::ObjC, true))),
      ObjCInitRetE(gcenabled 
                     ? RetEffect::MakeGCNotOwned()
-                    : (usesARC ? RetEffect::MakeARCNotOwned()
+                    : (usesARC ? RetEffect::MakeNotOwned(RetEffect::ObjC)
                                : RetEffect::MakeOwnedWhenTrackedReceiver())) {
     InitializeClassMethodSummaries();
     InitializeMethodSummaries();
@@ -861,7 +860,7 @@ void RetainSummaryManager::updateSummaryForCall(const RetainSummary *&S,
     // Special cases where the callback argument CANNOT free the return value.
     // This can generally only happen if we know that the callback will only be
     // called when the return value is already being deallocated.
-    if (const FunctionCall *FC = dyn_cast<FunctionCall>(&Call)) {
+    if (const SimpleFunctionCall *FC = dyn_cast<SimpleFunctionCall>(&Call)) {
       if (IdentifierInfo *Name = FC->getDecl()->getIdentifier()) {
         // When the CGBitmapContext is deallocated, the callback here will free
         // the associated data buffer.
@@ -909,7 +908,7 @@ RetainSummaryManager::getSummary(const CallEvent &Call,
   const RetainSummary *Summ;
   switch (Call.getKind()) {
   case CE_Function:
-    Summ = getFunctionSummary(cast<FunctionCall>(Call).getDecl());
+    Summ = getFunctionSummary(cast<SimpleFunctionCall>(Call).getDecl());
     break;
   case CE_CXXMember:
   case CE_CXXMemberOperator:
@@ -1506,6 +1505,11 @@ void RetainSummaryManager::InitializeMethodSummaries() {
   // FIXME: For now we don't track NSPanels. object for the same reason
   //   as for NSWindow objects.
   addClassMethSummary("NSPanel", "alloc", NoTrackYet);
+
+  // For NSNull, objects returned by +null are singletons that ignore
+  // retain/release semantics.  Just don't track them.
+  // <rdar://problem/12858915>
+  addClassMethSummary("NSNull", "null", NoTrackYet);
 
   // Don't track allocated autorelease pools, as it is okay to prematurely
   // exit a method.
@@ -2731,6 +2735,16 @@ static QualType GetReturnType(const Expr *RetE, ASTContext &Ctx) {
   return RetTy;
 }
 
+static bool wasSynthesizedProperty(const ObjCMethodCall *Call,
+                                   ExplodedNode *N) {
+  if (!Call || !Call->getDecl()->isPropertyAccessor())
+    return false;
+
+  CallExitEnd PP = N->getLocation().castAs<CallExitEnd>();
+  const StackFrameContext *Frame = PP.getCalleeContext();
+  return Frame->getAnalysisDeclContext()->isBodyAutosynthesized();
+}
+
 // We don't always get the exact modeling of the function with regards to the
 // retain count checker even when the function is inlined. For example, we need
 // to stop tracking the symbols which were marked with StopTrackingHard.
@@ -2765,6 +2779,15 @@ void RetainCountChecker::processSummaryOfInlined(const RetainSummary &Summ,
     SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();
     if (Sym)
       state = removeRefBinding(state, Sym);
+  } else if (RE.getKind() == RetEffect::NotOwnedSymbol) {
+    if (wasSynthesizedProperty(MsgInvocation, C.getPredecessor())) {
+      // Believe the summary if we synthesized the body and the return value is
+      // untracked. This handles property getters.
+      SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();
+      if (Sym && !getRefBinding(state, Sym))
+        state = setRefBinding(state, Sym, RefVal::makeNotOwned(RE.getObjKind(),
+                                                               Sym->getType()));
+    }
   }
   
   C.addTransition(state);
@@ -2857,7 +2880,6 @@ void RetainCountChecker::checkSummary(const RetainSummary &Summ,
     }
 
     case RetEffect::GCNotOwnedSymbol:
-    case RetEffect::ARCNotOwnedSymbol:
     case RetEffect::NotOwnedSymbol: {
       const Expr *Ex = CallOrMsg.getOriginExpr();
       SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();

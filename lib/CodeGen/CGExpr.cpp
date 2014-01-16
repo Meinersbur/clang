@@ -2662,6 +2662,7 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   }
 
   OpaqueValueMapping binding(*this, expr);
+  RegionCounter Cnt = getPGORegionCounter(expr);
 
   const Expr *condExpr = expr->getCond();
   bool CondExprBool;
@@ -2669,8 +2670,12 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
     const Expr *live = expr->getTrueExpr(), *dead = expr->getFalseExpr();
     if (!CondExprBool) std::swap(live, dead);
 
-    if (!ContainsLabel(dead))
+    if (!ContainsLabel(dead)) {
+      // If the true case is live, we need to track its region.
+      if (CondExprBool)
+        Cnt.beginRegion(Builder);
       return EmitLValue(live);
+    }
   }
 
   llvm::BasicBlock *lhsBlock = createBasicBlock("cond.true");
@@ -2678,13 +2683,15 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   llvm::BasicBlock *contBlock = createBasicBlock("cond.end");
 
   ConditionalEvaluation eval(*this);
-  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock);
+  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock, Cnt.getCount());
 
   // Any temporaries created here are conditional.
   EmitBlock(lhsBlock);
+  Cnt.beginRegion(Builder);
   eval.begin(*this);
   LValue lhs = EmitLValue(expr->getTrueExpr());
   eval.end(*this);
+  Cnt.adjustForControlFlow();
 
   if (!lhs.isSimple())
     return EmitUnsupportedLValue(expr, "conditional operator");
@@ -2694,14 +2701,17 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
 
   // Any temporaries created here are conditional.
   EmitBlock(rhsBlock);
+  Cnt.beginElseRegion();
   eval.begin(*this);
   LValue rhs = EmitLValue(expr->getFalseExpr());
   eval.end(*this);
+  Cnt.adjustForControlFlow();
   if (!rhs.isSimple())
     return EmitUnsupportedLValue(expr, "conditional operator");
   rhsBlock = Builder.GetInsertBlock();
 
   EmitBlock(contBlock);
+  Cnt.applyAdjustmentsToRegion();
 
   llvm::PHINode *phi = Builder.CreatePHI(lhs.getAddress()->getType(), 2,
                                          "cond-lvalue");

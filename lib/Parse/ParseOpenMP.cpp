@@ -12,12 +12,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/ASTConsumer.h"
+#include "RAIIObjectsForParser.h"
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Sema/Scope.h"
 #include "llvm/ADT/PointerIntPair.h"
-#include "RAIIObjectsForParser.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -405,8 +405,9 @@ bool Parser::ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
     } else if (Tok.isNot(tok::comma) && Tok.isNot(tok::r_paren) &&
                Tok.isNot(tok::annot_pragma_openmp_end)) {
       IsCorrect = false;
-      Diag(PrevTok.getLocation(), diag::err_expected_ident)
-        << SourceRange(PrevTok.getLocation(), PrevTokLocation);
+      Diag(PrevTok.getLocation(), diag::err_expected)
+          << tok::identifier
+          << SourceRange(PrevTok.getLocation(), PrevTokLocation);
       SkipUntil(tok::comma, tok::r_paren, tok::annot_pragma_openmp_end, 
                 StopBeforeMatch, true);
     } else {
@@ -423,7 +424,7 @@ bool Parser::ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
   }
 
   if (NoIdentIsFound) {
-    Diag(Tok, diag::err_expected_ident);
+    Diag(Tok, diag::err_expected) << tok::identifier;
     IsCorrect = false;
   }
 

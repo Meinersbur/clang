@@ -15,6 +15,7 @@
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTMutationListener.h"
+#include "clang/AST/DataRecursiveASTVisitor.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprObjC.h"
@@ -97,8 +98,9 @@ bool Sema::checkInitMethod(ObjCMethodDecl *method,
   // If we're in a system header, and this is not a call, just make
   // the method unusable.
   if (receiverTypeIfCall.isNull() && getSourceManager().isInSystemHeader(loc)) {
-    method->addAttr(new (Context) UnavailableAttr(loc, Context,
-                "init method returns a type unrelated to its receiver type"));
+    method->addAttr(UnavailableAttr::CreateImplicit(Context,
+                "init method returns a type unrelated to its receiver type",
+                loc));
     return true;
   }
 
@@ -229,8 +231,7 @@ bool Sema::CheckARCMethodDecl(ObjCMethodDecl *method) {
     if (checkInitMethod(method, QualType()))
       return true;
 
-    method->addAttr(new (Context) NSConsumesSelfAttr(SourceLocation(),
-                                                     Context));
+    method->addAttr(NSConsumesSelfAttr::CreateImplicit(Context));
 
     // Don't add a second copy of this attribute, but otherwise don't
     // let it be suppressed.
@@ -249,8 +250,7 @@ bool Sema::CheckARCMethodDecl(ObjCMethodDecl *method) {
     break;
   }
 
-  method->addAttr(new (Context) NSReturnsRetainedAttr(SourceLocation(),
-                                                      Context));
+  method->addAttr(NSReturnsRetainedAttr::CreateImplicit(Context));
   return false;
 }
 
@@ -2468,51 +2468,6 @@ Sema::SelectorsForTypoCorrection(Selector Sel,
   return (SelectedMethods.size() == 1) ? SelectedMethods[0] : NULL;
 }
 
-static void
-HelperToDiagnoseMismatchedMethodsInGlobalPool(Sema &S,
-                                              ObjCMethodList &MethList) {
-  ObjCMethodList *M = &MethList;
-  ObjCMethodDecl *TargetMethod = M->Method;
-  while (TargetMethod &&
-         isa<ObjCImplDecl>(TargetMethod->getDeclContext())) {
-    M = M->getNext();
-    TargetMethod = M ? M->Method : 0;
-  }
-  if (!TargetMethod)
-    return;
-  bool FirstTime = true;
-  for (M = M->getNext(); M; M=M->getNext()) {
-    ObjCMethodDecl *MatchingMethodDecl = M->Method;
-    if (isa<ObjCImplDecl>(MatchingMethodDecl->getDeclContext()))
-      continue;
-    if (!S.MatchTwoMethodDeclarations(TargetMethod,
-                                      MatchingMethodDecl, Sema::MMS_loose)) {
-      if (FirstTime) {
-        FirstTime = false;
-        S.Diag(TargetMethod->getLocation(), diag::warning_multiple_selectors)
-        << TargetMethod->getSelector();
-      }
-      S.Diag(MatchingMethodDecl->getLocation(), diag::note_also_found);
-    }
-  }
-}
-
-void Sema::DiagnoseMismatchedMethodsInGlobalPool() {
-  unsigned DIAG = diag::warning_multiple_selectors;
-  if (Diags.getDiagnosticLevel(DIAG, SourceLocation())
-      == DiagnosticsEngine::Ignored)
-    return;
-  for (GlobalMethodPool::iterator b = MethodPool.begin(),
-       e = MethodPool.end(); b != e; b++) {
-    // first, instance methods
-    ObjCMethodList &InstMethList = b->second.first;
-    HelperToDiagnoseMismatchedMethodsInGlobalPool(*this, InstMethList);
-    // second, class methods
-    ObjCMethodList &ClsMethList = b->second.second;
-    HelperToDiagnoseMismatchedMethodsInGlobalPool(*this, ClsMethList);
-  }
-}
-
 /// DiagnoseDuplicateIvars -
 /// Check for duplicate ivars in the entire class at the start of 
 /// \@implementation. This becomes necesssary because class extension can
@@ -2693,6 +2648,7 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd, ArrayRef<Decl *> allMethods,
       ImplMethodsVsClassMethods(S, IC, IDecl);
       AtomicPropertySetterGetterRules(IC, IDecl);
       DiagnoseOwningPropertyGetterSynthesis(IC);
+      DiagnoseUnusedBackingIvarInAccessor(S, IC);
       if (IDecl->hasDesignatedInitializers())
         DiagnoseMissingDesignatedInitOverrides(IC, IDecl);
 
@@ -3210,8 +3166,8 @@ Decl *Sema::ActOnMethodDeclaration(
     if (IMD && IMD->hasAttr<ObjCRequiresSuperAttr>() &&
         !ObjCMethod->hasAttr<ObjCRequiresSuperAttr>()) {
       // merge the attribute into implementation.
-      ObjCMethod->addAttr(
-        new (Context) ObjCRequiresSuperAttr(ObjCMethod->getLocation(), Context));
+      ObjCMethod->addAttr(ObjCRequiresSuperAttr::CreateImplicit(Context,
+                                                   ObjCMethod->getLocation()));
     }
     if (isa<ObjCCategoryImplDecl>(ImpDecl)) {
       ObjCMethodFamily family = ObjCMethod->getMethodFamily();
@@ -3468,8 +3424,6 @@ void Sema::DiagnoseUseOfUnimplementedSelectors() {
       ReferencedSelectors[Sels[I].first] = Sels[I].second;
   }
   
-  DiagnoseMismatchedMethodsInGlobalPool();
-  
   // Warning will be issued only when selector table is
   // generated (which means there is at lease one implementation
   // in the TU). This is to match gcc's behavior.
@@ -3489,39 +3443,90 @@ void Sema::DiagnoseUseOfUnimplementedSelectors() {
 ObjCIvarDecl *
 Sema::GetIvarBackingPropertyAccessor(const ObjCMethodDecl *Method,
                                      const ObjCPropertyDecl *&PDecl) const {
-  
+  if (Method->isClassMethod())
+    return 0;
   const ObjCInterfaceDecl *IDecl = Method->getClassInterface();
   if (!IDecl)
     return 0;
-  Method = IDecl->lookupMethod(Method->getSelector(), true);
+  Method = IDecl->lookupMethod(Method->getSelector(), /*isInstance=*/true,
+                               /*shallowCategoryLookup=*/false,
+                               /*followSuper=*/false);
   if (!Method || !Method->isPropertyAccessor())
     return 0;
-  if ((PDecl = Method->findPropertyDecl())) {
-    if (!PDecl->getDeclContext())
-      return 0;
-    // Make sure property belongs to accessor's class and not to
-    // one of its super classes.
-    if (const ObjCInterfaceDecl *CID =
-        dyn_cast<ObjCInterfaceDecl>(PDecl->getDeclContext()))
-      if (CID != IDecl)
-        return 0;
+  if ((PDecl = Method->findPropertyDecl()))
     return PDecl->getPropertyIvarDecl();
-  }
+
   return 0;
 }
 
-void Sema::DiagnoseUnusedBackingIvarInAccessor(Scope *S) {
-  if (S->hasUnrecoverableErrorOccurred() || !S->isInObjcMethodOuterScope())
+namespace {
+  /// Used by Sema::DiagnoseUnusedBackingIvarInAccessor to check if a property
+  /// accessor references the backing ivar.
+  class UnusedBackingIvarChecker :
+      public DataRecursiveASTVisitor<UnusedBackingIvarChecker> {
+  public:
+    Sema &S;
+    const ObjCMethodDecl *Method;
+    const ObjCIvarDecl *IvarD;
+    bool AccessedIvar;
+    bool InvokedSelfMethod;
+
+    UnusedBackingIvarChecker(Sema &S, const ObjCMethodDecl *Method,
+                             const ObjCIvarDecl *IvarD)
+      : S(S), Method(Method), IvarD(IvarD),
+        AccessedIvar(false), InvokedSelfMethod(false) {
+      assert(IvarD);
+    }
+
+    bool VisitObjCIvarRefExpr(ObjCIvarRefExpr *E) {
+      if (E->getDecl() == IvarD) {
+        AccessedIvar = true;
+        return false;
+      }
+      return true;
+    }
+
+    bool VisitObjCMessageExpr(ObjCMessageExpr *E) {
+      if (E->getReceiverKind() == ObjCMessageExpr::Instance &&
+          S.isSelfExpr(E->getInstanceReceiver(), Method)) {
+        InvokedSelfMethod = true;
+      }
+      return true;
+    }
+  };
+}
+
+void Sema::DiagnoseUnusedBackingIvarInAccessor(Scope *S,
+                                          const ObjCImplementationDecl *ImplD) {
+  if (S->hasUnrecoverableErrorOccurred())
     return;
-  
-  const ObjCMethodDecl *CurMethod = getCurMethodDecl();
-  if (!CurMethod)
-    return;
-  const ObjCPropertyDecl *PDecl;
-  const ObjCIvarDecl *IV = GetIvarBackingPropertyAccessor(CurMethod, PDecl);
-  if (IV && !IV->getBackingIvarReferencedInAccessor()) {
-    Diag(getCurMethodDecl()->getLocation(), diag::warn_unused_property_backing_ivar)
-    << IV->getDeclName();
-    Diag(PDecl->getLocation(), diag::note_property_declare);
+
+  for (ObjCImplementationDecl::instmeth_iterator
+         MI = ImplD->instmeth_begin(),
+         ME = ImplD->instmeth_end(); MI != ME; ++MI) {
+    const ObjCMethodDecl *CurMethod = *MI;
+    unsigned DIAG = diag::warn_unused_property_backing_ivar;
+    SourceLocation Loc = CurMethod->getLocation();
+    if (Diags.getDiagnosticLevel(DIAG, Loc) == DiagnosticsEngine::Ignored)
+      continue;
+
+    const ObjCPropertyDecl *PDecl;
+    const ObjCIvarDecl *IV = GetIvarBackingPropertyAccessor(CurMethod, PDecl);
+    if (!IV)
+      continue;
+
+    UnusedBackingIvarChecker Checker(*this, CurMethod, IV);
+    Checker.TraverseStmt(CurMethod->getBody());
+    if (Checker.AccessedIvar)
+      continue;
+
+    // Do not issue this warning if backing ivar is used somewhere and accessor
+    // implementation makes a self call. This is to prevent false positive in
+    // cases where the ivar is accessed by another method that the accessor
+    // delegates to.
+    if (!IV->isReferenced() || !Checker.InvokedSelfMethod) {
+      Diag(Loc, DIAG) << IV;
+      Diag(PDecl->getLocation(), diag::note_property_declare);
+    }
   }
 }

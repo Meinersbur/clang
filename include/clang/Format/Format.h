@@ -254,10 +254,14 @@ struct FormatStyle {
   /// template argument lists
   bool SpacesInAngles;
 
-  /// \brief If \c false, spaces may be inserted into '()'.
+  /// \brief If \c true, spaces may be inserted into '()'.
   bool SpaceInEmptyParentheses;
 
-  /// \brief If \c false, spaces may be inserted into C style casts.
+  /// \brief If \c true, spaces are inserted inside container literals (e.g.
+  /// ObjC and Javascript array and dict literals).
+  bool SpacesInContainerLiterals;
+
+  /// \brief If \c true, spaces may be inserted into C style casts.
   bool SpacesInCStyleCastParentheses;
 
   /// \brief Different ways to put a space before opening parentheses.
@@ -282,6 +286,10 @@ struct FormatStyle {
 
   /// \brief Indent width for line continuations.
   unsigned ContinuationIndentWidth;
+
+  /// \brief A regular expression that describes comments with special meaning,
+  /// which should not be split into lines or otherwise changed.
+  std::string CommentPragmas;
 
   bool operator==(const FormatStyle &R) const {
     return AccessModifierOffset == R.AccessModifierOffset &&
@@ -331,10 +339,12 @@ struct FormatStyle {
            UseTab == R.UseTab && SpacesInParentheses == R.SpacesInParentheses &&
            SpacesInAngles == R.SpacesInAngles &&
            SpaceInEmptyParentheses == R.SpaceInEmptyParentheses &&
+           SpacesInContainerLiterals == R.SpacesInContainerLiterals &&
            SpacesInCStyleCastParentheses == R.SpacesInCStyleCastParentheses &&
            SpaceBeforeParens == R.SpaceBeforeParens &&
            SpaceBeforeAssignmentOperators == R.SpaceBeforeAssignmentOperators &&
-           ContinuationIndentWidth == R.ContinuationIndentWidth;
+           ContinuationIndentWidth == R.ContinuationIndentWidth &&
+           CommentPragmas == R.CommentPragmas;
   }
 };
 

@@ -23,6 +23,7 @@
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/TypoCorrection.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCObjectFileInfo.h"
@@ -34,7 +35,6 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
-#include "llvm/ADT/SmallString.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -354,9 +354,7 @@ Retry:
   }
 
   // If we reached this code, the statement must end in a semicolon.
-  if (Tok.is(tok::semi)) {
-    ConsumeToken();
-  } else if (!Res.isInvalid()) {
+  if (!TryConsumeToken(tok::semi) && !Res.isInvalid()) {
     // If the result was valid, then we do want to diagnose this.  Use
     // ExpectAndConsume to emit the diagnostic, even though we know it won't
     // succeed.
@@ -418,7 +416,7 @@ StmtResult Parser::ParseSEHTryBlock() {
 ///
 StmtResult Parser::ParseSEHTryBlockCommon(SourceLocation TryLoc) {
   if(Tok.isNot(tok::l_brace))
-    return StmtError(Diag(Tok,diag::err_expected_lbrace));
+    return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
   StmtResult TryBlock(ParseCompoundStatement());
   if(TryBlock.isInvalid())
@@ -455,7 +453,7 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
     raii2(Ident___exception_code, false),
     raii3(Ident_GetExceptionCode, false);
 
-  if(ExpectAndConsume(tok::l_paren,diag::err_expected_lparen))
+  if (ExpectAndConsume(tok::l_paren))
     return StmtError();
 
   ParseScope ExpectScope(this, Scope::DeclScope | Scope::ControlScope);
@@ -476,7 +474,7 @@ StmtResult Parser::ParseSEHExceptBlock(SourceLocation ExceptLoc) {
   if(FilterExpr.isInvalid())
     return StmtError();
 
-  if(ExpectAndConsume(tok::r_paren,diag::err_expected_rparen))
+  if (ExpectAndConsume(tok::r_paren))
     return StmtError();
 
   StmtResult Block(ParseCompoundStatement());
@@ -549,7 +547,7 @@ StmtResult Parser::ParseLabeledStatement(ParsedAttributesWithRange &attrs) {
         SubStmt = Actions.ProcessStmtAttributes(
             SubStmt.get(), TempAttrs.getList(), TempAttrs.Range);
     } else {
-      Diag(Tok, diag::err_expected_semi_after) << "__attribute__";
+      Diag(Tok, diag::err_expected_after) << "__attribute__" << tok::semi;
     }
   }
 
@@ -630,10 +628,8 @@ StmtResult Parser::ParseCaseStatement(bool MissingCase, ExprResult Expr) {
     // GNU case range extension.
     SourceLocation DotDotDotLoc;
     ExprResult RHS;
-    if (Tok.is(tok::ellipsis)) {
-      Diag(Tok, diag::ext_gnu_case_range);
-      DotDotDotLoc = ConsumeToken();
-
+    if (TryConsumeToken(tok::ellipsis, DotDotDotLoc)) {
+      Diag(DotDotDotLoc, diag::ext_gnu_case_range);
       RHS = ParseConstantExpression();
       if (RHS.isInvalid()) {
         SkipUntil(tok::colon, StopAtSemi);
@@ -643,18 +639,17 @@ StmtResult Parser::ParseCaseStatement(bool MissingCase, ExprResult Expr) {
 
     ColonProtection.restore();
 
-    if (Tok.is(tok::colon)) {
-      ColonLoc = ConsumeToken();
-
-    // Treat "case blah;" as a typo for "case blah:".
-    } else if (Tok.is(tok::semi)) {
-      ColonLoc = ConsumeToken();
-      Diag(ColonLoc, diag::err_expected_colon_after) << "'case'"
-        << FixItHint::CreateReplacement(ColonLoc, ":");
+    if (TryConsumeToken(tok::colon, ColonLoc)) {
+    } else if (TryConsumeToken(tok::semi, ColonLoc)) {
+      // Treat "case blah;" as a typo for "case blah:".
+      Diag(ColonLoc, diag::err_expected_after)
+          << "'case'" << tok::colon
+          << FixItHint::CreateReplacement(ColonLoc, ":");
     } else {
       SourceLocation ExpectedLoc = PP.getLocForEndOfToken(PrevTokLocation);
-      Diag(ExpectedLoc, diag::err_expected_colon_after) << "'case'"
-        << FixItHint::CreateInsertion(ExpectedLoc, ":");
+      Diag(ExpectedLoc, diag::err_expected_after)
+          << "'case'" << tok::colon
+          << FixItHint::CreateInsertion(ExpectedLoc, ":");
       ColonLoc = ExpectedLoc;
     }
 
@@ -719,18 +714,17 @@ StmtResult Parser::ParseDefaultStatement() {
   SourceLocation DefaultLoc = ConsumeToken();  // eat the 'default'.
 
   SourceLocation ColonLoc;
-  if (Tok.is(tok::colon)) {
-    ColonLoc = ConsumeToken();
-
-  // Treat "default;" as a typo for "default:".
-  } else if (Tok.is(tok::semi)) {
-    ColonLoc = ConsumeToken();
-    Diag(ColonLoc, diag::err_expected_colon_after) << "'default'"
-      << FixItHint::CreateReplacement(ColonLoc, ":");
+  if (TryConsumeToken(tok::colon, ColonLoc)) {
+  } else if (TryConsumeToken(tok::semi, ColonLoc)) {
+    // Treat "default;" as a typo for "default:".
+    Diag(ColonLoc, diag::err_expected_after)
+        << "'default'" << tok::colon
+        << FixItHint::CreateReplacement(ColonLoc, ":");
   } else {
     SourceLocation ExpectedLoc = PP.getLocForEndOfToken(PrevTokLocation);
-    Diag(ExpectedLoc, diag::err_expected_colon_after) << "'default'"
-      << FixItHint::CreateInsertion(ExpectedLoc, ":");
+    Diag(ExpectedLoc, diag::err_expected_after)
+        << "'default'" << tok::colon
+        << FixItHint::CreateInsertion(ExpectedLoc, ":");
     ColonLoc = ExpectedLoc;
   }
 
@@ -873,7 +867,7 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
     SmallVector<Decl *, 8> DeclsInGroup;
     while (1) {
       if (Tok.isNot(tok::identifier)) {
-        Diag(Tok, diag::err_expected_ident);
+        Diag(Tok, diag::err_expected) << tok::identifier;
         break;
       }
 
@@ -881,9 +875,8 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
       SourceLocation IdLoc = ConsumeToken();
       DeclsInGroup.push_back(Actions.LookupOrCreateLabel(II, IdLoc, LabelLoc));
 
-      if (!Tok.is(tok::comma))
+      if (!TryConsumeToken(tok::comma))
         break;
-      ConsumeToken();
     }
 
     DeclSpec DS(AttrFactory);
@@ -1352,7 +1345,7 @@ StmtResult Parser::ParseDoStatement() {
   if (Tok.isNot(tok::kw_while)) {
     if (!Body.isInvalid()) {
       Diag(Tok, diag::err_expected_while);
-      Diag(DoLoc, diag::note_matching) << "do";
+      Diag(DoLoc, diag::note_matching) << "'do'";
       SkipUntil(tok::semi, StopBeforeMatch);
     }
     return StmtError();
@@ -1683,7 +1676,7 @@ StmtResult Parser::ParseGotoStatement() {
     }
     Res = Actions.ActOnIndirectGotoStmt(GotoLoc, StarLoc, R.take());
   } else {
-    Diag(Tok, diag::err_expected_ident);
+    Diag(Tok, diag::err_expected) << tok::identifier;
     return StmtError();
   }
 
@@ -2121,12 +2114,12 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
 
   if (InBraces && BraceCount != savedBraceCount) {
     // __asm without closing brace (this can happen at EOF).
-    Diag(Tok, diag::err_expected_rbrace);
-    Diag(LBraceLoc, diag::note_matching) << "{";
+    Diag(Tok, diag::err_expected) << tok::r_brace;
+    Diag(LBraceLoc, diag::note_matching) << tok::l_brace;
     return StmtError();
   } else if (NumTokensRead == 0) {
     // Empty __asm.
-    Diag(Tok, diag::err_expected_lbrace);
+    Diag(Tok, diag::err_expected) << tok::l_brace;
     return StmtError();
   }
 
@@ -2366,8 +2359,8 @@ StmtResult Parser::ParseAsmStatement(bool &msAsm) {
 
         Clobbers.push_back(Clobber.release());
 
-        if (Tok.isNot(tok::comma)) break;
-        ConsumeToken();
+        if (!TryConsumeToken(tok::comma))
+          break;
       }
     }
   }
@@ -2406,7 +2399,7 @@ bool Parser::ParseAsmOperandsOpt(SmallVectorImpl<IdentifierInfo *> &Names,
       T.consumeOpen();
 
       if (Tok.isNot(tok::identifier)) {
-        Diag(Tok, diag::err_expected_ident);
+        Diag(Tok, diag::err_expected) << tok::identifier;
         SkipUntil(tok::r_paren, StopAtSemi);
         return true;
       }
@@ -2443,8 +2436,8 @@ bool Parser::ParseAsmOperandsOpt(SmallVectorImpl<IdentifierInfo *> &Names,
     }
     Exprs.push_back(Res.release());
     // Eat the comma and continue parsing if it exists.
-    if (Tok.isNot(tok::comma)) return false;
-    ConsumeToken();
+    if (!TryConsumeToken(tok::comma))
+      return false;
   }
 }
 
@@ -2567,7 +2560,7 @@ StmtResult Parser::ParseCXXTryBlock() {
 ///
 StmtResult Parser::ParseCXXTryBlockCommon(SourceLocation TryLoc, bool FnTry) {
   if (Tok.isNot(tok::l_brace))
-    return StmtError(Diag(Tok, diag::err_expected_lbrace));
+    return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
   // FIXME: Possible draft standard bug: attribute-specifier should be allowed?
 
   StmtResult TryBlock(ParseCompoundStatement(/*isStmtExpr=*/false,
@@ -2638,7 +2631,7 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
   SourceLocation CatchLoc = ConsumeToken();
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
+  if (T.expectAndConsume())
     return StmtError();
 
   // C++ 3.3.2p3:
@@ -2671,7 +2664,7 @@ StmtResult Parser::ParseCXXCatchBlock(bool FnCatch) {
     return StmtError();
 
   if (Tok.isNot(tok::l_brace))
-    return StmtError(Diag(Tok, diag::err_expected_lbrace));
+    return StmtError(Diag(Tok, diag::err_expected) << tok::l_brace);
 
   // FIXME: Possible draft standard bug: attribute-specifier should be allowed?
   StmtResult Block(ParseCompoundStatement());
@@ -2692,7 +2685,7 @@ void Parser::ParseMicrosoftIfExistsStatement(StmtVector &Stmts) {
   // inside these braces escaping to the surrounding code.
   if (Result.Behavior == IEB_Dependent) {
     if (!Tok.is(tok::l_brace)) {
-      Diag(Tok, diag::err_expected_lbrace);
+      Diag(Tok, diag::err_expected) << tok::l_brace;
       return;
     }
 
@@ -2712,7 +2705,7 @@ void Parser::ParseMicrosoftIfExistsStatement(StmtVector &Stmts) {
 
   BalancedDelimiterTracker Braces(*this, tok::l_brace);
   if (Braces.consumeOpen()) {
-    Diag(Tok, diag::err_expected_lbrace);
+    Diag(Tok, diag::err_expected) << tok::l_brace;
     return;
   }
 

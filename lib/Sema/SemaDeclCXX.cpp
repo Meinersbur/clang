@@ -1520,7 +1520,7 @@ bool Sema::AttachBaseSpecifiers(CXXRecordDecl *Class, CXXBaseSpecifier **Bases,
           Invalid = true;
         }
         if (RD->hasAttr<WeakAttr>())
-          Class->addAttr(::new (Context) WeakAttr(SourceRange(), Context));
+          Class->addAttr(WeakAttr::CreateImplicit(Context));
       }
     }
   }
@@ -1976,7 +1976,8 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
       const char *PrevSpec;
       unsigned DiagID;
       if (D.getMutableDeclSpec().SetStorageClassSpec(
-          *this, DeclSpec::SCS_static, ConstexprLoc, PrevSpec, DiagID)) {
+          *this, DeclSpec::SCS_static, ConstexprLoc, PrevSpec, DiagID,
+          Context.getPrintingPolicy())) {
         assert(DS.getStorageClassSpec() == DeclSpec::SCS_mutable &&
                "This is the only DeclSpec that should fail to be applied");
         B << 1;
@@ -2093,7 +2094,7 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
   }
 
   if (VS.isOverrideSpecified())
-    Member->addAttr(new (Context) OverrideAttr(VS.getOverrideLoc(), Context));
+    Member->addAttr(new (Context) OverrideAttr(VS.getOverrideLoc(), Context, 0));
   if (VS.isFinalSpecified())
     Member->addAttr(new (Context) FinalAttr(VS.getFinalLoc(), Context,
                                             VS.isFinalSpelledSealed()));
@@ -2640,13 +2641,10 @@ Sema::BuildMemInitializer(Decl *ConstructorD,
 
     if (BaseType.isNull()) {
       BaseType = Context.getTypeDeclType(TyD);
-      if (SS.isSet()) {
-        NestedNameSpecifier *Qualifier =
-          static_cast<NestedNameSpecifier*>(SS.getScopeRep());
-
+      if (SS.isSet())
         // FIXME: preserve source range information
-        BaseType = Context.getElaboratedType(ETK_None, Qualifier, BaseType);
-      }
+        BaseType = Context.getElaboratedType(ETK_None, SS.getScopeRep(),
+                                             BaseType);
     }
   }
 
@@ -5313,7 +5311,7 @@ bool Sema::ShouldDeleteSpecialMember(CXXMethodDecl *MD, CXXSpecialMember CSM,
     // In Microsoft mode, a user-declared move only causes the deletion of the
     // corresponding copy operation, not both copy operations.
     if (RD->hasUserDeclaredMoveConstructor() &&
-        (!getLangOpts().MicrosoftMode || CSM == CXXCopyConstructor)) {
+        (!getLangOpts().MSVCCompat || CSM == CXXCopyConstructor)) {
       if (!Diagnose) return true;
 
       // Find any user-declared move constructor.
@@ -5326,7 +5324,7 @@ bool Sema::ShouldDeleteSpecialMember(CXXMethodDecl *MD, CXXSpecialMember CSM,
       }
       assert(UserDeclaredMove);
     } else if (RD->hasUserDeclaredMoveAssignment() &&
-               (!getLangOpts().MicrosoftMode || CSM == CXXCopyAssignment)) {
+               (!getLangOpts().MSVCCompat || CSM == CXXCopyAssignment)) {
       if (!Diagnose) return true;
 
       // Find any user-declared move assignment operator.
@@ -6080,6 +6078,18 @@ void Sema::ActOnStartDelayedMemberDeclarations(Scope *S, Decl *RecordD) {
 void Sema::ActOnFinishDelayedMemberDeclarations(Scope *S, Decl *RecordD) {
   if (!RecordD) return;
   PopDeclContext();
+}
+
+/// This is used to implement the constant expression evaluation part of the
+/// attribute enable_if extension. There is nothing in standard C++ which would
+/// require reentering parameters.
+void Sema::ActOnReenterCXXMethodParameter(Scope *S, ParmVarDecl *Param) {
+  if (!Param)
+    return;
+
+  S->AddDecl(Param);
+  if (Param->getDeclName())
+    IdResolver.AddDecl(Param);
 }
 
 /// ActOnStartDelayedCXXMethodDeclaration - We have completed
@@ -6976,7 +6986,7 @@ Decl *Sema::ActOnUsingDirective(Scope *S,
   UsingDirectiveDecl *UDir = 0;
   NestedNameSpecifier *Qualifier = 0;
   if (SS.isSet())
-    Qualifier = static_cast<NestedNameSpecifier *>(SS.getScopeRep());
+    Qualifier = SS.getScopeRep();
   
   // Lookup namespace name.
   LookupResult R(*this, NamespcName, IdentLoc, LookupNamespaceName);
@@ -7624,8 +7634,7 @@ bool Sema::CheckUsingDeclRedeclaration(SourceLocation UsingLoc,
   if (!CurContext->getRedeclContext()->isRecord())
     return false;
 
-  NestedNameSpecifier *Qual
-    = static_cast<NestedNameSpecifier*>(SS.getScopeRep());
+  NestedNameSpecifier *Qual = SS.getScopeRep();
 
   for (LookupResult::iterator I = Prev.begin(), E = Prev.end(); I != E; ++I) {
     NamedDecl *D = *I;
@@ -7708,7 +7717,7 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc,
     // but we don't have that level of source info.
     Diag(SS.getRange().getBegin(),
          diag::err_using_decl_nested_name_specifier_is_not_class)
-      << (NestedNameSpecifier*) SS.getScopeRep() << SS.getRange();
+      << SS.getScopeRep() << SS.getRange();
     return true;
   }
 
@@ -7733,7 +7742,7 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc,
 
       Diag(SS.getRange().getBegin(),
            diag::err_using_decl_nested_name_specifier_is_not_base_class)
-        << (NestedNameSpecifier*) SS.getScopeRep()
+        << SS.getScopeRep()
         << cast<CXXRecordDecl>(CurContext)
         << SS.getRange();
       return true;
@@ -7793,7 +7802,7 @@ bool Sema::CheckUsingDeclQualifier(SourceLocation UsingLoc,
 
   Diag(SS.getRange().getBegin(),
        diag::err_using_decl_nested_name_specifier_is_not_base_class)
-    << (NestedNameSpecifier*) SS.getScopeRep()
+    << SS.getScopeRep()
     << cast<CXXRecordDecl>(CurContext)
     << SS.getRange();
 
@@ -9353,7 +9362,7 @@ static void diagnoseDeprecatedCopyOperation(Sema &S, CXXMethodDecl *CopyOp,
     UserDeclaredOperation = RD->getDestructor();
   } else if (!isa<CXXConstructorDecl>(CopyOp) &&
              RD->hasUserDeclaredCopyConstructor() &&
-             !S.getLangOpts().MicrosoftMode) {
+             !S.getLangOpts().MSVCCompat) {
     // Find any user-declared copy constructor.
     for (CXXRecordDecl::ctor_iterator I = RD->ctor_begin(),
                                       E = RD->ctor_end(); I != E; ++I) {
@@ -9365,7 +9374,7 @@ static void diagnoseDeprecatedCopyOperation(Sema &S, CXXMethodDecl *CopyOp,
     assert(UserDeclaredOperation);
   } else if (isa<CXXConstructorDecl>(CopyOp) &&
              RD->hasUserDeclaredCopyAssignment() &&
-             !S.getLangOpts().MicrosoftMode) {
+             !S.getLangOpts().MSVCCompat) {
     // Find any user-declared move assignment operator.
     for (CXXRecordDecl::method_iterator I = RD->method_begin(),
                                         E = RD->method_end(); I != E; ++I) {
@@ -11464,14 +11473,15 @@ Decl *Sema::ActOnTemplatedFriendTag(Scope *S, SourceLocation FriendLoc,
       bool Owned = false;
       bool IsDependent = false;
       return ActOnTag(S, TagSpec, TUK_Friend, TagLoc, SS, Name, NameLoc,
-                      Attr, AS_public, 
+                      Attr, AS_public,
                       /*ModulePrivateLoc=*/SourceLocation(),
-                      MultiTemplateParamsArg(), Owned, IsDependent, 
+                      MultiTemplateParamsArg(), Owned, IsDependent,
                       /*ScopedEnumKWLoc=*/SourceLocation(),
                       /*ScopedEnumUsesClassTag=*/false,
-                      /*UnderlyingType=*/TypeResult());          
+                      /*UnderlyingType=*/TypeResult(),
+                      /*IsTypeSpecifier=*/false);
     }
-    
+
     NestedNameSpecifierLoc QualifierLoc = SS.getWithLocInContext(Context);
     ElaboratedTypeKeyword Keyword
       = TypeWithKeyword::getKeywordForTagTypeKind(Kind);

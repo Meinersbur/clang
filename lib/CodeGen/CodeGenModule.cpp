@@ -19,6 +19,7 @@
 #include "CGObjCRuntime.h"
 #include "CGOpenCLRuntime.h"
 #include "CodeGenFunction.h"
+#include "CodeGenPGO.h"
 #include "CodeGenTBAA.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
@@ -48,22 +49,21 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/Mangler.h"
 
 using namespace clang;
 using namespace CodeGen;
 
 static const char AnnotationSection[] = "llvm.metadata";
 
-static CGCXXABI &createCXXABI(CodeGenModule &CGM) {
+static CGCXXABI *createCXXABI(CodeGenModule &CGM) {
   switch (CGM.getTarget().getCXXABI().getKind()) {
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericARM:
   case TargetCXXABI::iOS:
   case TargetCXXABI::GenericItanium:
-    return *CreateItaniumCXXABI(CGM);
+    return CreateItaniumCXXABI(CGM);
   case TargetCXXABI::Microsoft:
-    return *CreateMicrosoftCXXABI(CGM);
+    return CreateMicrosoftCXXABI(CGM);
   }
 
   llvm_unreachable("invalid C++ ABI kind");
@@ -77,7 +77,8 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
       ABI(createCXXABI(*this)), VMContext(M.getContext()), TBAA(0),
       TheTargetCodeGenInfo(0), Types(*this), VTables(*this), ObjCRuntime(0),
       OpenCLRuntime(0), CUDARuntime(0), DebugInfo(0), ARCData(0),
-      NoObjCARCExceptionsMetadata(0), RRData(0), CFConstantStringClassRef(0),
+      NoObjCARCExceptionsMetadata(0), RRData(0), PGOData(0),
+      CFConstantStringClassRef(0),
       ConstantStringClassRef(0), NSConstantStringType(0),
       NSConcreteGlobalBlock(0), NSConcreteStackBlock(0), BlockObjectAssign(0),
       BlockObjectDispose(0), BlockDescriptorType(0), GenericBlockLiteralType(0),
@@ -118,7 +119,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
   if (SanOpts.Thread ||
       (!CodeGenOpts.RelaxedAliasing && CodeGenOpts.OptimizationLevel > 0))
     TBAA = new CodeGenTBAA(Context, VMContext, CodeGenOpts, getLangOpts(),
-                           ABI.getMangleContext());
+                           getCXXABI().getMangleContext());
 
   // If debug info or coverage generation is enabled, create the CGDebugInfo
   // object.
@@ -132,6 +133,9 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
   if (C.getLangOpts().ObjCAutoRefCount)
     ARCData = new ARCEntrypoints();
   RRData = new RREntrypoints();
+
+  if (!CodeGenOpts.InstrProfileInput.empty())
+    PGOData = new PGOProfileData(*this, CodeGenOpts.InstrProfileInput);
 }
 
 CodeGenModule::~CodeGenModule() {
@@ -139,7 +143,6 @@ CodeGenModule::~CodeGenModule() {
   delete OpenCLRuntime;
   delete CUDARuntime;
   delete TheTargetCodeGenInfo;
-  delete &ABI;
   delete TBAA;
   delete DebugInfo;
   delete ARCData;
@@ -595,7 +598,7 @@ CodeGenModule::getFunctionLinkage(GlobalDecl GD) {
     return llvm::Function::InternalLinkage;
   
   if (D->hasAttr<DLLExportAttr>())
-    return llvm::Function::DLLExportLinkage;
+    return llvm::Function::ExternalLinkage;
   
   if (D->hasAttr<WeakAttr>())
     return llvm::Function::WeakAnyLinkage;
@@ -810,7 +813,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
   // overridden by a definition.
 
   if (FD->hasAttr<DLLImportAttr>()) {
-    F->setLinkage(llvm::Function::DLLImportLinkage);
+    F->setLinkage(llvm::Function::ExternalLinkage);
+    F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
   } else if (FD->hasAttr<WeakAttr>() ||
              FD->isWeakImported()) {
     // "extern_weak" is overloaded in LLVM; we probably should have
@@ -818,6 +822,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
     F->setLinkage(llvm::Function::ExternalWeakLinkage);
   } else {
     F->setLinkage(llvm::Function::ExternalLinkage);
+    if (FD->hasAttr<DLLExportAttr>())
+      F->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
 
     LinkageInfo LV = FD->getLinkageAndVisibility();
     if (LV.getLinkage() == ExternalLinkage && LV.isVisibilityExplicit()) {
@@ -1637,9 +1643,10 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
     if (LV.getLinkage() != ExternalLinkage) {
       // Don't set internal linkage on declarations.
     } else {
-      if (D->hasAttr<DLLImportAttr>())
-        GV->setLinkage(llvm::GlobalValue::DLLImportLinkage);
-      else if (D->hasAttr<WeakAttr>() || D->isWeakImported())
+      if (D->hasAttr<DLLImportAttr>()) {
+        GV->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+      } else if (D->hasAttr<WeakAttr>() || D->isWeakImported())
         GV->setLinkage(llvm::GlobalValue::ExternalWeakLinkage);
 
       // Set visibility on a declaration only if it's explicit.
@@ -1912,6 +1919,10 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
   llvm::GlobalValue::LinkageTypes Linkage = 
     GetLLVMLinkageVarDefinition(D, GV->isConstant());
   GV->setLinkage(Linkage);
+  if (D->hasAttr<DLLImportAttr>())
+    GV->setDLLStorageClass(llvm::GlobalVariable::DLLImportStorageClass);
+  else if (D->hasAttr<DLLExportAttr>())
+    GV->setDLLStorageClass(llvm::GlobalVariable::DLLExportStorageClass);
 
   // If required by the ABI, give definitions of static data members with inline
   // initializers linkonce_odr linkage.
@@ -1958,9 +1969,9 @@ CodeGenModule::GetLLVMLinkageVarDefinition(const VarDecl *D, bool isConstant) {
   if (Linkage == GVA_Internal)
     return llvm::Function::InternalLinkage;
   else if (D->hasAttr<DLLImportAttr>())
-    return llvm::Function::DLLImportLinkage;
+    return llvm::Function::ExternalLinkage;
   else if (D->hasAttr<DLLExportAttr>())
-    return llvm::Function::DLLExportLinkage;
+    return llvm::Function::ExternalLinkage;
   else if (D->hasAttr<SelectAnyAttr>()) {
     // selectany symbols are externally visible, so use weak instead of
     // linkonce.  MSVC optimizes away references to const selectany globals, so
@@ -2218,6 +2229,10 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
     AddGlobalDtor(Fn, DA->getPriority());
   if (D->hasAttr<AnnotateAttr>())
     AddGlobalAnnotations(D, Fn);
+
+  llvm::Function *PGOInit = CodeGenPGO::emitInitialization(*this);
+  if (PGOInit)
+    AddGlobalCtor(PGOInit, 0);
 }
 
 void CodeGenModule::EmitAliasDefinition(GlobalDecl GD) {
@@ -2279,9 +2294,9 @@ void CodeGenModule::EmitAliasDefinition(GlobalDecl GD) {
     if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
       // The dllexport attribute is ignored for undefined symbols.
       if (FD->hasBody())
-        GA->setLinkage(llvm::Function::DLLExportLinkage);
+        GA->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
     } else {
-      GA->setLinkage(llvm::Function::DLLExportLinkage);
+      GA->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
     }
   } else if (D->hasAttr<WeakAttr>() ||
              D->hasAttr<WeakRefAttr>() ||

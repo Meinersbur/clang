@@ -90,7 +90,6 @@ static void getDarwinDefines(MacroBuilder &Builder, const LangOptions &Opts,
                              VersionTuple &PlatformMinVersion) {
   Builder.defineMacro("__APPLE_CC__", "6000");
   Builder.defineMacro("__APPLE__");
-  Builder.defineMacro("__MACH__");
   Builder.defineMacro("OBJC_NEW_PROPERTIES");
   // AddressSanitizer doesn't play well with source fortification, which is on
   // by default on Darwin.
@@ -154,7 +153,7 @@ static void getDarwinDefines(MacroBuilder &Builder, const LangOptions &Opts,
       Str[5] = '\0';
       Builder.defineMacro("__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__",
                           Str);
-    } else {
+    } else if (Triple.isMacOSX()) {
       // Note that the Driver allows versions which aren't representable in the
       // define (because we only get a single digit for the minor and micro
       // revision numbers). So, we limit them to the maximum representable
@@ -170,6 +169,10 @@ static void getDarwinDefines(MacroBuilder &Builder, const LangOptions &Opts,
       Builder.defineMacro("__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__", Str);
     }
   }
+
+  // Tell users about the kernel if there is one.
+  if (Triple.isOSDarwin())
+    Builder.defineMacro("__MACH__");
 
   PlatformMinVersion = VersionTuple(Maj, Min, Rev);
 }
@@ -509,7 +512,7 @@ public:
     this->UIntMaxType = TargetInfo::UnsignedLongLong;
     this->Int64Type = TargetInfo::SignedLongLong;
     this->SizeType = TargetInfo::UnsignedInt;
-    this->DescriptionString = "E-p:32:32-i64:64-n32:64";
+    this->DescriptionString = "E-m:e-p:32:32-i64:64-n32:64";
   }
 };
 
@@ -643,17 +646,19 @@ public:
     this->DoubleAlign = 64;
     this->LongDoubleWidth = 64;
     this->LongDoubleAlign = 64;
+    this->LongLongWidth = 64;
+    this->LongLongAlign = 64;
     this->SizeType = TargetInfo::UnsignedInt;
     this->PtrDiffType = TargetInfo::SignedInt;
     this->IntPtrType = TargetInfo::SignedInt;
     // RegParmMax is inherited from the underlying architecture
     this->LongDoubleFormat = &llvm::APFloat::IEEEdouble;
     if (Triple.getArch() == llvm::Triple::arm) {
-      this->DescriptionString = "e-p:32:32-i64:64-v128:64:128-n32-S128";
+      this->DescriptionString = "e-m:e-p:32:32-i64:64-v128:64:128-n32-S128";
     } else if (Triple.getArch() == llvm::Triple::x86) {
-      this->DescriptionString = "e-p:32:32-i64:64-n8:16:32-S128";
+      this->DescriptionString = "e-m:e-p:32:32-i64:64-n8:16:32-S128";
     } else if (Triple.getArch() == llvm::Triple::x86_64) {
-      this->DescriptionString = "e-p:32:32-i64:64-s:64-n8:16:32:64-S128";
+      this->DescriptionString = "e-m:e-p:32:32-i64:64-n8:16:32:64-S128";
     } else if (Triple.getArch() == llvm::Triple::mipsel) {
       // Handled on mips' setDescriptionString.
     } else {
@@ -1244,8 +1249,7 @@ namespace {
 class PPC32TargetInfo : public PPCTargetInfo {
 public:
   PPC32TargetInfo(const llvm::Triple &Triple) : PPCTargetInfo(Triple) {
-    DescriptionString = "E-p:32:32-"
-                        "i64:64-n32";
+    DescriptionString = "E-m:e-p:32:32-i64:64-n32";
 
     switch (getTriple().getOS()) {
     case llvm::Triple::Linux:
@@ -1289,13 +1293,9 @@ public:
     if (getTriple().getOS() == llvm::Triple::FreeBSD) {
       LongDoubleWidth = LongDoubleAlign = 64;
       LongDoubleFormat = &llvm::APFloat::IEEEdouble;
-      DescriptionString = "E-"
-                          "i64:64-"
-                          "n32:64";
+      DescriptionString = "E-m:e-i64:64-n32:64";
     } else
-      DescriptionString = "E-"
-                          "i64:64-"
-                          "n32:64";
+      DescriptionString = "E-m:e-i64:64-n32:64";
 
     // PPC64 supports atomics up to 8 bytes.
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
@@ -1318,7 +1318,7 @@ public:
     PtrDiffType = SignedInt;    // for http://llvm.org/bugs/show_bug.cgi?id=15726
     LongLongAlign = 32;
     SuitableAlign = 128;
-    DescriptionString = "E-p:32:32-f64:32:64-n32";
+    DescriptionString = "E-m:o-p:32:32-f64:32:64-n32";
   }
   virtual BuiltinVaListKind getBuiltinVaListKind() const {
     return TargetInfo::CharPtrBuiltinVaList;
@@ -1332,7 +1332,7 @@ public:
       : DarwinTargetInfo<PPC64TargetInfo>(Triple) {
     HasAlignMac68kSupport = true;
     SuitableAlign = 128;
-    DescriptionString = "E-i64:64-n32:64";
+    DescriptionString = "E-m:o-i64:64-n32:64";
   }
 };
 } // end anonymous namespace.
@@ -1438,10 +1438,7 @@ namespace {
     NVPTX32TargetInfo(const llvm::Triple &Triple) : NVPTXTargetInfo(Triple) {
       PointerWidth = PointerAlign = 32;
       SizeType     = PtrDiffType = IntPtrType = TargetInfo::UnsignedInt;
-      DescriptionString
-        = "e-p:32:32-i64:64"
-          "-v16:16-v32:32-"
-          "n16:32:64";
+      DescriptionString = "e-p:32:32-i64:64-v16:16-v32:32-n16:32:64";
   }
   };
 
@@ -1450,10 +1447,7 @@ namespace {
     NVPTX64TargetInfo(const llvm::Triple &Triple) : NVPTXTargetInfo(Triple) {
       PointerWidth = PointerAlign = 64;
       SizeType     = PtrDiffType = IntPtrType = TargetInfo::UnsignedLongLong;
-      DescriptionString
-        = "e-i64:64"
-          "-v16:16-v32:32-"
-          "n16:32:64";
+      DescriptionString = "e-i64:64-v16:16-v32:32-n16:32:64";
   }
   };
 }
@@ -1470,28 +1464,17 @@ static const unsigned R600AddrSpaceMap[] = {
 };
 
 static const char *DescriptionStringR600 =
-  "e"
-  "-p:32:32"
-  "-i64:64"
-  "-v16:16-v24:32-v32:32-v48:64-v96:128"
-  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048"
-  "-n32:64";
+  "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128"
+  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64";
 
 static const char *DescriptionStringR600DoubleOps =
-  "e"
-  "-p:32:32"
-  "-i64:64"
-  "-v16:16-v24:32-v32:32-v48:64-v96:128"
-  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048"
-  "-n32:64";
+  "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128"
+  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64";
 
 static const char *DescriptionStringSI =
-  "e"
-  "-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:32:32-p5:64:64"
-  "-i64:64"
-  "-v16:16-v24:32-v32:32-v48:64-v96:128"
-  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048"
-  "-n32:64";
+  "e-p:32:32-p1:64:64-p2:64:64-p3:32:32-p4:32:32-p5:64:64"
+  "-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128"
+  "-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64";
 
 class R600TargetInfo : public TargetInfo {
   /// \brief The GPU profiles supported by the R600 target.
@@ -2995,9 +2978,7 @@ public:
     LongDoubleWidth = 96;
     LongDoubleAlign = 32;
     SuitableAlign = 128;
-    DescriptionString = "e-p:32:32"
-                        "-f64:32:64-"
-                        "f80:32-n8:16:32-S128";
+    DescriptionString = "e-m:e-p:32:32-f64:32:64-f80:32-n8:16:32-S128";
     SizeType = UnsignedInt;
     PtrDiffType = SignedInt;
     IntPtrType = SignedInt;
@@ -3091,9 +3072,7 @@ public:
     MaxVectorAlign = 256;
     SizeType = UnsignedLong;
     IntPtrType = SignedLong;
-    DescriptionString = "e-p:32:32"
-                        "-f64:32:64-"
-                        "f80:128-n8:16:32-S128";
+    DescriptionString = "e-m:o-p:32:32-f64:32:64-f80:128-n8:16:32-S128";
     HasAlignMac68kSupport = true;
   }
 
@@ -3109,9 +3088,7 @@ public:
     TLSSupported = false;
     WCharType = UnsignedShort;
     DoubleAlign = LongLongAlign = 64;
-    DescriptionString = "e-p:32:32-"
-                        "i64:64-"
-                        "f80:32-n8:16:32-S32";
+    DescriptionString = "e-m:w-p:32:32-i64:64-f80:32-n8:16:32-S32";
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
@@ -3178,9 +3155,7 @@ public:
     TLSSupported = false;
     WCharType = UnsignedShort;
     DoubleAlign = LongLongAlign = 64;
-    DescriptionString = "e-p:32:32-"
-                        "i64:64-"
-                        "f80:32-n8:16:32-S32";
+    DescriptionString = "e-m:w-p:32:32-i64:64-f80:32-n8:16:32-S32";
   }
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const {
@@ -3286,7 +3261,7 @@ public:
     Int64Type = SignedLong;
     RegParmMax = 6;
 
-    DescriptionString = "e-i64:64-f80:128-s:64-n8:16:32:64-S128";
+    DescriptionString = "e-m:e-i64:64-f80:128-n8:16:32:64-S128";
 
     // Use fpret only for long double.
     RealTypeUsesObjCFPRet = (1 << TargetInfo::LongDouble);
@@ -3409,6 +3384,7 @@ public:
       : DarwinTargetInfo<X86_64TargetInfo>(Triple) {
     Int64Type = SignedLongLong;
     MaxVectorAlign = 256;
+    DescriptionString = "e-m:o-i64:64-f80:128-n8:16:32:64-S128";
   }
 };
 } // end anonymous namespace
@@ -3458,7 +3434,7 @@ public:
     LongDoubleWidth = LongDoubleAlign = 128;
     PointerWidth = PointerAlign = 64;
     SuitableAlign = 128;
-    DescriptionString = "e-i64:64-i128:128-s:32-n32:64-S128";
+    DescriptionString = "e-m:e-i64:64-i128:128-n32:64-S128";
 
     WCharType = UnsignedInt;
     LongDoubleFormat = &llvm::APFloat::IEEEquad;
@@ -3747,14 +3723,15 @@ class ARMTargetInfo : public TargetInfo {
     IsAAPCS = true;
 
     DoubleAlign = LongLongAlign = LongDoubleAlign = SuitableAlign = 64;
+    const llvm::Triple &T = getTriple();
 
     // size_t is unsigned long on Darwin and netbsd.
-    if (getTriple().isOSDarwin() || getTriple().getOS() == llvm::Triple::NetBSD)
+    if (T.isOSDarwin() || T.getOS() == llvm::Triple::NetBSD)
       SizeType = UnsignedLong;
     else
       SizeType = UnsignedInt;
 
-    if (getTriple().getOS() == llvm::Triple::NetBSD) {
+    if (T.getOS() == llvm::Triple::NetBSD) {
       WCharType = SignedInt;
     } else {
       // AAPCS 7.1.1, ARM-Linux ABI 2.4: type of wchar_t is unsigned int.
@@ -3768,22 +3745,32 @@ class ARMTargetInfo : public TargetInfo {
     if (IsThumb) {
       // Thumb1 add sp, #imm requires the immediate value be multiple of 4,
       // so set preferred for small types to 32.
-      DescriptionString = ("e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:64-"
-                           "v128:64:128-a:0:32-n32-S64");
+      if (T.isOSBinFormatMachO())
+        DescriptionString = "e-m:o-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:64-"
+                            "v128:64:128-a:0:32-n32-S64";
+      else
+        DescriptionString = "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:64-"
+                            "v128:64:128-a:0:32-n32-S64";
+
     } else {
-      DescriptionString = ("e-p:32:32-i64:64-v128:64:128-n32-S64");
+      if (T.isOSBinFormatMachO())
+        DescriptionString = "e-m:o-p:32:32-i64:64-v128:64:128-n32-S64";
+      else
+        DescriptionString = "e-m:e-p:32:32-i64:64-v128:64:128-n32-S64";
     }
 
     // FIXME: Enumerated types are variable width in straight AAPCS.
   }
 
   void setABIAPCS() {
+    const llvm::Triple &T = getTriple();
+
     IsAAPCS = false;
 
     DoubleAlign = LongLongAlign = LongDoubleAlign = SuitableAlign = 32;
 
     // size_t is unsigned int on FreeBSD.
-    if (getTriple().getOS() == llvm::Triple::FreeBSD)
+    if (T.getOS() == llvm::Triple::FreeBSD)
       SizeType = UnsignedInt;
     else
       SizeType = UnsignedLong;
@@ -3803,11 +3790,19 @@ class ARMTargetInfo : public TargetInfo {
     if (IsThumb) {
       // Thumb1 add sp, #imm requires the immediate value be multiple of 4,
       // so set preferred for small types to 32.
-      DescriptionString = "e-p:32:32-i1:8:32-i8:8:32-i16:16:32-f64:32:64"
-                          "-v64:32:64-v128:32:128-a:0:32-n32-S32";
+      if (T.isOSBinFormatMachO())
+        DescriptionString = "e-m:o-p:32:32-i1:8:32-i8:8:32-i16:16:32-f64:32:64"
+                            "-v64:32:64-v128:32:128-a:0:32-n32-S32";
+      else
+        DescriptionString = "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-f64:32:64"
+                            "-v64:32:64-v128:32:128-a:0:32-n32-S32";
     } else {
-      DescriptionString =
-          "e-p:32:32-f64:32:64-v64:32:64-v128:32:128-a:0:32-n32-S32";
+      if (T.isOSBinFormatMachO())
+        DescriptionString =
+            "e-m:o-p:32:32-f64:32:64-v64:32:64-v128:32:128-a:0:32-n32-S32";
+      else
+        DescriptionString =
+            "e-m:e-p:32:32-f64:32:64-v64:32:64-v128:32:128-a:0:32-n32-S32";
     }
 
     // FIXME: Override "preferred align" for double and long long.
@@ -3870,6 +3865,11 @@ public:
   }
 
   void getDefaultFeatures(llvm::StringMap<bool> &Features) const {
+    if (IsAAPCS)
+      Features["aapcs"] = true;
+    else
+      Features["apcs"] = true;
+
     StringRef ArchName = getTriple().getArchName();
     if (CPU == "arm1136jf-s" || CPU == "arm1176jzf-s" || CPU == "mpcore")
       Features["vfp2"] = true;
@@ -3982,10 +3982,9 @@ public:
       .Cases("arm1176jz-s", "arm1176jzf-s", "6ZK")
       .Cases("arm1136jf-s", "mpcorenovfp", "mpcore", "6K")
       .Cases("arm1156t2-s", "arm1156t2f-s", "6T2")
-      .Cases("cortex-a5", "cortex-a7", "cortex-a8", "7A")
+      .Cases("cortex-a5", "cortex-a7", "cortex-a8", "cortex-a9-mp", "7A")
       .Cases("cortex-a9", "cortex-a12", "cortex-a15", "krait", "7A")
       .Cases("cortex-r4", "cortex-r5", "7R")
-      .Case("cortex-a9-mp", "7F")
       .Case("swift", "7S")
       .Cases("cortex-m3", "cortex-m4", "7M")
       .Case("cortex-m0", "6M")
@@ -4306,7 +4305,7 @@ class HexagonTargetInfo : public TargetInfo {
 public:
   HexagonTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
     BigEndian = false;
-    DescriptionString = ("e-p:32:32-i1:32-i64:64-a:0-n32");
+    DescriptionString = "e-m:e-p:32:32-i1:32-i64:64-a:0-n32";
 
     // {} in inline assembly are packet specifiers, not assembly variant
     // specifiers.
@@ -4561,7 +4560,7 @@ void SparcTargetInfo::getGCCRegAliases(const GCCRegAlias *&Aliases,
 class SparcV8TargetInfo : public SparcTargetInfo {
 public:
   SparcV8TargetInfo(const llvm::Triple &Triple) : SparcTargetInfo(Triple) {
-    DescriptionString = "E-p:32:32-i64:64-f128:64-n32-S64";
+    DescriptionString = "E-m:e-p:32:32-i64:64-f128:64-n32-S64";
   }
 
   virtual void getTargetDefines(const LangOptions &Opts,
@@ -4576,8 +4575,7 @@ class SparcV9TargetInfo : public SparcTargetInfo {
 public:
   SparcV9TargetInfo(const llvm::Triple &Triple) : SparcTargetInfo(Triple) {
     // FIXME: Support Sparc quad-precision long double?
-    DescriptionString = "E-"
-                        "i64:64-n32:64-S128";
+    DescriptionString = "E-m:e-i64:64-n32:64-S128";
     // This is an LP64 platform.
     LongWidth = LongAlign = PointerWidth = PointerAlign = 64;
 
@@ -4590,6 +4588,12 @@ public:
       UIntMaxType = UnsignedLong;
     }
     Int64Type = IntMaxType;
+
+    // The SPARCv8 System V ABI has long double 128-bits in size, but 64-bit
+    // aligned. The SPARCv9 SCD 2.4.1 says 16-byte aligned.
+    LongDoubleWidth = 128;
+    LongDoubleAlign = 128;
+    LongDoubleFormat = &llvm::APFloat::IEEEquad;
   }
 
   virtual void getTargetDefines(const LangOptions &Opts,
@@ -4643,8 +4647,7 @@ namespace {
       LongDoubleAlign = 64;
       LongDoubleFormat = &llvm::APFloat::IEEEquad;
       MinGlobalAlign = 16;
-      DescriptionString = "E-i1:8:16-i8:8:16-i64:64"
-       "-f128:64-a:8:16-n32:64";
+      DescriptionString = "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-a:8:16-n32:64";
       MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
     }
     virtual void getTargetDefines(const LangOptions &Opts,
@@ -4752,7 +4755,7 @@ namespace {
       IntPtrType = SignedInt;
       PtrDiffType = SignedInt;
       SigAtomicType = SignedLong;
-      DescriptionString = "e-p:16:16-i32:16:32-n8:16";
+      DescriptionString = "e-m:e-p:16:16-i32:16:32-n8:16";
    }
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const {
@@ -4848,10 +4851,8 @@ namespace {
       FloatFormat = &llvm::APFloat::IEEEsingle;
       DoubleFormat = &llvm::APFloat::IEEEsingle;
       LongDoubleFormat = &llvm::APFloat::IEEEsingle;
-      DescriptionString = "E-p:32:32-i8:8:32-"
-                          "i16:16:32-i64:32"
-                          "-f64:32-v64:32-"
-                          "v128:32-a:0:32-n32";
+      DescriptionString = "E-p:32:32-i8:8:32-i16:16:32-i64:32"
+                          "-f64:32-v64:32-v128:32-a:0:32-n32";
       AddrSpaceMap = &TCEOpenCLAddrSpaceMap;
       UseAddrSpaceMapMangling = true;
     }
@@ -5188,8 +5189,7 @@ public:
 
 class Mips32EBTargetInfo : public Mips32TargetInfoBase {
   virtual void setDescriptionString() {
-    DescriptionString = "E-p:32:32-i8:8:32-i16:16:32-"
-                        "i64:64-n32-S64";
+    DescriptionString = "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64";
   }
 
 public:
@@ -5206,8 +5206,7 @@ public:
 
 class Mips32ELTargetInfo : public Mips32TargetInfoBase {
   virtual void setDescriptionString() {
-    DescriptionString = "e-p:32:32-i8:8:32-i16:16:32-"
-                        "i64:64-n32-S64";
+    DescriptionString = "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64";
   }
 
 public:
@@ -5316,13 +5315,9 @@ public:
 class Mips64EBTargetInfo : public Mips64TargetInfoBase {
   virtual void setDescriptionString() {
     if (ABI == "n32")
-      DescriptionString = "E-p:32:32-i8:8:32-i16:16:32-"
-                          "i64:64-"
-                          "n32:64-S128";
+      DescriptionString = "E-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128";
     else
-      DescriptionString = "E-i8:8:32-i16:16:32-"
-                          "i64:64-"
-                          "n32:64-S128";
+      DescriptionString = "E-m:m-i8:8:32-i16:16:32-i64:64-n32:64-S128";
 
   }
 
@@ -5340,13 +5335,9 @@ public:
 class Mips64ELTargetInfo : public Mips64TargetInfoBase {
   virtual void setDescriptionString() {
     if (ABI == "n32")
-      DescriptionString = "e-p:32:32-i8:8:32-i16:16:32-"
-                          "i64:64"
-                          "-n32:64-S128";
+      DescriptionString = "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32:64-S128";
     else
-      DescriptionString = "e-i8:8:32-i16:16:32-"
-                          "i64:64-"
-                          "n32:64-S128";
+      DescriptionString = "e-m:m-i8:8:32-i16:16:32-i64:64-n32:64-S128";
   }
 public:
   Mips64ELTargetInfo(const llvm::Triple &Triple)
@@ -5492,10 +5483,8 @@ namespace {
       SizeType     = TargetInfo::UnsignedInt;
       PtrDiffType = IntPtrType = TargetInfo::SignedInt;
       DescriptionString
-        = "e-p:32:32-i64:64"
-          "-v16:16-v24:32-v32:32-v48:64-"
-          "v96:128-v192:256-v256:256-"
-          "v512:512-v1024:1024";
+        = "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-"
+          "v96:128-v192:256-v256:256-v512:512-v1024:1024";
     }
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const {
@@ -5509,11 +5498,8 @@ namespace {
       PointerWidth = PointerAlign = 64;
       SizeType     = TargetInfo::UnsignedLong;
       PtrDiffType = IntPtrType = TargetInfo::SignedLong;
-      DescriptionString
-        = "e-i64:64"
-          "-v16:16-v24:32-v32:32-v48:64-"
-          "v96:128-v192:256-v256:256-"
-          "v512:512-v1024:1024";
+      DescriptionString = "e-i64:64-v16:16-v24:32-v32:32-v48:64-"
+                          "v96:128-v192:256-v256:256-v512:512-v1024:1024";
     }
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const {
@@ -5538,7 +5524,7 @@ public:
     WCharType = UnsignedChar;
     WIntType = UnsignedInt;
     UseZeroLengthBitfieldAlignment = true;
-    DescriptionString = "e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32"
+    DescriptionString = "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i64:32"
                         "-f64:32-a:0:32-n32";
   }
   virtual void getTargetDefines(const LangOptions &Opts,
@@ -5606,13 +5592,15 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
     switch (os) {
     case llvm::Triple::Linux:
       return new LinuxTargetInfo<AArch64TargetInfo>(Triple);
+    case llvm::Triple::NetBSD:
+      return new NetBSDTargetInfo<AArch64TargetInfo>(Triple);
     default:
       return new AArch64TargetInfo(Triple);
     }
 
   case llvm::Triple::arm:
   case llvm::Triple::thumb:
-    if (Triple.isOSDarwin())
+    if (Triple.isOSBinFormatMachO())
       return new DarwinARMTargetInfo(Triple);
 
     switch (os) {
@@ -5918,12 +5906,6 @@ TargetInfo *TargetInfo::CreateTargetInfo(DiagnosticsEngine &Diags,
   // Set the target ABI if specified.
   if (!Opts->ABI.empty() && !Target->setABI(Opts->ABI)) {
     Diags.Report(diag::err_target_unknown_abi) << Opts->ABI;
-    return 0;
-  }
-
-  // Set the target C++ ABI.
-  if (!Opts->CXXABI.empty() && !Target->setCXXABI(Opts->CXXABI)) {
-    Diags.Report(diag::err_target_unknown_cxxabi) << Opts->CXXABI;
     return 0;
   }
 

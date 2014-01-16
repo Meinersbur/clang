@@ -2,7 +2,7 @@
 # standalone project, using LLVM as an external library:
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   project(Clang)
-  cmake_minimum_required(VERSION 2.8)
+  cmake_minimum_required(VERSION 2.8.8)
 
   # Rely on llvm-config.
   set(CONFIG_OUTPUT)
@@ -70,6 +70,9 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   set(LLVM_LIBRARY_OUTPUT_INTDIR ${LLVM_LIBRARY_DIR})
 
   option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." OFF)
+
+  option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
+         "Set to ON to force using an old, unsupported host toolchain." OFF)
 
   include(AddLLVM)
   include(TableGen)
@@ -174,8 +177,8 @@ set(CLANG_VENDOR_UTI "org.llvm.clang" CACHE STRING
 set(CLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(CLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-set(CLANG_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin/${CMAKE_CFG_INTDIR})
-set(CLANG_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib/${CMAKE_CFG_INTDIR})
+set(CLANG_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+set(CLANG_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
 
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE )
   message(FATAL_ERROR "In-source builds are not allowed. CMake would overwrite "
@@ -273,41 +276,6 @@ function(clang_tablegen)
   endif()
 endfunction(clang_tablegen)
 
-# FIXME: Generalize and move to llvm.
-function(add_clang_symbol_exports target_name export_file)
-  # Makefile.rules contains special cases for different platforms.
-  # We restrict ourselves to Darwin for the time being.
-  if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    add_custom_command(OUTPUT symbol.exports
-      COMMAND sed -e "s/^/_/" < ${export_file} > symbol.exports
-      DEPENDS ${export_file}
-      VERBATIM
-      COMMENT "Creating export file for ${target_name}")
-    add_custom_target(${target_name}_exports DEPENDS symbol.exports)
-    set_property(DIRECTORY APPEND
-      PROPERTY ADDITIONAL_MAKE_CLEAN_FILES symbol.exports)
-
-    get_property(srcs TARGET ${target_name} PROPERTY SOURCES)
-    foreach(src ${srcs})
-      get_filename_component(extension ${src} EXT)
-      if(extension STREQUAL ".cpp")
-        set(first_source_file ${src})
-        break()
-      endif()
-    endforeach()
-  
-    # Force re-linking when the exports file changes. Actually, it
-    # forces recompilation of the source file. The LINK_DEPENDS target
-    # property only works for makefile-based generators.
-    set_property(SOURCE ${first_source_file} APPEND PROPERTY
-      OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/symbol.exports)
-  
-    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
-                 LINK_FLAGS " -Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/symbol.exports")
-    add_dependencies(${target_name} ${target_name}_exports)
-  endif()
-endfunction(add_clang_symbol_exports)
-
 macro (add_clang_library name)
   set(srcs)
   if(MSVC_IDE OR XCODE)
@@ -332,10 +300,16 @@ macro (add_clang_library name)
       set(srcs ${srcs} ${headers} ${tds})
     endif()
   endif(MSVC_IDE OR XCODE)
+  add_dead_strip( ${name} )
+  set_output_directory(${name} ${CLANG_RUNTIME_OUTPUT_INTDIR} ${CLANG_LIBRARY_OUTPUT_INTDIR})
   
-  if (SHARED_LIBRARY AND EXPORTED_SYMBOL_FILE)
-    add_clang_symbol_exports( ${name} ${EXPORTED_SYMBOL_FILE} ) 
+  if ((SHARED_LIBRARY OR MODULE) AND LLVM_EXPORTED_SYMBOL_FILE)
+    add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
   endif()
+
+  if (MODULE)
+    set_property(TARGET ${name} PROPERTY SUFFIX ${LLVM_PLUGIN_EXT})
+  endif ()
   
   new_llvm_target(${name} ${ARGN} SOURCES2 ${srcs} LINK_LIBS2 ${LLVM_COMMON_LIBS} )
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
@@ -355,6 +329,7 @@ endmacro (add_clang_library)
 macro (add_clang_executable name)
   new_llvm_target( ${name} EXE ${ARGN} LINK_LIBS2 ${LLVM_COMMON_LIBS} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang executables")
+  set_output_directory(${name} ${CLANG_RUNTIME_OUTPUT_INTDIR} ${CLANG_LIBRARY_OUTPUT_INTDIR})
 endmacro (add_clang_executable)
 
 
@@ -433,6 +408,11 @@ add_subdirectory(tools)
 add_subdirectory(runtime)
 
 option(CLANG_BUILD_EXAMPLES "Build CLANG example programs by default." OFF)
+if (CLANG_BUILD_EXAMPLES)
+  set(ENABLE_CLANG_EXAMPLES "1")
+else()
+  set(ENABLE_CLANG_EXAMPLES "0")
+endif()
 add_subdirectory(examples)
 
 option(CLANG_INCLUDE_TESTS
@@ -464,9 +444,6 @@ if( CLANG_BUILT_STANDALONE AND MSVC_VERSION EQUAL 1600 )
     file(APPEND "${CLANG_SLN_FILENAME}" "\n# This should be regenerated!\n")
   endif()
 endif()
-
-set(BUG_REPORT_URL "http://llvm.org/bugs/" CACHE STRING
-  "Default URL where bug reports are to be submitted.")
 
 set(CLANG_ORDER_FILE "" CACHE FILEPATH
   "Order file to use when compiling clang in order to improve startup time.")

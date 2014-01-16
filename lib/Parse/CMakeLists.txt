@@ -35,4 +35,5 @@ add_dependencies(clangParse
   ClangDiagnosticCommon
   ClangDiagnosticParse
   ClangStmtNodes
+  ClangAttrArgContext
   )

@@ -32,6 +32,7 @@ class DeclarationName;
 class DependentDiagnostic;
 class EnumDecl;
 class FunctionDecl;
+class FunctionType;
 class LinkageComputer;
 class LinkageSpecDecl;
 class Module;
@@ -938,10 +939,15 @@ public:
                          raw_ostream &Out, const PrintingPolicy &Policy,
                          unsigned Indentation = 0);
   // Debuggers don't usually respect default arguments.
-  LLVM_ATTRIBUTE_USED void dump() const;
+  void dump() const;
   // Same as dump(), but forces color printing.
-  LLVM_ATTRIBUTE_USED void dumpColor() const;
+  void dumpColor() const;
   void dump(raw_ostream &Out) const;
+
+  /// \brief Looks through the Decl's underlying type to extract a FunctionType
+  /// when possible. Will return null if the type underlying the Decl does not
+  /// have a FunctionType.
+  const FunctionType *getFunctionType(bool BlocksToo = true) const;
 
 private:
   void setAttrsImpl(const AttrVec& Attrs, ASTContext &Ctx);
@@ -1616,9 +1622,9 @@ public:
   static bool classof(const Decl *D);
   static bool classof(const DeclContext *D) { return true; }
 
-  LLVM_ATTRIBUTE_USED void dumpDeclContext() const;
-  LLVM_ATTRIBUTE_USED void dumpLookups() const;
-  LLVM_ATTRIBUTE_USED void dumpLookups(llvm::raw_ostream &OS) const;
+  void dumpDeclContext() const;
+  void dumpLookups() const;
+  void dumpLookups(llvm::raw_ostream &OS) const;
 
 private:
   void reconcileExternalVisibleStorage();
