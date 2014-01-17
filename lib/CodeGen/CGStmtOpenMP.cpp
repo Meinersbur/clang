@@ -1,3 +1,4 @@
+#if 0 // Deactivated, Hal Finkel needs to merge
 //===--- CGDecl.cpp - Emit LLVM Code for declarations ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
@@ -935,7 +936,7 @@ void CodeGenFunction::EmitOMPForDirective(const OMPForDirective &S) {
       llvm::BasicBlock *ContBlock = createBasicBlock("omp.cont.block");
 
       BreakContinueStack.push_back(BreakContinue(getJumpDestInCurrentScope(EndBB),
-                                                 getJumpDestInCurrentScope(ContBlock)));
+                                                 getJumpDestInCurrentScope(ContBlock), nullptr));
       {
         RunCleanupsScope Scope(*this);
         EmitStmt(Body);
@@ -1800,7 +1801,7 @@ void CodeGenFunction::EmitInitOMPFinalClause(const OMPFinalClause &C,
   llvm::Value *Flags = CGM.OpenMPSupport.getTaskFlags();
   llvm::BasicBlock *ThenBlock = createBasicBlock("task.final.then");
   llvm::BasicBlock *EndBlock = createBasicBlock("task.final.end");
-  EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, EndBlock);
+  EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, EndBlock, 0);
   EmitBlock(ThenBlock);
   llvm::Value *Val = Builder.CreateOr(Builder.CreateLoad(Flags, ".flags."), OMP_TASK_FINAL);
   Builder.CreateStore(Val, Flags);
@@ -1867,7 +1868,7 @@ void CodeGenFunction::EmitAfterInitOMPIfClause(const OMPIfClause &C,
   if (isa<OMPTaskDirective>(&S)) {
     llvm::BasicBlock *ThenBlock = createBasicBlock("omp.if.then");
     llvm::BasicBlock *ElseBlock = createBasicBlock("omp.if.else");
-    EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, ElseBlock);
+    EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, ElseBlock, 0);
     EmitBlock(ThenBlock);
     CGM.OpenMPSupport.setIfDest(ElseBlock);
   } else {
@@ -1875,7 +1876,7 @@ void CodeGenFunction::EmitAfterInitOMPIfClause(const OMPIfClause &C,
     llvm::BasicBlock *ThenBlock = createBasicBlock("omp.if.then");
     llvm::BasicBlock *ElseBlock = createBasicBlock("omp.if.else");
     llvm::BasicBlock *ContBlock = createBasicBlock("omp.if.end");
-    EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, ElseBlock);
+    EmitBranchOnBoolExpr(C.getCondition(), ThenBlock, ElseBlock, 0);
     EmitBlock(ElseBlock);
     {
       RunCleanupsScope ElseScope(*this);
@@ -3925,4 +3926,4 @@ void CodeGenFunction::EmitFinalOMPReductionClause(const OMPReductionClause &C,
     CGF.CurFn = 0;
   }
 }
-
+#endif

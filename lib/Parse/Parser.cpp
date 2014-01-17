@@ -276,8 +276,7 @@ static bool HasFlagsSet(Parser::SkipUntilFlags L, Parser::SkipUntilFlags R) {
 ///
 /// If SkipUntil finds the specified token, it returns true, otherwise it
 /// returns false.
-bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags,
-                       bool NoCount) {
+bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags) {
   // We always want this function to skip at least one token if the first token
   // isn't T and if not at EOF.
   bool isFirstTokenSkipped = true;
@@ -328,32 +327,26 @@ bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags,
     case tok::l_paren:
       // Recursively skip properly-nested parens.
       ConsumeParen();
-      if (!NoCount) {
       if (HasFlagsSet(Flags, StopAtCodeCompletion))
         SkipUntil(tok::r_paren, StopAtCodeCompletion);
       else
         SkipUntil(tok::r_paren);
-        }
       break;
     case tok::l_square:
       // Recursively skip properly-nested square brackets.
       ConsumeBracket();
-      if (!NoCount) {
       if (HasFlagsSet(Flags, StopAtCodeCompletion))
         SkipUntil(tok::r_square, StopAtCodeCompletion);
       else
         SkipUntil(tok::r_square);
-        }
       break;
     case tok::l_brace:
       // Recursively skip properly-nested braces.
       ConsumeBrace();
-      if (!NoCount) {
       if (HasFlagsSet(Flags, StopAtCodeCompletion))
         SkipUntil(tok::r_brace, StopAtCodeCompletion);
       else
         SkipUntil(tok::r_brace);
-        }
       break;
 
     // Okay, we found a ']' or '}' or ')', which we think should be balanced.
@@ -362,17 +355,17 @@ bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags,
     // higher level, we will assume that this matches the unbalanced token
     // and return it.  Otherwise, this is a spurious RHS token, which we skip.
     case tok::r_paren:
-      if (!NoCount && ParenCount && !isFirstTokenSkipped)
+      if (ParenCount && !isFirstTokenSkipped)
         return false;  // Matches something.
       ConsumeParen();
       break;
     case tok::r_square:
-      if (!NoCount && BracketCount && !isFirstTokenSkipped)
+      if (BracketCount && !isFirstTokenSkipped)
         return false;  // Matches something.
       ConsumeBracket();
       break;
     case tok::r_brace:
-      if (!NoCount && BraceCount && !isFirstTokenSkipped)
+      if (BraceCount && !isFirstTokenSkipped)
         return false;  // Matches something.
       ConsumeBrace();
       break;
@@ -711,7 +704,8 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
     HandlePragmaOpenCLExtension();
     return DeclGroupPtrTy();
   case tok::annot_pragma_openmp:
-    return ParseOpenMPDeclarativeDirective();
+    ParseOpenMPDeclarativeDirective();
+    return DeclGroupPtrTy();
   case tok::semi:
     // Either a C++11 empty-declaration or attribute-declaration.
     SingleDecl = Actions.ActOnEmptyDeclaration(getCurScope(),
@@ -2078,7 +2072,6 @@ bool BalancedDelimiterTracker::diagnoseMissingClose() {
 }
 
 void BalancedDelimiterTracker::skipToEnd() {
-  P.SkipUntil(Close, Parser::StopBeforeMatch,
-              FinalToken == tok::annot_pragma_openmp_end);
+  P.SkipUntil(Close, Parser::StopBeforeMatch);
   consumeClose();
 }

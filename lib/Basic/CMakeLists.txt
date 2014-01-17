@@ -3,6 +3,7 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
+message("In: clangBasic")
 add_clang_library(clangBasic
   Builtins.cpp
   CharInfo.cpp

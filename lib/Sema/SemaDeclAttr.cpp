@@ -3319,41 +3319,41 @@ static void handleMollyFieldLengths(Sema &S, Decl *D, const AttributeList &Attr)
     */
   }
 
-  D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, lengths.data(), lengths.size()));
+  D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, lengths.data(), lengths.size(), 0));
   //D->addAttr(::new (S.Context) MollyFieldLengthsAttr(Attr.getRange(), S.Context, Attr.getArgsBuffer(), Attr.getNumArgs()));
 }
 
 static void handleMollyLengthFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-  D->addAttr(::new (S.Context) MollyLengthFuncAttr(Attr.getRange(), S.Context));
+  D->addAttr(::new (S.Context) MollyLengthFuncAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollyGetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-   D->addAttr(::new (S.Context) MollyGetterFuncAttr(Attr.getRange(), S.Context));
+   D->addAttr(::new (S.Context) MollyGetterFuncAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollySetterFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollySetterFuncAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollySetterFuncAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollyFieldmember(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyFieldmemberAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollyFieldmemberAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollyIsLocalFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyIsLocalFuncAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollyIsLocalFuncAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollyGetRankOfFunc(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyGetRankOfFuncAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollyGetRankOfFuncAttr(Attr.getRange(), S.Context, 0));
 }
 
 static void handleMollyInline(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyInlineAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollyInlineAttr(Attr.getRange(), S.Context, 0));
 }
 
 template<typename MollyAttr>
 static void handleSimpleAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-    D->addAttr(::new (S.Context) MollyAttr(Attr.getRange(), S.Context));
+    D->addAttr(::new (S.Context) MollyAttr(Attr.getRange(), S.Context, 0));
 }
 
 //===----------------------------------------------------------------------===//

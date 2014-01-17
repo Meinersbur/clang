@@ -805,24 +805,21 @@ public:
   /// If SkipUntil finds the specified token, it returns true, otherwise it
   /// returns false.
   bool SkipUntil(tok::TokenKind T,
-                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0), bool NoCount = false) {
-    return SkipUntil(llvm::makeArrayRef(T), Flags, NoCount);
+                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0)) {
+    return SkipUntil(llvm::makeArrayRef(T), Flags);
   }
   bool SkipUntil(tok::TokenKind T1, tok::TokenKind T2,
-                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0),
-                 bool NoCount = false) {
+                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0)) {
     tok::TokenKind TokArray[] = {T1, T2};
-    return SkipUntil(TokArray, Flags, NoCount);
+    return SkipUntil(TokArray, Flags);
   }
   bool SkipUntil(tok::TokenKind T1, tok::TokenKind T2, tok::TokenKind T3,
-                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0), bool NoCount = false) {
-
+                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0)) {
     tok::TokenKind TokArray[] = {T1, T2, T3};
-    return SkipUntil(TokArray, Flags, NoCount);
+    return SkipUntil(TokArray, Flags);
   }
   bool SkipUntil(ArrayRef<tok::TokenKind> Toks,
-                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0),
-                 bool NoCount = false);
+                 SkipUntilFlags Flags = static_cast<SkipUntilFlags>(0));
 
   /// SkipMalformedDecl - Read tokens until we get to some likely good stopping
   /// point for skipping past a simple-declaration.
@@ -2269,15 +2266,8 @@ private:
   bool ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
                                 SmallVectorImpl<Expr *> &VarList,
                                 bool AllowScopeSpecifier);
-
   /// \brief Parses declarative or executable directive.
-  ///
-  /// \param StandAloneAllowed true if allowed stand-alone directives,
-  /// false - otherwise
-  ///
-  StmtResult ParseOpenMPDeclarativeOrExecutableDirective(
-                                                bool StandAloneAllowed);
-
+  StmtResult ParseOpenMPDeclarativeOrExecutableDirective();
   /// \brief Parses clause of kind \a CKind for directive of a kind \a Kind.
   ///
   /// \param DKind Kind of current directive.
@@ -2302,17 +2292,6 @@ private:
   /// \param Kind Kind of current clause.
   ///
   OMPClause *ParseOpenMPVarListClause(OpenMPClauseKind Kind);
-  /// \brief Parses clause with a single expression and a type of a kind
-  /// \a Kind.
-  ///
-  /// \param Kind Kind of current clause.
-  ///
-  OMPClause *ParseOpenMPSingleExprWithTypeClause(OpenMPClauseKind Kind);
-  /// \brief Parses clause with type of a kind \a Kind.
-  ///
-  /// \param Kind Kind of current clause.
-  ///
-  OMPClause *ParseOpenMPClause(OpenMPClauseKind Kind);
 public:
   bool ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                           bool AllowDestructorName,

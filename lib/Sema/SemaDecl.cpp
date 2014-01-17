@@ -9055,7 +9055,7 @@ Sema::DeclGroupPtrTy Sema::FinalizeDeclaratorGroup(Scope *S, const DeclSpec &DS,
       auto &clauses = MollyTransform->getClauses();
       for (auto itClause = clauses.begin(), endClauses = clauses.end(); itClause!=endClauses;++itClause) {
         auto &clause = *itClause;
-        D->addAttr(::new (Context) MollyTransformAttr(SourceRange(), getASTContext(), clause.getIslStr(), clause.getClusterDims()));
+        D->addAttr(::new (Context) MollyTransformAttr(SourceRange(), getASTContext(), clause.getIslStr(), clause.getClusterDims(), 0));
         used = true;
       }
     }
