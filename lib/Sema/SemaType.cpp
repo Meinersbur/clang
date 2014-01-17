@@ -1456,6 +1456,13 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
                                diag::err_array_of_abstract_type))
       return QualType();
 
+    // Mentioning a member pointer type for an array type causes us to lock in
+    // an inheritance model, even if it's inside an unused typedef.
+    if (Context.getTargetInfo().getCXXABI().isMicrosoft())
+      if (const MemberPointerType *MPTy = T->getAs<MemberPointerType>())
+        if (!MPTy->getClass()->isDependentType())
+          RequireCompleteType(Loc, T, 0);
+
   } else {
     // C99 6.7.5.2p1: If the element type is an incomplete or function type,
     // reject it (e.g. void ary[7], struct foo ary[7], void ary[7]())
@@ -1751,35 +1758,6 @@ QualType Sema::BuildMemberPointerType(QualType T, QualType Class,
   if (!Class->isDependentType() && !Class->isRecordType()) {
     Diag(Loc, diag::err_mempointer_in_nonclass_type) << Class;
     return QualType();
-  }
-
-  // C++ allows the class type in a member pointer to be an incomplete type.
-  // In the Microsoft ABI, the size of the member pointer can vary
-  // according to the class type, which means that we really need a
-  // complete type if possible, which means we need to instantiate templates.
-  //
-  // If template instantiation fails or the type is just incomplete, we have to
-  // add an extra slot to the member pointer.  Yes, this does cause problems
-  // when passing pointers between TUs that disagree about the size.
-  if (Context.getTargetInfo().getCXXABI().isMicrosoft()) {
-    CXXRecordDecl *RD = Class->getAsCXXRecordDecl();
-    if (RD && !RD->hasAttr<MSInheritanceAttr>()) {
-      // Lock in the inheritance model on the first use of a member pointer.
-      // Otherwise we may disagree about the size at different points in the TU.
-      // FIXME: MSVC picks a model on the first use that needs to know the size,
-      // rather than on the first mention of the type, e.g. typedefs.
-      if (RequireCompleteType(Loc, Class, 0) && !RD->isBeingDefined()) {
-        // We know it doesn't have an attribute and it's incomplete, so use the
-        // unspecified inheritance model.  If we're in the record body, we can
-        // figure out the inheritance model.
-        for (CXXRecordDecl::redecl_iterator I = RD->redecls_begin(),
-             E = RD->redecls_end(); I != E; ++I) {
-          I->addAttr(::new (Context) MSInheritanceAttr(RD->getSourceRange(),
-                                                       Context,
-                                 MSInheritanceAttr::UnspecifiedSpellingIndex));
-        }
-      }
-    }
   }
 
   // Adjust the default free function calling convention to the default method
@@ -5093,6 +5071,18 @@ bool Sema::RequireCompleteTypeImpl(SourceLocation Loc, QualType T,
       if (!isSFINAEContext()) {
         // Recover by implicitly importing this module.
         createImplicitModuleImport(Loc, Owner);
+      }
+    }
+
+    // We lock in the inheritance model once somebody has asked us to ensure
+    // that a pointer-to-member type is complete.
+    if (Context.getTargetInfo().getCXXABI().isMicrosoft()) {
+      if (const MemberPointerType *MPTy = T->getAs<MemberPointerType>()) {
+        if (!MPTy->getClass()->isDependentType()) {
+          RequireCompleteType(Loc, QualType(MPTy->getClass(), 0), 0);
+
+          MPTy->getMostRecentCXXRecordDecl()->setMSInheritanceModel();
+        }
       }
     }
 
