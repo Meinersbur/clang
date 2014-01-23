@@ -1699,7 +1699,8 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
           CmdArgs.push_back("-fatal-assembler-warnings");
         } else if (Value == "--noexecstack") {
           CmdArgs.push_back("-mnoexecstack");
-        } else if (Value == "-compress-debug-sections") {
+        } else if (Value == "-compress-debug-sections" ||
+                   Value == "--compress-debug-sections") {
           D.Diag(diag::warn_missing_debug_compression);
         } else if (Value.startswith("-I")) {
           CmdArgs.push_back(Value.data());
@@ -3328,9 +3329,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   ObjCRuntime objcRuntime = AddObjCRuntimeArgs(Args, CmdArgs, rewriteKind);
 
   // -fobjc-dispatch-method is only relevant with the nonfragile-abi, and
-  // legacy is the default. Next runtime is always legacy dispatch and
-  // -fno-objc-legacy-dispatch gets ignored silently.
-  if (objcRuntime.isNonFragile() && !objcRuntime.isNeXTFamily()) {
+  // legacy is the default. Except for deployment taget of 10.5,
+  // next runtime is always legacy dispatch and -fno-objc-legacy-dispatch
+  // gets ignored silently.
+  if (objcRuntime.isNonFragile()) {
     if (!Args.hasFlag(options::OPT_fobjc_legacy_dispatch,
                       options::OPT_fno_objc_legacy_dispatch,
                       objcRuntime.isLegacyDispatchDefaultForArch(
@@ -6346,10 +6348,13 @@ static bool hasMipsN32ABIArg(const ArgList &Args) {
 
 static StringRef getLinuxDynamicLinker(const ArgList &Args,
                                        const toolchains::Linux &ToolChain) {
-  if (ToolChain.getTriple().getEnvironment() == llvm::Triple::Android)
-    return "/system/bin/linker";
-  else if (ToolChain.getArch() == llvm::Triple::x86 ||
-           ToolChain.getArch() == llvm::Triple::sparc)
+  if (ToolChain.getTriple().getEnvironment() == llvm::Triple::Android) {
+    if (ToolChain.getTriple().isArch64Bit())
+      return "/system/bin/linker64";
+    else
+      return "/system/bin/linker";
+  } else if (ToolChain.getArch() == llvm::Triple::x86 ||
+             ToolChain.getArch() == llvm::Triple::sparc)
     return "/lib/ld-linux.so.2";
   else if (ToolChain.getArch() == llvm::Triple::aarch64)
     return "/lib/ld-linux-aarch64.so.1";

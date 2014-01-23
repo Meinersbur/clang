@@ -455,7 +455,7 @@ def feliminate_unused_debug_symbols : Flag<["-"], "feliminate-unused-debug-symbo
 def femit_all_decls : Flag<["-"], "femit-all-decls">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Emit all declarations, even if unused">;
 def fencoding_EQ : Joined<["-"], "fencoding=">, Group<f_Group>;
-def ferror_limit_EQ : Joined<["-"], "ferror-limit=">, Group<f_Group>;
+def ferror_limit_EQ : Joined<["-"], "ferror-limit=">, Group<f_Group>, Flags<[CoreOption]>;
 def fexceptions : Flag<["-"], "fexceptions">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable support for exception handling">;
 def : Flag<["-"], "fexpensive-optimizations">, Group<clang_ignored_f_Group>;
@@ -951,6 +951,7 @@ def lazy__framework : Separate<["-"], "lazy_framework">, Flags<[LinkerInput]>;
 def lazy__library : Separate<["-"], "lazy_library">, Flags<[LinkerInput]>;
 def EL : Flag<["-"], "EL">, Flags<[DriverOption]>;
 def EB : Flag<["-"], "EB">, Flags<[DriverOption]>;
+def m16 : Flag<["-"], "m16">, Group<m_Group>, Flags<[DriverOption, CoreOption]>;
 def m32 : Flag<["-"], "m32">, Group<m_Group>, Flags<[DriverOption, CoreOption]>;
 def mqdsp6_compat : Flag<["-"], "mqdsp6-compat">, Group<m_Group>, Flags<[DriverOption,CC1Option]>,
   HelpText<"Enable hexagon-qdsp6 backward compatibility">;

@@ -1957,9 +1957,9 @@ public:
                                  QualType &ConvertedType);
   bool IsBlockPointerConversion(QualType FromType, QualType ToType,
                                 QualType& ConvertedType);
-  bool FunctionArgTypesAreEqual(const FunctionProtoType *OldType,
-                                const FunctionProtoType *NewType,
-                                unsigned *ArgPos = 0);
+  bool FunctionParamTypesAreEqual(const FunctionProtoType *OldType,
+                                  const FunctionProtoType *NewType,
+                                  unsigned *ArgPos = 0);
   void HandleFunctionTypeMismatch(PartialDiagnostic &PDiag,
                                   QualType FromType, QualType ToType);
 
@@ -7201,11 +7201,9 @@ public:
 
   /// GatherArgumentsForCall - Collector argument expressions for various
   /// form of call prototypes.
-  bool GatherArgumentsForCall(SourceLocation CallLoc,
-                              FunctionDecl *FDecl,
+  bool GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
                               const FunctionProtoType *Proto,
-                              unsigned FirstProtoArg,
-                              ArrayRef<Expr *> Args,
+                              unsigned FirstParam, ArrayRef<Expr *> Args,
                               SmallVectorImpl<Expr *> &AllArgs,
                               VariadicCallType CallType = VariadicDoesNotApply,
                               bool AllowExplicit = false,
@@ -7828,10 +7826,8 @@ private:
                             SourceLocation Loc);
 
   void checkCall(NamedDecl *FDecl, ArrayRef<const Expr *> Args,
-                 unsigned NumProtoArgs, bool IsMemberFunction,
-                 SourceLocation Loc, SourceRange Range,
-                 VariadicCallType CallType);
-
+                 unsigned NumParams, bool IsMemberFunction, SourceLocation Loc,
+                 SourceRange Range, VariadicCallType CallType);
 
   bool CheckObjCString(Expr *Arg);
 
@@ -7906,8 +7902,11 @@ private:
   void CheckStrncatArguments(const CallExpr *Call,
                              IdentifierInfo *FnName);
 
-  void CheckReturnStackAddr(Expr *RetValExp, QualType lhsType,
-                            SourceLocation ReturnLoc);
+  void CheckReturnValExpr(Expr *RetValExp, QualType lhsType,
+                          SourceLocation ReturnLoc,
+                          bool isObjCMethod = false,
+                          const AttrVec *Attrs = 0);
+
   void CheckFloatComparison(SourceLocation Loc, Expr* LHS, Expr* RHS);
   void CheckImplicitConversions(Expr *E, SourceLocation CC = SourceLocation());
   void CheckForIntOverflow(Expr *E);

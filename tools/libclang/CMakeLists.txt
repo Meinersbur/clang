@@ -9,32 +9,34 @@ set(SOURCES
   CIndexCXX.cpp
   CIndexCodeCompletion.cpp
   CIndexDiagnostic.cpp
-  CIndexDiagnostic.h
   CIndexHigh.cpp
   CIndexInclusionStack.cpp
   CIndexUSRs.cpp
   CIndexer.cpp
-  CIndexer.h
   CXComment.cpp
   CXCursor.cpp
-  CXCursor.h
   CXCompilationDatabase.cpp
   CXLoadedDiagnostic.cpp
-  CXLoadedDiagnostic.h
   CXSourceLocation.cpp
-  CXSourceLocation.h
   CXStoredDiagnostic.cpp
   CXString.cpp
-  CXString.h
-  CXTranslationUnit.h
   CXType.cpp
-  CXType.h
   IndexBody.cpp
   IndexDecl.cpp
   IndexTypeSourceInfo.cpp
-  Index_Internal.h
   Indexing.cpp
   IndexingContext.cpp
+
+  ADDITIONAL_HEADERS
+  CIndexDiagnostic.h
+  CIndexer.h
+  CXCursor.h
+  CXLoadedDiagnostic.h
+  CXSourceLocation.h
+  CXString.h
+  CXTranslationUnit.h
+  CXType.h
+  Index_Internal.h
   IndexingContext.h
   ../../include/clang-c/Index.h
   )
@@ -62,6 +64,13 @@ set(GENERATED_HEADERS
   )
 
 set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/libclang.exports)
+
+if(MSVC)
+  # Avoid LNK4197 not to spceify libclang.def here.
+  # Each functions is exported as "dllexport" in include/clang-c.
+  # KB835326
+  set(LLVM_EXPORTED_SYMBOL_FILE)
+endif()
 
 if( LLVM_ENABLE_PIC )
   set(SHARED_LIBRARY TRUE)

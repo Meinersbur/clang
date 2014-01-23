@@ -516,6 +516,7 @@ private:
       break;
     case tok::pp_if:
     case tok::pp_elif:
+      Contexts.back().IsExpression = true;
       parseLine();
       break;
     default:
@@ -531,7 +532,7 @@ public:
       parsePreprocessorDirective();
       return LT_PreprocessorDirective;
     }
-  
+
     // Directly allow to 'import <string-literal>' to support protocol buffer
     // definitions (code.google.com/p/protobuf) or missing "#" (either way we
     // should not break the line).
@@ -1183,7 +1184,8 @@ unsigned TokenAnnotator::splitPenalty(const AnnotatedLine &Line,
     return 150;
   if (Left.Type == TT_CastRParen)
     return 100;
-  if (Left.is(tok::coloncolon))
+  if (Left.is(tok::coloncolon) ||
+      (Right.is(tok::period) && Style.Language == FormatStyle::LK_Proto))
     return 500;
   if (Left.isOneOf(tok::kw_class, tok::kw_struct))
     return 5000;
@@ -1254,7 +1256,8 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
                                           const FormatToken &Left,
                                           const FormatToken &Right) {
   if (Style.Language == FormatStyle::LK_Proto) {
-    if (Right.is(tok::l_paren) && Left.TokenText == "returns")
+    if (Right.is(tok::l_paren) &&
+        (Left.TokenText == "returns" || Left.TokenText == "option"))
       return true;
   }
   if (Right.is(tok::hashhash))

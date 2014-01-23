@@ -32,7 +32,9 @@ protected:
   }
 
   static std::string format(llvm::StringRef Code) {
-    return format(Code, 0, Code.size(), getGoogleProtoStyle());
+    FormatStyle Style = getGoogleProtoStyle();
+    Style.ColumnLimit = 60; // To make writing tests easier.
+    return format(Code, 0, Code.size(), Style);
   }
 
   static void verifyFormat(llvm::StringRef Code) {
@@ -47,6 +49,14 @@ TEST_F(FormatTestProto, FormatsMessages) {
   verifyFormat("message SomeMessage {\n"
                "  required int32 field1 = 1;\n"
                "  optional string field2 = 2 [default = \"2\"]\n"
+               "}");
+
+  verifyFormat("message SomeMessage {\n"
+               "  optional really.really.long.and.qualified.type.aaaaaaa\n"
+               "      fiiiiiiiiiiiiiiiiiiiiiiiiield = 1;\n"
+               "  optional\n"
+               "      really.really.long.and.qualified.type.aaaaaaa.aaaaaaaa\n"
+               "          another_fiiiiiiiiiiiiiiiiiiiiield = 2;\n"
                "}");
 }
 
@@ -66,6 +76,11 @@ TEST_F(FormatTestProto, MessageFieldAttributes) {
   verifyFormat("optional string test = 1 [default = \"test\"];");
   verifyFormat("optional LongMessageType long_proto_field = 1\n"
                "    [default = REALLY_REALLY_LONG_CONSTANT_VALUE];");
+}
+
+TEST_F(FormatTestProto, FormatsOptions) {
+  verifyFormat("option java_package = \"my.test.package\";");
+  verifyFormat("option (my_custom_option) = \"abc\";");
 }
 
 } // end namespace tooling

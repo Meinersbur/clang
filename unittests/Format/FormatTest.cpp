@@ -5112,6 +5112,7 @@ TEST_F(FormatTest, DoNotInterfereWithErrorAndWarning) {
 }
 
 TEST_F(FormatTest, FormatHashIfExpressions) {
+  verifyFormat("#if AAAA && BBBB");
   // FIXME: Come up with a better indentation for #elif.
   verifyFormat(
       "#if !defined(AAAAAAA) && (defined CCCCCC || defined DDDDDD) &&  \\\n"
@@ -7888,6 +7889,7 @@ TEST_F(FormatTest, FormatsLambdas) {
   verifyFormat("constexpr char hello[]{ \"hello\" };");
   verifyFormat("double &operator[](int i) { return 0; }\n"
                "int i;");
+  verifyFormat("std::unique_ptr<int[]> foo() {}");
 }
 
 TEST_F(FormatTest, FormatsBlocks) {

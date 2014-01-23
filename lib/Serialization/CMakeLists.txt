@@ -1,8 +1,6 @@
 set(LLVM_LINK_COMPONENTS bitreader)
 
 add_clang_library(clangSerialization
-  ASTCommon.h
-  ASTReaderInternals.h
   ASTCommon.cpp
   ASTReader.cpp
   ASTReaderDecl.cpp
@@ -14,6 +12,9 @@ add_clang_library(clangSerialization
   GlobalModuleIndex.cpp
   Module.cpp
   ModuleManager.cpp
+  ADDITIONAL_HEADERS
+  ASTCommon.h
+  ASTReaderInternals.h
 LINK_LIBS
   clangSema
   )

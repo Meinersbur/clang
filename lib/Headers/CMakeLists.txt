@@ -48,7 +48,7 @@ set(files
   qpxintrin.h
   )
 
-set(output_dir ${CLANG_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION}/include)
+set(output_dir ${LLVM_LIBRARY_OUTPUT_INTDIR}/clang/${CLANG_VERSION}/include)
 
 # Generate arm_neon.h
 clang_tablegen(arm_neon.h -gen-arm-neon
