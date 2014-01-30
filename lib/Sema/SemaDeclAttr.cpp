@@ -2664,8 +2664,13 @@ static void handleTransparentUnionAttr(Sema &S, Decl *D,
   uint64_t FirstAlign = S.Context.getTypeAlign(FirstType);
   for (; Field != FieldEnd; ++Field) {
     QualType FieldType = Field->getType();
+    // FIXME: this isn't fully correct; we also need to test whether the
+    // members of the union would all have the same calling convention as the
+    // first member of the union. Checking just the size and alignment isn't
+    // sufficient (consider structs passed on the stack instead of in registers
+    // as an example).
     if (S.Context.getTypeSize(FieldType) != FirstSize ||
-        S.Context.getTypeAlign(FieldType) != FirstAlign) {
+        S.Context.getTypeAlign(FieldType) > FirstAlign) {
       // Warn if we drop the attribute.
       bool isSize = S.Context.getTypeSize(FieldType) != FirstSize;
       unsigned FieldBits = isSize? S.Context.getTypeSize(FieldType)
@@ -2865,6 +2870,23 @@ void Sema::CheckAlignasUnderalignment(Decl *D) {
       Diag(AlignasAttr->getLocation(), diag::err_alignas_underaligned)
         << Ty << (unsigned)NaturalAlign.getQuantity();
   }
+}
+
+bool Sema::checkMSInheritanceAttrOnDefinition(
+    CXXRecordDecl *RD, SourceRange Range,
+    MSInheritanceAttr::Spelling SemanticSpelling) {
+  assert(RD->hasDefinition() && "RD has no definition!");
+
+  if (SemanticSpelling != MSInheritanceAttr::Keyword_unspecified_inheritance &&
+      RD->calculateInheritanceModel() != SemanticSpelling) {
+    Diag(Range.getBegin(), diag::err_mismatched_ms_inheritance)
+        << 0 /*definition*/;
+    Diag(RD->getDefinition()->getLocation(), diag::note_defined_here)
+        << RD->getNameAsString();
+    return true;
+  }
+
+  return false;
 }
 
 /// handleModeAttr - This attribute modifies the width of a decl with primitive
@@ -3729,6 +3751,19 @@ static void handleUuidAttr(Sema &S, Decl *D, const AttributeList &Attr) {
                                         Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleMSInheritanceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+  if (!S.LangOpts.CPlusPlus) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_not_supported_in_lang)
+      << Attr.getName() << AttributeLangSupport::C;
+    return;
+  }
+  MSInheritanceAttr *IA = S.mergeMSInheritanceAttr(
+      D, Attr.getRange(), Attr.getAttributeSpellingListIndex(),
+      (MSInheritanceAttr::Spelling)Attr.getSemanticSpelling());
+  if (IA)
+    D->addAttr(IA);
+}
+
 static void handleARMInterruptAttr(Sema &S, Decl *D,
                                    const AttributeList &Attr) {
   // Check the attribute arguments.
@@ -3901,6 +3936,41 @@ static void handleDLLExportAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   DLLExportAttr *NewAttr = S.mergeDLLExportAttr(D, Attr.getRange(), Index);
   if (NewAttr)
     D->addAttr(NewAttr);
+}
+
+MSInheritanceAttr *
+Sema::mergeMSInheritanceAttr(Decl *D, SourceRange Range,
+                             unsigned AttrSpellingListIndex,
+                             MSInheritanceAttr::Spelling SemanticSpelling) {
+  if (MSInheritanceAttr *IA = D->getAttr<MSInheritanceAttr>()) {
+    if (IA->getSemanticSpelling() == SemanticSpelling)
+      return 0;
+    Diag(IA->getLocation(), diag::err_mismatched_ms_inheritance)
+        << 1 /*previous declaration*/;
+    Diag(Range.getBegin(), diag::note_previous_ms_inheritance);
+    D->dropAttr<MSInheritanceAttr>();
+  }
+
+  CXXRecordDecl *RD = cast<CXXRecordDecl>(D);
+  if (RD->hasDefinition()) {
+    if (checkMSInheritanceAttrOnDefinition(RD, Range, SemanticSpelling)) {
+      return 0;
+    }
+  } else {
+    if (isa<ClassTemplatePartialSpecializationDecl>(RD)) {
+      Diag(Range.getBegin(), diag::warn_ignored_ms_inheritance)
+          << 1 /*partial specialization*/;
+      return 0;
+    }
+    if (RD->getDescribedClassTemplate()) {
+      Diag(Range.getBegin(), diag::warn_ignored_ms_inheritance)
+          << 0 /*primary template*/;
+      return 0;
+    }
+  }
+
+  return ::new (Context)
+      MSInheritanceAttr(Range, Context, AttrSpellingListIndex);
 }
 
 /// Handles semantic checking for features that are common to all attributes,
@@ -4185,7 +4255,7 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
     handleUuidAttr(S, D, Attr);
     break;
   case AttributeList::AT_MSInheritance:
-    handleSimpleAttribute<MSInheritanceAttr>(S, D, Attr); break;
+    handleMSInheritanceAttr(S, D, Attr); break;
   case AttributeList::AT_ForceInline:
     handleSimpleAttribute<ForceInlineAttr>(S, D, Attr); break;
   case AttributeList::AT_SelectAny:
