@@ -12,8 +12,6 @@ add_clang_library(clangStaticAnalyzerFrontend
   )
 
 add_dependencies(clangStaticAnalyzerFrontend
-  clangStaticAnalyzerCheckers
-  clangStaticAnalyzerCore
   ClangAttrClasses
   ClangAttrList
   ClangCommentNodes

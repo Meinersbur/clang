@@ -15,33 +15,9 @@ set( LLVM_LINK_COMPONENTS
   TransformUtils
   Vectorize
   )
-  
+
 # Support plugins.
 set(LLVM_NO_DEAD_STRIP 1)
-
-  
-set(LLVM_LINK_LIBS)
-  
-if(CLANG_ENABLE_STATIC_ANALYZER)
-  list(APPEND LLVM_LINK_LIBS
-    clangStaticAnalyzerFrontend
-    clangStaticAnalyzerCheckers
-    clangStaticAnalyzerCore
-    )
-endif()
-
-if(CLANG_ENABLE_ARCMT)
-  list(APPEND LLVM_LINK_LIBS
-    clangARCMigrate
-    )
-endif()
-
-if(CLANG_ENABLE_REWRITER)
-  list(APPEND LLVM_LINK_LIBS
-    clangRewriteCore
-    clangRewriteFrontend
-    )
-endif()
 
 
 
@@ -55,7 +31,6 @@ LINK_LIBS
   clangFrontend
   clangFrontendTool
   )
-
 
 
 set_target_properties(clang PROPERTIES VERSION ${CLANG_EXECUTABLE_VERSION})

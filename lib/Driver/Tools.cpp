@@ -830,6 +830,12 @@ void Clang::AddARMTargetArgs(const ArgList &Args,
       CmdArgs.push_back("-backend-option");
       CmdArgs.push_back("-arm-reserve-r9");
     }
+
+    // Exception handling
+    if (Args.hasArg(options::OPT_fno_exceptions)) {
+      CmdArgs.push_back("-backend-option");
+      CmdArgs.push_back("-arm-disable-ehabi");
+    }
 }
 
 // Get CPU and ABI names. They are not independent
@@ -1223,10 +1229,9 @@ static const char *getX86TargetCPU(const ArgList &Args,
     return Is64Bit ? "core2" : "yonah";
   }
 
-  // All x86 devices running Android have core2 as their common
-  // denominator. This makes a better choice than pentium4.
+  // On Android use targets compatible with gcc
   if (Triple.getEnvironment() == llvm::Triple::Android)
-    return "core2";
+    return Is64Bit ? "x86-64" : "i686";
 
   // Everything else goes to x86-64 in 64-bit mode.
   if (Is64Bit)
@@ -1337,6 +1342,11 @@ static void getX86TargetFeatures(const llvm::Triple &Triple,
     Features.push_back("-rtm");
     Features.push_back("-hle");
     Features.push_back("-fsgsbase");
+  }
+
+  if (Triple.getEnvironment() == llvm::Triple::Android) {
+    // Add sse3 feature to comply with gcc on Android
+    Features.push_back("+sse3");
   }
 
   // Now add any that the user explicitly requested on the command line,
@@ -1722,6 +1732,14 @@ static void CollectArgsForIntegratedAssembler(Compilation &C,
     }
 }
 
+// Until ARM libraries are build separately, we have them all in one library
+static StringRef getArchNameForCompilerRTLib(const ToolChain &TC) {
+  if (TC.getArch() == llvm::Triple::arm)
+    return "arm";
+  else
+    return TC.getArchName();
+}
+
 static void addProfileRTLinux(
     const ToolChain &TC, const ArgList &Args, ArgStringList &CmdArgs) {
   if (!(Args.hasArg(options::OPT_fprofile_arcs) ||
@@ -1736,7 +1754,7 @@ static void addProfileRTLinux(
   SmallString<128> LibProfile(TC.getDriver().ResourceDir);
   llvm::sys::path::append(
       LibProfile, "lib", "linux",
-      Twine("libclang_rt.profile-") + TC.getArchName() + ".a");
+      Twine("libclang_rt.profile-") + getArchNameForCompilerRTLib(TC) + ".a");
 
   CmdArgs.push_back(Args.MakeArgString(LibProfile));
 }
@@ -1750,7 +1768,8 @@ static void addSanitizerRTLinkFlagsLinux(
   SmallString<128> LibSanitizer(TC.getDriver().ResourceDir);
   llvm::sys::path::append(
       LibSanitizer, "lib", "linux",
-      (Twine("libclang_rt.") + Sanitizer + "-" + TC.getArchName() + ".a"));
+      (Twine("libclang_rt.") + Sanitizer + "-" +
+          getArchNameForCompilerRTLib(TC) + ".a"));
 
   // Sanitizer runtime may need to come before -lstdc++ (or -lc++, libstdc++.a,
   // etc.) so that the linker picks custom versions of the global 'operator
@@ -1791,7 +1810,7 @@ static void addAsanRTLinux(const ToolChain &TC, const ArgList &Args,
     SmallString<128> LibAsan(TC.getDriver().ResourceDir);
     llvm::sys::path::append(LibAsan, "lib", "linux",
         (Twine("libclang_rt.asan-") +
-            TC.getArchName() + "-android.so"));
+            getArchNameForCompilerRTLib(TC) + "-android.so"));
     CmdArgs.insert(CmdArgs.begin(), Args.MakeArgString(LibAsan));
   } else {
     if (!Args.hasArg(options::OPT_shared))

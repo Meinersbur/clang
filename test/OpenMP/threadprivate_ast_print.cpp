@@ -1,7 +1,5 @@
 // RUN: %clang_cc1 -verify -fopenmp -ast-print %s | FileCheck %s
 // expected-no-diagnostics
-// FIXME: This test has been crashing since r186647.
-// REQUIRES: disabled
 
 struct St{
  int a;

@@ -78,7 +78,6 @@ add_clang_library(clangStaticAnalyzerCheckers
   )
 
 add_dependencies(clangStaticAnalyzerCheckers
-  clangStaticAnalyzerCore
   ClangAttrClasses
   ClangAttrList
   ClangCommentNodes
