@@ -6,9 +6,6 @@ add_clang_library(clangDynamicASTMatchers
   Parser.cpp
   Registry.cpp
 LINK_LIBS
-  clangASTMatchers
-  )
-
 add_dependencies(clangDynamicASTMatchers
   clangAST
   clangASTMatchers

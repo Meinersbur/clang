@@ -44,6 +44,11 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
+static bool hasMipsABIArg(const ArgList &Args, const char *Value) {
+  Arg *A = Args.getLastArg(options::OPT_mabi_EQ);
+  return A && (A->getValue() == StringRef(Value));
+}
+
 /// CheckPreprocessingOptions - Perform some validation of preprocessing
 /// arguments that is shared with gcc.
 static void CheckPreprocessingOptions(const Driver &D, const ArgList &Args) {
@@ -829,12 +834,6 @@ void Clang::AddARMTargetArgs(const ArgList &Args,
     if (Args.hasArg(options::OPT_ffixed_r9)) {
       CmdArgs.push_back("-backend-option");
       CmdArgs.push_back("-arm-reserve-r9");
-    }
-
-    // Exception handling
-    if (Args.hasArg(options::OPT_fno_exceptions)) {
-      CmdArgs.push_back("-backend-option");
-      CmdArgs.push_back("-arm-disable-ehabi");
     }
 }
 
@@ -2657,8 +2656,15 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-generate-type-units");
   }
 
-  Args.AddAllArgs(CmdArgs, options::OPT_ffunction_sections);
-  Args.AddAllArgs(CmdArgs, options::OPT_fdata_sections);
+  if (Args.hasFlag(options::OPT_ffunction_sections,
+                   options::OPT_fno_function_sections, false)) {
+    CmdArgs.push_back("-ffunction-sections");
+  }
+
+  if (Args.hasFlag(options::OPT_fdata_sections,
+                   options::OPT_fno_data_sections, false)) {
+    CmdArgs.push_back("-fdata-sections");
+  }
 
   Args.AddAllArgs(CmdArgs, options::OPT_finstrument_functions);
 
@@ -6035,7 +6041,8 @@ void netbsd::Assemble::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Pass the target CPU to GNU as for ARM, since the source code might
   // not have the correct .cpu annotation.
-  if (getToolChain().getArch() == llvm::Triple::arm) {
+  if (getToolChain().getArch() == llvm::Triple::arm ||
+      getToolChain().getArch() == llvm::Triple::thumb) {
     std::string MArch(arm::getARMTargetCPU(Args, getToolChain().getTriple()));
     CmdArgs.push_back(Args.MakeArgString("-mcpu=" + MArch));
   }
@@ -6114,11 +6121,46 @@ void netbsd::Link::ConstructJob(Compilation &C, const JobAction &JA,
     }
   }
 
-  // When building 32-bit code on NetBSD/amd64, we have to explicitly
-  // instruct ld in the base system to link 32-bit code.
-  if (getToolChain().getArch() == llvm::Triple::x86) {
+  // Many NetBSD architectures support more than one ABI.
+  // Determine the correct emulation for ld.
+  switch (getToolChain().getArch()) {
+  case llvm::Triple::x86:
     CmdArgs.push_back("-m");
     CmdArgs.push_back("elf_i386");
+    break;
+  case llvm::Triple::arm:
+  case llvm::Triple::thumb:
+    CmdArgs.push_back("-m");
+    switch (getToolChain().getTriple().getEnvironment()) {
+    case llvm::Triple::EABI:
+    case llvm::Triple::EABIHF:
+    case llvm::Triple::GNUEABI:
+    case llvm::Triple::GNUEABIHF:
+      CmdArgs.push_back("armelf_nbsd_eabi");
+      break;
+    default:
+      CmdArgs.push_back("armelf_nbsd");
+      break;
+    }
+    break;
+  case llvm::Triple::mips64:
+  case llvm::Triple::mips64el:
+    if (hasMipsABIArg(Args, "32")) {
+      CmdArgs.push_back("-m");
+      if (getToolChain().getArch() == llvm::Triple::mips64)
+        CmdArgs.push_back("elf32btsmip");
+      else
+        CmdArgs.push_back("elf32ltsmip");
+   } else if (hasMipsABIArg(Args, "64")) {
+     CmdArgs.push_back("-m");
+     if (getToolChain().getArch() == llvm::Triple::mips64)
+       CmdArgs.push_back("elf64btsmip");
+     else
+       CmdArgs.push_back("elf64ltsmip");
+   }
+   break;
+  default:
+    break;
   }
 
   if (Output.isFilename()) {
@@ -6390,11 +6432,6 @@ static void AddLibgcc(llvm::Triple Triple, const Driver &D,
     CmdArgs.push_back("-ldl");
 }
 
-static bool hasMipsN32ABIArg(const ArgList &Args) {
-  Arg *A = Args.getLastArg(options::OPT_mabi_EQ);
-  return A && (A->getValue() == StringRef("n32"));
-}
-
 static StringRef getLinuxDynamicLinker(const ArgList &Args,
                                        const toolchains::Linux &ToolChain) {
   if (ToolChain.getTriple().getEnvironment() == llvm::Triple::Android) {
@@ -6418,7 +6455,7 @@ static StringRef getLinuxDynamicLinker(const ArgList &Args,
     return "/lib/ld.so.1";
   else if (ToolChain.getArch() == llvm::Triple::mips64 ||
            ToolChain.getArch() == llvm::Triple::mips64el) {
-    if (hasMipsN32ABIArg(Args))
+    if (hasMipsABIArg(Args, "n32"))
       return "/lib32/ld.so.1";
     else
       return "/lib64/ld.so.1";
@@ -6501,13 +6538,13 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
   else if (ToolChain.getArch() == llvm::Triple::mipsel)
     CmdArgs.push_back("elf32ltsmip");
   else if (ToolChain.getArch() == llvm::Triple::mips64) {
-    if (hasMipsN32ABIArg(Args))
+    if (hasMipsABIArg(Args, "n32"))
       CmdArgs.push_back("elf32btsmipn32");
     else
       CmdArgs.push_back("elf64btsmip");
   }
   else if (ToolChain.getArch() == llvm::Triple::mips64el) {
-    if (hasMipsN32ABIArg(Args))
+    if (hasMipsABIArg(Args, "n32"))
       CmdArgs.push_back("elf32ltsmipn32");
     else
       CmdArgs.push_back("elf64ltsmip");
@@ -6518,8 +6555,8 @@ void gnutools::Link::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("elf_x86_64");
 
   if (Args.hasArg(options::OPT_static)) {
-    if (ToolChain.getArch() == llvm::Triple::arm
-        || ToolChain.getArch() == llvm::Triple::thumb)
+    if (ToolChain.getArch() == llvm::Triple::arm ||
+        ToolChain.getArch() == llvm::Triple::thumb)
       CmdArgs.push_back("-Bstatic");
     else
       CmdArgs.push_back("-static");

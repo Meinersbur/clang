@@ -1,12 +1,12 @@
 set(LLVM_LINK_COMPONENTS
-  ${LLVM_TARGETS_TO_BUILD}
-  asmparser
-  bitreader
   support
-  mc
   )
 
 add_clang_executable(arcmt-test
   arcmt-test.cpp
-  LINK_LIBS clangARCMigrate clangEdit clangRewriteCore
+LINK_LIBS 
+  clangARCMigrate
+  clangBasic
+  clangFrontend
+  clangLex
   )
