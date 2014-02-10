@@ -341,7 +341,7 @@ include_directories(BEFORE
   )
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-  install(DIRECTORY include/
+  install(DIRECTORY include/clang include/clang-c
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.def"
@@ -350,7 +350,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN ".svn" EXCLUDE
     )
 
-  install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/
+  install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/clang
     DESTINATION include
     FILES_MATCHING
     PATTERN "CMakeFiles" EXCLUDE
