@@ -5,9 +5,12 @@ set(LLVM_LINK_COMPONENTS
 add_clang_library(clangIndex
   CommentToXML.cpp
   USRGeneration.cpp
+
   ADDITIONAL_HEADERS
   SimpleFormatContext.h
-LINK_LIBS
+  )
+
+target_link_libraries(clangIndex
   clangAST
   clangBasic
   clangFormat

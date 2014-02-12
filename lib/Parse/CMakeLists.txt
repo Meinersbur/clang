@@ -19,8 +19,6 @@ add_clang_library(clangParse
   ParseTemplate.cpp
   ParseTentative.cpp
   Parser.cpp
-  ParseMolly.cpp
-  LINK_LIBS clangBasic clangAST clangLex clangSema
   )
 
 add_dependencies(clangParse
@@ -33,4 +31,11 @@ add_dependencies(clangParse
   ClangDiagnosticCommon
   ClangDiagnosticParse
   ClangStmtNodes
+  )
+
+target_link_libraries(clangParse
+  clangBasic
+  clangAST
+  clangLex
+  clangSema
   )

@@ -1,7 +1,6 @@
 clang_tablegen(Attrs.inc -gen-clang-attr-classes
   -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
   SOURCE ../Basic/Attr.td
-  TDDEPENDS ../Basic/AttrMolly.td
   TARGET ClangAttrClasses)
 
 clang_tablegen(AttrImpl.inc -gen-clang-attr-impl
@@ -12,7 +11,6 @@ clang_tablegen(AttrImpl.inc -gen-clang-attr-impl
 clang_tablegen(AttrDump.inc -gen-clang-attr-dump
   -I ${CMAKE_CURRENT_SOURCE_DIR}/../../
   SOURCE ../Basic/Attr.td
-  TDDEPENDS ../Basic/AttrMolly.td
   TARGET ClangAttrDump)
 
 clang_tablegen(AttrVisitor.inc -gen-clang-attr-ast-visitor

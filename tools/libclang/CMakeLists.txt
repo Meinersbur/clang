@@ -79,7 +79,8 @@ if(MSVC)
 endif()
 
 if( LLVM_ENABLE_PIC )
-  add_clang_library(libclang SHARED ${SOURCES} LINK_LIBS ${LIBRARIES})
+  add_clang_library(libclang SHARED ${SOURCES})
+  target_link_libraries(libclang ${LIBRARIES})
   add_dependencies(libclang ${GENERATED_HEADERS} clang-headers)
 
   if(WIN32)
@@ -117,7 +118,8 @@ else()
 endif()
 
 if( (NOT LLVM_ENABLE_PIC OR LIBCLANG_BUILD_STATIC) AND NOT WIN32 )
-  add_clang_library(${LIBCLANG_STATIC_TARGET_NAME} STATIC ${SOURCES} LINK_LIBS ${LIBRARIES})
+  add_clang_library(${LIBCLANG_STATIC_TARGET_NAME} STATIC ${SOURCES})
+  target_link_libraries(${LIBCLANG_STATIC_TARGET_NAME} ${LIBRARIES})
   add_dependencies(${LIBCLANG_STATIC_TARGET_NAME} ${GENERATED_HEADERS} clang-headers)
 
   set_target_properties(${LIBCLANG_STATIC_TARGET_NAME}
