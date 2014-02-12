@@ -2,12 +2,6 @@ set( LLVM_LINK_COMPONENTS
   Support
   )
 
-set(LLVM_LINK_LIBS
-  clangAST
-  clangBasic
-  clangFrontend
-)
-  
 # If we don't need RTTI or EH, there's no reason to export anything
 # from the plugin.
 if( NOT WIN32 ) # Win32 mangles symbols differently, and
@@ -28,6 +22,12 @@ add_dependencies(PrintFunctionNames
   ClangDeclNodes
   ClangDiagnosticCommon
   ClangStmtNodes
+  )
+
+target_link_libraries(PrintFunctionNames
+  clangAST
+  clangBasic
+  clangFrontend
   )
 
 set_target_properties(PrintFunctionNames
