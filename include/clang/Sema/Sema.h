@@ -265,6 +265,13 @@ public:
 
   bool MSStructPragmaOn; // True when \#pragma ms_struct on
 
+  /// \brief Controls member pointer representation format under the MS ABI.
+  LangOptions::PragmaMSPointersToMembersKind
+      MSPointerToMemberRepresentationMethod;
+
+  /// \brief Source location for newly created implicit MSInheritanceAttrs
+  SourceLocation ImplicitMSInheritanceAttrLoc;
+
   /// VisContext - Manages the stack for \#pragma GCC visibility.
   void *VisContext; // Really a "PragmaVisStack*"
 
@@ -1867,7 +1874,7 @@ public:
   DLLExportAttr *mergeDLLExportAttr(Decl *D, SourceRange Range,
                                     unsigned AttrSpellingListIndex);
   MSInheritanceAttr *
-  mergeMSInheritanceAttr(Decl *D, SourceRange Range,
+  mergeMSInheritanceAttr(Decl *D, SourceRange Range, bool BestCase,
                          unsigned AttrSpellingListIndex,
                          MSInheritanceAttr::Spelling SemanticSpelling);
   FormatAttr *mergeFormatAttr(Decl *D, SourceRange Range,
@@ -2580,7 +2587,7 @@ public:
                                       unsigned ArgNum, StringRef &Str,
                                       SourceLocation *ArgLocation = 0);
   bool checkMSInheritanceAttrOnDefinition(
-      CXXRecordDecl *RD, SourceRange Range,
+      CXXRecordDecl *RD, SourceRange Range, bool BestCase,
       MSInheritanceAttr::Spelling SemanticSpelling);
 
   void CheckAlignasUnderalignment(Decl *D);
@@ -6972,6 +6979,13 @@ public:
   /// ActOnPragmaMSComment - Called on well formed
   /// \#pragma comment(kind, "arg").
   void ActOnPragmaMSComment(PragmaMSCommentKind Kind, StringRef Arg);
+
+  /// ActOnPragmaMSPointersToMembers - called on well formed \#pragma
+  /// pointers_to_members(representation method[, general purpose
+  /// representation]).
+  void ActOnPragmaMSPointersToMembers(
+      LangOptions::PragmaMSPointersToMembersKind Kind,
+      SourceLocation PragmaLoc);
 
   /// ActOnPragmaDetectMismatch - Call on well-formed \#pragma detect_mismatch
   void ActOnPragmaDetectMismatch(StringRef Name, StringRef Value);

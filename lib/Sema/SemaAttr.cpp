@@ -287,6 +287,13 @@ void Sema::ActOnPragmaDetectMismatch(StringRef Name, StringRef Value) {
   Consumer.HandleDetectMismatch(Name, Value);
 }
 
+void Sema::ActOnPragmaMSPointersToMembers(
+    LangOptions::PragmaMSPointersToMembersKind RepresentationMethod,
+    SourceLocation PragmaLoc) {
+  MSPointerToMemberRepresentationMethod = RepresentationMethod;
+  ImplicitMSInheritanceAttrLoc = PragmaLoc;
+}
+
 void Sema::ActOnPragmaUnused(const Token &IdTok, Scope *curScope,
                              SourceLocation PragmaLoc) {
 
