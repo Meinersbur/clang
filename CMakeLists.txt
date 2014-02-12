@@ -255,14 +255,14 @@ function(clang_tablegen)
   # executing the custom command depending on output-file. It is
   # possible to list more files to depend after DEPENDS.
 
-  cmake_parse_arguments(CTG "" "SOURCE;TARGET;DEPENDS;TDDEPENDS" "" ${ARGN})
+  cmake_parse_arguments(CTG "" "SOURCE;TARGET" "DEPENDS" ${ARGN})
 
   if( NOT CTG_SOURCE )
     message(FATAL_ERROR "SOURCE source-file required by clang_tablegen")
   endif()
 
   set( LLVM_TARGET_DEFINITIONS ${CTG_SOURCE} )
-  tablegen(CLANG ${CTG_UNPARSED_ARGUMENTS} DEPENDS ${CTG_TDDEPENDS})
+  tablegen(CLANG ${CTG_UNPARSED_ARGUMENTS})
 
   list(GET CTG_UNPARSED_ARGUMENTS 0 output_file)
   if( CTG_TARGET )
@@ -273,7 +273,7 @@ endfunction(clang_tablegen)
 
 macro(add_clang_library name)
   cmake_parse_arguments(ARG
-    "MODULE;SHARED;STATIC"
+    ""
     ""
     "ADDITIONAL_HEADERS"
     ${ARGN})
@@ -295,7 +295,7 @@ macro(add_clang_library name)
         ${CLANG_SOURCE_DIR}/include/clang/${lib_path}/*.td
       )
       source_group("TableGen descriptions" FILES ${tds})
-      set_source_files_properties(${tds} PROPERTIES HEADER_FILE_ONLY ON)
+      set_source_files_properties(${tds}} PROPERTIES HEADER_FILE_ONLY ON)
 
       if(headers OR tds)
 	set(srcs ${headers} ${tds})
@@ -309,13 +309,14 @@ macro(add_clang_library name)
       ${ARG_ADDITIONAL_HEADERS} # It may contain unparsed unknown args.
       )
   endif()
-  #llvm_add_library(${name} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
+  llvm_add_library(${name} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
 
-  #target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
-  
+  target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
+
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
     get_target_property(_target_type ${name} "TYPE")
-    if (NOT _target_type STREQUAL "OBJECT_LIBRARY")
+    if (_target_type STREQUAL "OBJECT_LIBRARY")
+    else()
       install(TARGETS ${name}
         LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
         ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
@@ -324,14 +325,12 @@ macro(add_clang_library name)
   endif()
 
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
-endmacro (add_clang_library)
+endmacro(add_clang_library)
 
-
-macro (add_clang_executable name)
-  new_llvm_target( ${name} EXE ${ARGN} LINK_LIBS2 ${LLVM_COMMON_LIBS} )
+macro(add_clang_executable name)
+  add_llvm_executable( ${name} ${ARGN} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang executables")
-endmacro (add_clang_executable)
-
+endmacro(add_clang_executable)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 

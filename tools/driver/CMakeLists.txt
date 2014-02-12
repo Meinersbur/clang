@@ -19,19 +19,18 @@ set( LLVM_LINK_COMPONENTS
 # Support plugins.
 set(LLVM_NO_DEAD_STRIP 1)
 
-
-
 add_clang_executable(clang
   driver.cpp
   cc1_main.cpp
   cc1as_main.cpp
-LINK_LIBS
+  )
+
+target_link_libraries(clang
   clangBasic
   clangDriver
   clangFrontend
   clangFrontendTool
   )
-
 
 set_target_properties(clang PROPERTIES VERSION ${CLANG_EXECUTABLE_VERSION})
 set_target_properties(clang PROPERTIES ENABLE_EXPORTS 1)

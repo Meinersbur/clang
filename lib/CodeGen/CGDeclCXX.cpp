@@ -528,6 +528,7 @@ void CodeGenModule::CreateOpenMPCXXInit(const VarDecl *Var,
                                         llvm::Value *&Ctor,
                                         llvm::Value *&CCtor,
                                         llvm::Value *&Dtor) {
+#if 0
   // Find default constructor, copy constructor and destructor.
   Ctor = 0;
   CCtor = 0;
@@ -635,14 +636,15 @@ void CodeGenModule::CreateOpenMPCXXInit(const VarDecl *Var,
     ImplicitParamDecl Dst(0, SourceLocation(), 0, getContext().VoidPtrTy);
     Args.push_back(&Dst);
 
-    const CGFunctionInfo &FI =
-          getTypes().arrangeFunctionDeclaration(getContext().VoidPtrTy, Args,
-                                                FunctionType::ExtInfo(), false);
-    llvm::FunctionType *FTy = getTypes().GetFunctionType(FI);
     llvm::Function *Fn =
            CreateGlobalInitOrDestructFunction(*this, FTy,
                                               Twine("__kmpc_dtor_",
                                                     getMangledName(Var)));
+    const CGFunctionInfo &FI =
+      getTypes().arrangeFunctionDeclaration(getContext().VoidPtrTy, Args,
+      FunctionType::ExtInfo(), false);
+    llvm::FunctionType *FTy = getTypes().GetFunctionType(FI);
+
     CGF.StartFunction(GlobalDecl(), getContext().VoidPtrTy, Fn, FI,
                       Args, SourceLocation());
     //CGF.EmitCXXDestructorCall(DtorDecl, Dtor_Complete, false, false,
@@ -698,6 +700,7 @@ void CodeGenModule::CreateOpenMPCXXInit(const VarDecl *Var,
                                                  Twine("__omp_threadprivate_",
                                                        getMangledName(Var)));
   }
+#endif
 }
 
 void CodeGenModule::CreateOpenMPArrCXXInit(const VarDecl *Var,
@@ -706,6 +709,7 @@ void CodeGenModule::CreateOpenMPArrCXXInit(const VarDecl *Var,
                                            llvm::Value *&Ctor,
                                            llvm::Value *&CCtor,
                                            llvm::Value *&Dtor) {
+#if 0
   // Find default constructor, copy constructor and destructor.
   Ctor = 0;
   CCtor = 0;
@@ -875,4 +879,5 @@ void CodeGenModule::CreateOpenMPArrCXXInit(const VarDecl *Var,
                                                  Twine("__omp_threadprivate_vec_",
                                                        getMangledName(Var)));
   }
+#endif
 }
