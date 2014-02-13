@@ -7,31 +7,28 @@ add_clang_library(clangFrontendTool
   ExecuteCompilerInvocation.cpp
   )
 
-set(_additional_libs)
+add_dependencies(clangFrontendTool
+  ClangDiagnosticCommon
+  ClangDiagnosticFrontend
+  ClangDriverOptions
+  )
+
+target_link_libraries(clangFrontendTool
+  clangBasic
+  clangCodeGen
+  clangDriver
+  clangFrontend
+  clangRewriteFrontend
+  )
 
 if(CLANG_ENABLE_ARCMT)
-  list(APPEND _additional_libs 
+  target_link_libraries(clangFrontendTool
     clangARCMigrate
     )
 endif()
 
 if(CLANG_ENABLE_STATIC_ANALYZER)
-  list(APPEND _additional_libs 
+  target_link_libraries(clangFrontendTool
     clangStaticAnalyzerFrontend
     )
 endif()
-
-
-add_dependencies(clangFrontendTool
-  ClangDiagnosticCommon
-  ClangDiagnosticFrontend
-  ClangDriverOptions
-LINK_LIBS
-  clangBasic
-  clangCodeGen
-  clangDriver
-  clangFrontend
-  clangRewriteCore
-  clangRewriteFrontend
-  ${_additional_libs}
-  )
