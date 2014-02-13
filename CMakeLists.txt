@@ -315,9 +315,6 @@ macro(add_clang_library name)
     target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
 
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
-    get_target_property(_target_type ${name} "TYPE")
-    if (_target_type STREQUAL "OBJECT_LIBRARY")
-    else()
       install(TARGETS ${name}
         LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
         ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
