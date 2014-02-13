@@ -1940,6 +1940,10 @@ void EnqueueVisitor::EnqueueChildren(const Stmt *S) {
   VisitorWorkList::iterator I = WL.begin() + size, E = WL.end();
   std::reverse(I, E);
 }
+void OMPClauseEnqueue::VisitOMPIfClause(const OMPIfClause *C) {
+  Visitor->AddStmt(C->getCondition());
+}
+
 void EnqueueVisitor::EnqueueChildren(const OMPClause *S) {
   unsigned size = WL.size();
   for (Stmt::const_child_range Child = S->children(); Child; ++Child) {
@@ -2649,6 +2653,7 @@ CXTranslationUnit clang_createTranslationUnit(CXIndex CIdx,
   CXTranslationUnit TU;
   enum CXErrorCode Result =
       clang_createTranslationUnit2(CIdx, ast_filename, &TU);
+  (void)Result;
   assert((TU && Result == CXError_Success) ||
          (!TU && Result != CXError_Success));
   return TU;
@@ -2858,6 +2863,7 @@ clang_parseTranslationUnit(CXIndex CIdx,
   enum CXErrorCode Result = clang_parseTranslationUnit2(
       CIdx, source_filename, command_line_args, num_command_line_args,
       unsaved_files, num_unsaved_files, options, &TU);
+  (void)Result;
   assert((TU && Result == CXError_Success) ||
          (!TU && Result != CXError_Success));
   return TU;

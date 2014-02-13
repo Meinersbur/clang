@@ -311,9 +311,10 @@ macro(add_clang_library name)
   endif()
   llvm_add_library(${name} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
 
-  target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
+  if(TARGET ${name})
+    target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
 
-  if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
+    if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
     get_target_property(_target_type ${name} "TYPE")
     if (_target_type STREQUAL "OBJECT_LIBRARY")
     else()
@@ -322,6 +323,9 @@ macro(add_clang_library name)
         ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
         RUNTIME DESTINATION bin)
     endif()
+  else()
+    # Add empty "phony" target
+    add_custom_target(${name})
   endif()
 
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")

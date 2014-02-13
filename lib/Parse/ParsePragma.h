@@ -141,6 +141,13 @@ public:
                             Token &FirstToken);
 };
 
+class PragmaMSVtorDisp : public PragmaHandler {
+public:
+  explicit PragmaMSVtorDisp() : PragmaHandler("vtordisp") {}
+  virtual void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                            Token &FirstToken);
+};
+
 
 #ifdef MOLLY
 class PragmaMollyHandler : public PragmaHandler {

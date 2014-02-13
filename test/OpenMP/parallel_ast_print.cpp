@@ -11,9 +11,9 @@ int main (int argc, char **argv) {
 // CHECK-NEXT: #pragma omp parallel
   a=2;
 // CHECK-NEXT: a = 2;
-#pragma omp parallel if(a) num_threads(a), default(none), private(argc,b),firstprivate(argv, c),shared(d,f),reduction(+:e) reduction(min : g) proc_bind(master)
-// CHECK: #pragma omp parallel if(.omp.if.var.) num_threads(a) default(none) private(argc,b) firstprivate(argv,c) shared(d,f) reduction(+: e) reduction(min: g) proc_bind(master)
+#pragma omp parallel default(none), private(argc,b) firstprivate(argv) if (argc > 0)
+// CHECK-NEXT: #pragma omp parallel default(none) private(argc,b) firstprivate(argv) if(argc > 0)
   foo();
 // CHECK-NEXT: foo();
-  return (0);
+  return tmain(b, &b) + tmain(x, &x);
 }
