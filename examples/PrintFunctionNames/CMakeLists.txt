@@ -18,6 +18,7 @@ add_clang_library(PrintFunctionNames MODULE PrintFunctionNames.cpp)
 add_dependencies(PrintFunctionNames
   ClangAttrClasses
   ClangAttrList
+  ClangCommentCommandList
   ClangCommentNodes
   ClangDeclNodes
   ClangDiagnosticCommon
