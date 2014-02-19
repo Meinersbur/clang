@@ -1524,7 +1524,6 @@ public:
                                      MultiTemplateParamsArg TemplateParamLists,
                                      bool &AddToScope);
   bool AddOverriddenMethods(CXXRecordDecl *DC, CXXMethodDecl *MD);
-  void checkVoidParamDecl(ParmVarDecl *Param);
 
   bool CheckConstexprFunctionDecl(const FunctionDecl *FD);
   bool CheckConstexprFunctionBody(const FunctionDecl *FD, Stmt *Body);
@@ -4664,8 +4663,7 @@ public:
   //
   Decl *ActOnStartLinkageSpecification(Scope *S,
                                        SourceLocation ExternLoc,
-                                       SourceLocation LangLoc,
-                                       StringRef Lang,
+                                       Expr *LangStr,
                                        SourceLocation LBraceLoc);
   Decl *ActOnFinishLinkageSpecification(Scope *S,
                                         Decl *LinkageSpec,
