@@ -48,6 +48,7 @@ add_clang_library(clangSema
   SemaTemplateVariadic.cpp
   SemaType.cpp
   TypeLocBuilder.cpp
+  SemaMolly.cpp
   )
 
 target_link_libraries(clangSema

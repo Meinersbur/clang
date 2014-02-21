@@ -3,6 +3,7 @@ def MollyField : InheritableAttr {
   let Spellings = [GNU<"molly_field">, CXX11<"molly","field">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyDimensions : InheritableAttr {
@@ -10,6 +11,7 @@ def MollyDimensions : InheritableAttr {
   let Args = [IntArgument<"Dimensions">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 
@@ -23,6 +25,8 @@ def MollyFieldLengths : InheritableAttr {
 
    // Try this to avoid dummy first argument
   // let HasCustomParsing = 1;
+  
+  let Documentation = [Undocumented];
 }
 
 
@@ -30,96 +34,112 @@ def MollyLengthFunc : InheritableAttr {
   let Spellings = [GNU<"molly_lengthfunc">];
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyGetterFunc : InheritableAttr {
   let Spellings = [GNU<"molly_getterfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollySetterFunc : InheritableAttr {
   let Spellings = [GNU<"molly_setterfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyPtrFunc : InheritableAttr {
   let Spellings = [GNU<"molly_ptrfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyRefFunc : InheritableAttr {
   let Spellings = [GNU<"molly_reffunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyFieldmember : InheritableAttr {
   let Spellings = [GNU<"molly_fieldmember">, GNU<"molly_member">, CXX11<"molly","member">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyIsLocalFunc : InheritableAttr {
   let Spellings = [GNU<"molly_islocalfunc">, CXX11<"molly","islocalfunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyGetRankOfFunc : InheritableAttr {
   let Spellings = [GNU<"molly_getrankoffunc">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyInline : InheritableAttr {
   let Spellings = [GNU<"molly_inline">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyGetLocal : InheritableAttr {
   let Spellings = [GNU<"molly_get_local">, CXX11<"molly","get_local">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollySetLocal : InheritableAttr {
   let Spellings = [GNU<"molly_set_local">, CXX11<"molly","set_local">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyPtrLocal : InheritableAttr {
   let Spellings = [GNU<"molly_ptr_local">, CXX11<"molly","ptr_local">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyGetBroadcast : InheritableAttr {
   let Spellings = [GNU<"molly_get_broadcast">, CXX11<"molly","get_broadcast">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyGetMaster : InheritableAttr {
   let Spellings = [GNU<"molly_get_master">, CXX11<"molly","get_master">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollySetBroadcast : InheritableAttr {
   let Spellings = [GNU<"molly_set_broadcast">, CXX11<"molly","set_broadcast">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollySetMaster : InheritableAttr {
   let Spellings = [GNU<"molly_set_master">, CXX11<"molly","set_master">]; 
   let LateParsed = 1;
   let TemplateDependent = 1;
+  let Documentation = [Undocumented];
 }
 
 
@@ -127,17 +147,20 @@ def MollySetMaster : InheritableAttr {
 def MollyFieldRankof : InheritableAttr {
   let Spellings = [GNU<"molly_field_rankof">, CXX11<"molly","field_rankof">]; 
   //let LateParsed = 1;
+  let Documentation = [Undocumented];
 }
 
 def MollyLocalIndexof: InheritableAttr {
   let Spellings = [GNU<"molly_local_indexof">, CXX11<"molly","local_indexof">]; 
   //let TemplateDependent = 1; // Inherit to templates
+  let Documentation = [Undocumented];
 }
 
 // To tell Polly that this has no side-effect and therefore is fine within SCoPs
 // TODO: Merge with PureAttr ???
 def MollyPure : InheritableAttr {
-  let Spellings = [GNU<"molly_pure">, CXX11<"molly","pure">]; 
+  let Spellings = [GNU<"molly_pure">, CXX11<"molly","pure">];
+  let Documentation = [Undocumented];
 }
 
 
@@ -147,4 +170,5 @@ def MollyTransform : InheritableAttr {
   let Args = [StringArgument<"islstr">, UnsignedArgument<"nodedims">];
   bit SemaHandler = 0;
 //  let Subjects = [Var];
+  let Documentation = [Undocumented];
 }

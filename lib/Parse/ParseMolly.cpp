@@ -1,5 +1,3 @@
-#include "ParsePragma.h"
-
 #include "clang/Lex/Token.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Parse/ParseDiagnostic.h"

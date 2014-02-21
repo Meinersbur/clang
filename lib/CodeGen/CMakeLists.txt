@@ -58,6 +58,8 @@ add_clang_library(clangCodeGen
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
   TargetInfo.cpp
+  CGDeclOpenMP.cpp
+  CGMolly.cpp
   )
 
 target_link_libraries(clangCodeGen

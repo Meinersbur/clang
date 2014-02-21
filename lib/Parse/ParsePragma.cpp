@@ -176,6 +176,11 @@ void Parser::initializePragmaHandlers() {
     MSVtorDisp.reset(new PragmaMSVtorDisp());
     PP.AddPragmaHandler(MSVtorDisp.get());
   }
+
+#ifdef MOLLY
+  //TODO: Make independent of actions; use __annot_token instead
+  PP.AddPragmaHandler(new PragmaMollyHandler(Actions));
+#endif
 }
 
 void Parser::resetPragmaHandlers() {
