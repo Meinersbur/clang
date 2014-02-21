@@ -21,13 +21,4 @@ LINK_LIBS
   clangRewriteCore
   )
 
-add_dependencies(clangRewriteFrontend
-  ClangAttrClasses
-  ClangAttrList
-  ClangAttrParsedAttrList
-  ClangCommentNodes
-  ClangDeclNodes
-  ClangDiagnosticCommon
-  ClangDiagnosticFrontend
-  ClangStmtNodes
   )

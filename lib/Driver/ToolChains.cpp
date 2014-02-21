@@ -893,11 +893,14 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
   DerivedArgList *DAL = MachO::TranslateArgs(Args, BoundArch);
   const OptTable &Opts = getDriver().getOpts();
 
+  // If no architecture is bound, none of the translations here are relevant.
+  if (!BoundArch)
+    return DAL;
+
   // Add an explicit version min argument for the deployment target. We do this
   // after argument translation because -Xarch_ arguments may add a version min
   // argument.
-  if (BoundArch)
-    AddDeploymentTarget(*DAL);
+  AddDeploymentTarget(*DAL);
 
   // For iOS 6, undo the translation to add -static for -mkernel/-fapple-kext.
   // FIXME: It would be far better to avoid inserting those -static arguments,
@@ -1265,12 +1268,16 @@ void Generic_GCC::GCCInstallationDetector::print(raw_ostream &OS) const {
        I != E; ++I)
     OS << "Found candidate GCC installation: " << *I << "\n";
 
-  OS << "Selected GCC installation: " << GCCInstallPath << "\n";
+  if (!GCCInstallPath.empty())
+    OS << "Selected GCC installation: " << GCCInstallPath << "\n";
+
   for (MultilibSet::const_iterator I = Multilibs.begin(), E = Multilibs.end();
        I != E; ++I) {
-    OS << "Candidate multiilb: " << *I << "\n";
+    OS << "Candidate multilib: " << *I << "\n";
   }
-  OS << "Selected multilib: " << SelectedMultilib << "\n";
+
+  if (Multilibs.size() != 0 || !SelectedMultilib.isDefault())
+    OS << "Selected multilib: " << SelectedMultilib << "\n";
 }
 
 bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {

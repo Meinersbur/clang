@@ -860,8 +860,6 @@ def err_omp_expected_var : Error <
   "expected '#pragma omp %0' argument to be a variable name">;
 def err_omp_expected_punc : Error <
   "expected ',' or ')' in '%0' clause">;
-def err_omp_expected_rparen : Error <
-  "expected ')' in '%0' clause">;
 def err_omp_unknown_clause : Error <
   "expected OpenMP clause for directive '#pragma omp %0' or end of directive">;
 def err_omp_unexpected_clause : Error <

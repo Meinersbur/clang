@@ -30,7 +30,6 @@ add_clang_library(clangCodeGen
   CGDebugInfo.cpp
   CGDecl.cpp
   CGDeclCXX.cpp
-  CGDeclOpenMP.cpp
   CGException.cpp
   CGExpr.cpp
   CGExprAgg.cpp
@@ -46,7 +45,6 @@ add_clang_library(clangCodeGen
   CGRTTI.cpp
   CGRecordLayoutBuilder.cpp
   CGStmt.cpp
-  CGStmtOpenMP.cpp
   CGVTT.cpp
   CGVTables.cpp
   CodeGenABITypes.cpp
@@ -60,17 +58,10 @@ add_clang_library(clangCodeGen
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
   TargetInfo.cpp
-  CGMolly.cpp
-  LINK_LIBS clangBasic clangAST clangFrontend
   )
 
-add_dependencies(clangCodeGen
-  ClangARMNeon
-  ClangAttrClasses
-  ClangAttrList
-  ClangCommentNodes
-  ClangDeclNodes
-  ClangDiagnosticCommon
-  ClangDiagnosticFrontend
-  ClangStmtNodes
+target_link_libraries(clangCodeGen
+  clangBasic
+  clangAST
+  clangFrontend
   )

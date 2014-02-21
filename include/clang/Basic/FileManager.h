@@ -183,7 +183,7 @@ class FileManager : public RefCountedBase<FileManager> {
 
 public:
   FileManager(const FileSystemOptions &FileSystemOpts,
-              llvm::IntrusiveRefCntPtr<vfs::FileSystem> FS = 0);
+              IntrusiveRefCntPtr<vfs::FileSystem> FS = 0);
   ~FileManager();
 
   /// \brief Installs the provided FileSystemStatCache object within
@@ -229,6 +229,10 @@ public:
 
   /// \brief Returns the current file system options
   const FileSystemOptions &getFileSystemOptions() { return FileSystemOpts; }
+
+  IntrusiveRefCntPtr<vfs::FileSystem> getVirtualFileSystem() const {
+    return FS;
+  }
 
   /// \brief Retrieve a file entry for a "virtual" file that acts as
   /// if there were a file with the given name on disk.

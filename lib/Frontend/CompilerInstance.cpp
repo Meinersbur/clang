@@ -79,6 +79,10 @@ void CompilerInstance::setTarget(TargetInfo *Value) {
 
 void CompilerInstance::setFileManager(FileManager *Value) {
   FileMgr = Value;
+  if (Value)
+    VirtualFileSystem = Value->getVirtualFileSystem();
+  else
+    VirtualFileSystem.reset();
 }
 
 void CompilerInstance::setSourceManager(SourceManager *Value) {
@@ -194,14 +198,13 @@ CompilerInstance::createDiagnostics(DiagnosticOptions *Opts,
   return Diags;
 }
 
-void CompilerInstance::createVirtualFileSystem() {
-  VirtualFileSystem = vfs::getRealFileSystem();
-}
-
 // File Manager
 
 void CompilerInstance::createFileManager() {
-  assert(hasVirtualFileSystem() && "expected virtual file system");
+  if (!hasVirtualFileSystem()) {
+    // TODO: choose the virtual file system based on the CompilerInvocation.
+    setVirtualFileSystem(vfs::getRealFileSystem());
+  }
   FileMgr = new FileManager(getFileSystemOpts(), VirtualFileSystem);
 }
 

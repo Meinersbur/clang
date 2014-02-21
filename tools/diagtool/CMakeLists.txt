@@ -9,11 +9,11 @@ add_clang_executable(diagtool
   ListWarnings.cpp
   ShowEnabledWarnings.cpp
   TreeView.cpp
-  LINK_LIBS clangBasic clangLex clangSema clangFrontend
 )
 
-add_dependencies(diagtool
-  ClangDiagnosticIndexName
+target_link_libraries(diagtool
+  clangBasic
+  clangFrontend
   )
 
 if(UNIX)

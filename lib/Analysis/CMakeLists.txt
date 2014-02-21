@@ -24,15 +24,9 @@ add_clang_library(clangAnalysis
   ScanfFormatString.cpp
   ThreadSafety.cpp
   UninitializedValues.cpp
-  LINK_LIBS clangBasic clangAST
   )
 
-add_dependencies(clangAnalysis
-  ClangAttrClasses
-  ClangAttrList
-  ClangCommentNodes
-  ClangDiagnosticCommon
-  ClangDeclNodes
-  ClangDiagnosticAnalysis
-  ClangStmtNodes
+target_link_libraries(clangAnalysis
+  clangBasic
+  clangAST
   )
