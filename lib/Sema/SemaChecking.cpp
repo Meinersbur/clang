@@ -326,6 +326,11 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
         if (CheckMipsBuiltinFunctionCall(BuiltinID, TheCall))
           return ExprError();
         break;
+      case llvm::Triple::x86:
+      case llvm::Triple::x86_64:
+        if (CheckX86BuiltinFunctionCall(BuiltinID, TheCall))
+          return ExprError();
+        break;
       default:
         break;
     }
@@ -378,13 +383,17 @@ static QualType getNeonEltType(NeonTypeFlags Flags, ASTContext &Context,
   case NeonTypeFlags::Int32:
     return Flags.isUnsigned() ? Context.UnsignedIntTy : Context.IntTy;
   case NeonTypeFlags::Int64:
-    return Flags.isUnsigned() ? Context.UnsignedLongLongTy : Context.LongLongTy;
+    if (IsAArch64)
+      return Flags.isUnsigned() ? Context.UnsignedLongTy : Context.LongTy;
+    else
+      return Flags.isUnsigned() ? Context.UnsignedLongLongTy
+                                : Context.LongLongTy;
   case NeonTypeFlags::Poly8:
     return IsAArch64 ? Context.UnsignedCharTy : Context.SignedCharTy;
   case NeonTypeFlags::Poly16:
     return IsAArch64 ? Context.UnsignedShortTy : Context.ShortTy;
   case NeonTypeFlags::Poly64:
-    return Context.UnsignedLongLongTy;
+    return Context.UnsignedLongTy;
   case NeonTypeFlags::Poly128:
     break;
   case NeonTypeFlags::Float16:
@@ -661,6 +670,15 @@ bool Sema::CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     return Diag(TheCall->getLocStart(), diag::err_argument_invalid_range)
       << l << u << TheCall->getArg(i)->getSourceRange();
 
+  return false;
+}
+
+bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
+  switch (BuiltinID) {
+  case X86::BI_mm_prefetch:
+    return SemaBuiltinMMPrefetch(TheCall);
+    break;
+  }
   return false;
 }
 
@@ -1926,6 +1944,26 @@ bool Sema::SemaBuiltinPrefetch(CallExpr *TheCall) {
             << "0" << "3" << Arg->getSourceRange();
     }
   }
+
+  return false;
+}
+
+/// SemaBuiltinMMPrefetch - Handle _mm_prefetch.
+// This is declared to take (const char*, int)
+bool Sema::SemaBuiltinMMPrefetch(CallExpr *TheCall) {
+  Expr *Arg = TheCall->getArg(1);
+
+  // We can't check the value of a dependent argument.
+  if (Arg->isTypeDependent() || Arg->isValueDependent())
+    return false;
+
+  llvm::APSInt Result;
+  if (SemaBuiltinConstantArg(TheCall, 1, Result))
+    return true;
+
+  if (Result.getLimitedValue() > 3)
+    return Diag(TheCall->getLocStart(), diag::err_argument_invalid_range)
+        << "0" << "3" << Arg->getSourceRange();
 
   return false;
 }
@@ -4375,16 +4413,10 @@ Sema::CheckReturnValExpr(Expr *RetValExp, QualType lhsType,
   CheckReturnStackAddr(*this, RetValExp, lhsType, ReturnLoc);
 
   // Check if the return value is null but should not be.
-  if (Attrs)
-    for (specific_attr_iterator<ReturnsNonNullAttr>
-          I = specific_attr_iterator<ReturnsNonNullAttr>(Attrs->begin()),
-          E = specific_attr_iterator<ReturnsNonNullAttr>(Attrs->end());
-          I != E; ++I) {
-      if (CheckNonNullExpr(*this, RetValExp))
-        Diag(ReturnLoc, diag::warn_null_ret)
-          << (isObjCMethod ? 1 : 0) << RetValExp->getSourceRange();
-      break;
-    }
+  if (Attrs && hasSpecificAttr<ReturnsNonNullAttr>(*Attrs) &&
+      CheckNonNullExpr(*this, RetValExp))
+    Diag(ReturnLoc, diag::warn_null_ret)
+      << (isObjCMethod ? 1 : 0) << RetValExp->getSourceRange();
 
   // C++11 [basic.stc.dynamic.allocation]p4:
   //   If an allocation function declared with a non-throwing
@@ -7356,10 +7388,7 @@ bool GetMatchingCType(
     return false;
 
   if (VD) {
-    for (specific_attr_iterator<TypeTagForDatatypeAttr>
-             I = VD->specific_attr_begin<TypeTagForDatatypeAttr>(),
-             E = VD->specific_attr_end<TypeTagForDatatypeAttr>();
-         I != E; ++I) {
+    if (TypeTagForDatatypeAttr *I = VD->getAttr<TypeTagForDatatypeAttr>()) {
       if (I->getArgumentKind() != ArgumentKind) {
         FoundWrongKind = true;
         return false;

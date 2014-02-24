@@ -803,6 +803,12 @@ def NoDebug : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
+def NoDuplicate : InheritableAttr {
+  let Spellings = [GNU<"noduplicate">, CXX11<"clang", "noduplicate">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [NoDuplicateDocs];
+}
+
 def NoInline : InheritableAttr {
   let Spellings = [GCC<"noinline">, Declspec<"noinline">];
   let Subjects = SubjectList<[Function]>;
@@ -1300,6 +1306,82 @@ def Capability : InheritableAttr {
                     [GNU<"shared_capability">,
                      CXX11<"clang","shared_capability">]>];
   let Documentation = [Undocumented];
+}
+
+def AssertCapability : InheritableAttr {
+  let Spellings = [GNU<"assert_capability">,
+                   CXX11<"clang", "assert_capability">,
+                   GNU<"assert_shared_capability">,
+                   CXX11<"clang", "assert_shared_capability">];
+  let Subjects = SubjectList<[Function, FunctionTemplate]>;
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+  let ParseArgumentsAsUnevaluated = 1;
+  let DuplicatesAllowedWhileMerging = 1;
+  let Args = [ExprArgument<"Expr">];
+  let Accessors = [Accessor<"isShared",
+                    [GNU<"assert_shared_capability">,
+                     CXX11<"clang", "assert_shared_capability">]>];
+  let Documentation = [AssertCapabilityDocs];
+}
+
+def AcquireCapability : InheritableAttr {
+  let Spellings = [GNU<"acquire_capability">,
+                   CXX11<"clang", "acquire_capability">,
+                   GNU<"acquire_shared_capability">,
+                   CXX11<"clang", "acquire_shared_capability">];
+  let Subjects = SubjectList<[Function, FunctionTemplate],
+                             ErrorDiag>;
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+  let ParseArgumentsAsUnevaluated = 1;
+  let DuplicatesAllowedWhileMerging = 1;
+  let Args = [VariadicExprArgument<"Args">];
+  let Accessors = [Accessor<"isShared",
+                    [GNU<"acquire_shared_capability">,
+                     CXX11<"clang", "acquire_shared_capability">]>];
+  let Documentation = [AcquireCapabilityDocs];
+}
+
+def TryAcquireCapability : InheritableAttr {
+  let Spellings = [GNU<"try_acquire_capability">,
+                   CXX11<"clang", "try_acquire_capability">,
+                   GNU<"try_acquire_shared_capability">,
+                   CXX11<"clang", "try_acquire_shared_capability">];
+  let Subjects = SubjectList<[Function, FunctionTemplate],
+                             ErrorDiag>;
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+  let ParseArgumentsAsUnevaluated = 1;
+  let DuplicatesAllowedWhileMerging = 1;
+  let Args = [ExprArgument<"SuccessValue">, VariadicExprArgument<"Args">];
+  let Accessors = [Accessor<"isShared",
+                    [GNU<"try_acquire_shared_capability">,
+                     CXX11<"clang", "try_acquire_shared_capability">]>];
+  let Documentation = [TryAcquireCapabilityDocs];
+}
+
+def ReleaseCapability : InheritableAttr {
+  let Spellings = [GNU<"release_capability">,
+                   CXX11<"clang", "release_capability">,
+                   GNU<"release_shared_capability">,
+                   CXX11<"clang", "release_shared_capability">,
+                   GNU<"release_generic_capability">,
+                   CXX11<"clang", "release_generic_capability">];
+  let Subjects = SubjectList<[Function, FunctionTemplate],
+                             ErrorDiag>;
+  let LateParsed = 1;
+  let TemplateDependent = 1;
+  let ParseArgumentsAsUnevaluated = 1;
+  let DuplicatesAllowedWhileMerging = 1;
+  let Args = [VariadicExprArgument<"Args">];
+  let Accessors = [Accessor<"isShared",
+                    [GNU<"release_shared_capability">,
+                     CXX11<"clang", "release_shared_capability">]>,
+                   Accessor<"isGeneric",
+                     [GNU<"release_generic_capability">,
+                      CXX11<"clang", "release_generic_capability">]>];
+  let Documentation = [ReleaseCapabilityDocs];
 }
 
 def RequiresCapability : InheritableAttr {
