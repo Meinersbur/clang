@@ -1523,10 +1523,10 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
 
 namespace {
 // Filter to remove Multilibs that don't exist as a suffix to Path
-class FilterNonExistant : public MultilibSet::FilterCallback {
+class FilterNonExistent : public MultilibSet::FilterCallback {
   std::string Base;
 public:
-  FilterNonExistant(std::string Base) : Base(Base) {}
+  FilterNonExistent(std::string Base) : Base(Base) {}
   bool operator()(const Multilib &M) const LLVM_OVERRIDE {
     return !llvm::sys::fs::exists(Base + M.gccSuffix() + "/crtbegin.o");
   }
@@ -1626,7 +1626,7 @@ bool Generic_GCC::GCCInstallationDetector::findMIPSMultilibs(
   //     /usr
   //       /lib  <= crt*.o files compiled with '-mips32'
 
-  FilterNonExistant NonExistant(Path);
+  FilterNonExistent NonExistent(Path);
 
   // Check for FSF toolchain multilibs
   MultilibSet FSFMipsMultilibs;
@@ -1712,7 +1712,7 @@ bool Generic_GCC::GCCInstallationDetector::findMIPSMultilibs(
       .Maybe(Nan2008)
       .FilterOut(".*sof/nan2008")
       .FilterOut(".*sof/fp64")
-      .FilterOut(NonExistant);
+      .FilterOut(NonExistent);
   }
 
   // Check for Code Sourcery toolchain multilibs
@@ -1769,12 +1769,12 @@ bool Generic_GCC::GCCInstallationDetector::findMIPSMultilibs(
       .Maybe(MAbi64)
       .FilterOut("/mips16.*/64")
       .FilterOut("/micromips.*/64")
-      .FilterOut(NonExistant);
+      .FilterOut(NonExistent);
   }
 
   MultilibSet AndroidMipsMultilibs = MultilibSet()
     .Maybe(Multilib("/mips-r2").flag("+march=mips32r2"))
-    .FilterOut(NonExistant);
+    .FilterOut(NonExistent);
 
   MultilibSet DebianMipsMultilibs;
   {
@@ -1793,7 +1793,7 @@ bool Generic_GCC::GCCInstallationDetector::findMIPSMultilibs(
 
     DebianMipsMultilibs = MultilibSet()
       .Either(M32, M64, MAbiN32)
-      .FilterOut(NonExistant);
+      .FilterOut(NonExistent);
   }
 
   Multilibs.clear();
@@ -1860,14 +1860,14 @@ bool Generic_GCC::GCCInstallationDetector::findBiarchMultilibs(
     .includeSuffix("/32")
     .flag("+m32").flag("-m64");
 
-  FilterNonExistant NonExistant(Path);
+  FilterNonExistent NonExistent(Path);
 
   // Decide whether the default multilib is 32bit, correcting for
   // when the default multilib and the alternate appear backwards
   bool DefaultIs32Bit;
-  if (TargetTriple.isArch32Bit() && !NonExistant(Alt32))
+  if (TargetTriple.isArch32Bit() && !NonExistent(Alt32))
     DefaultIs32Bit = false;
-  else if (TargetTriple.isArch64Bit() && !NonExistant(Alt64))
+  else if (TargetTriple.isArch64Bit() && !NonExistent(Alt64))
     DefaultIs32Bit = true;
   else {
     if (NeedsBiarchSuffix)
@@ -1885,7 +1885,7 @@ bool Generic_GCC::GCCInstallationDetector::findBiarchMultilibs(
   Multilibs.push_back(Alt64);
   Multilibs.push_back(Alt32);
 
-  Multilibs.FilterOut(NonExistant);
+  Multilibs.FilterOut(NonExistent);
 
   Multilib::flags_list Flags;
   addMultilibFlag(TargetTriple.isArch64Bit(), "m64", Flags);
@@ -2448,6 +2448,14 @@ bool FreeBSD::UseSjLjExceptions() const {
   }
 }
 
+bool FreeBSD::HasNativeLLVMSupport() const {
+  return true;
+}
+
+bool FreeBSD::isPIEDefault() const {
+  return getSanitizerArgs().hasZeroBaseShadow();
+}
+
 /// NetBSD - NetBSD tool chain which can call as(1) and ld(1) directly.
 
 NetBSD::NetBSD(const Driver &D, const llvm::Triple& Triple, const ArgList &Args)
@@ -2998,10 +3006,6 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
 
   addPathIfExists(SysRoot + "/lib", Paths);
   addPathIfExists(SysRoot + "/usr/lib", Paths);
-}
-
-bool FreeBSD::HasNativeLLVMSupport() const {
-  return true;
 }
 
 bool Linux::HasNativeLLVMSupport() const {
