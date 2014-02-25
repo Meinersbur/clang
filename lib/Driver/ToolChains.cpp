@@ -1368,6 +1368,7 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
 
   switch (TargetTriple.getArch()) {
   case llvm::Triple::aarch64:
+  case llvm::Triple::aarch64_be:
     LibDirs.append(AArch64LibDirs,
                    AArch64LibDirs + llvm::array_lengthof(AArch64LibDirs));
     TripleAliases.append(AArch64Triples,
@@ -2034,6 +2035,7 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   return getTriple().getArch() == llvm::Triple::x86 ||
          getTriple().getArch() == llvm::Triple::x86_64 ||
          getTriple().getArch() == llvm::Triple::aarch64 ||
+         getTriple().getArch() == llvm::Triple::aarch64_be ||
          getTriple().getArch() == llvm::Triple::arm ||
          getTriple().getArch() == llvm::Triple::thumb;
 }
@@ -2043,6 +2045,7 @@ void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
   const Generic_GCC::GCCVersion &V = GCCInstallation.getVersion();
   bool UseInitArrayDefault = 
       getTriple().getArch() == llvm::Triple::aarch64 ||
+      getTriple().getArch() == llvm::Triple::aarch64_be ||
       (getTriple().getOS() == llvm::Triple::Linux && (
          !V.isOlderThan(4, 7, 0) ||
          getTriple().getEnvironment() == llvm::Triple::Android));
@@ -2772,6 +2775,7 @@ static std::string getMultiarchTriple(const llvm::Triple TargetTriple,
       return "x86_64-linux-gnu";
     return TargetTriple.str();
   case llvm::Triple::aarch64:
+  case llvm::Triple::aarch64_be:
     if (llvm::sys::fs::exists(SysRoot + "/lib/aarch64-linux-gnu"))
       return "aarch64-linux-gnu";
     return TargetTriple.str();
@@ -3145,7 +3149,8 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
     MultiarchIncludeDirs = X86_64MultiarchIncludeDirs;
   } else if (getTriple().getArch() == llvm::Triple::x86) {
     MultiarchIncludeDirs = X86MultiarchIncludeDirs;
-  } else if (getTriple().getArch() == llvm::Triple::aarch64) {
+  } else if ((getTriple().getArch() == llvm::Triple::aarch64) ||
+             (getTriple().getArch() == llvm::Triple::aarch64_be)) {
     MultiarchIncludeDirs = AArch64MultiarchIncludeDirs;
   } else if (getTriple().getArch() == llvm::Triple::arm) {
     if (getTriple().getEnvironment() == llvm::Triple::GNUEABIHF)
