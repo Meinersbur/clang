@@ -20,9 +20,8 @@ add_clang_library(clangParse
   ParseTentative.cpp
   ParseMolly.cpp
   Parser.cpp
-  )
 
-target_link_libraries(clangParse
+  LINK_LIBS
   clangBasic
   clangAST
   clangLex
