@@ -60,11 +60,9 @@ add_clang_library(clangCodeGen
   TargetInfo.cpp
   CGDeclOpenMP.cpp
   CGMolly.cpp
+  )
 
-  DEPENDS
-  intrinsics_gen
-
-  LINK_LIBS
+target_link_libraries(clangCodeGen
   clangBasic
   clangAST
   clangFrontend

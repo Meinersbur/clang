@@ -49,8 +49,9 @@ add_clang_library(clangSema
   SemaType.cpp
   TypeLocBuilder.cpp
   SemaMolly.cpp
+  )
 
-  LINK_LIBS
+target_link_libraries(clangSema
   clangAST
   clangAnalysis
   clangBasic
