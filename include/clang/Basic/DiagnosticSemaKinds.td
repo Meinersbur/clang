@@ -2055,6 +2055,8 @@ def err_attribute_selectany_non_extern_data : Error<
 def warn_attribute_invalid_on_definition : Warning<
   "'%0' attribute cannot be specified on a definition">,
   InGroup<IgnoredAttributes>;
+def err_attribute_dllimport_data_definition : Error<
+  "definition of dllimport data">;
 def err_attribute_weakref_not_static : Error<
   "weakref declaration must have internal linkage">;
 def err_attribute_weakref_not_global_context : Error<
@@ -6852,11 +6854,11 @@ def note_conversion : Note<
   "conversion to %select{integral|enumeration}0 type %1">;
 def err_negative_expression_in_clause : Error<
   "expression is not a positive integer value">;
-def err_omp_unexpected_clause_value : Error <
+def err_omp_unexpected_clause_value : Error<
   "expected %0 in OpenMP clause '%1'">;
-def err_omp_expected_var_name : Error <
+def err_omp_expected_var_name : Error<
   "expected variable name">;
-def err_omp_required_method : Error <
+def err_omp_required_method : Error<
   "%0 variable must have an accessible, unambiguous %select{default constructor|copy constructor|copy assignment operator|'%2'|destructor}1">;
 def note_omp_marked_here : Note<
   "marked as %0 here">;
@@ -6880,16 +6882,16 @@ def err_omp_once_referenced : Error<
   "variable can appear only once in OpenMP '%0' clause">;
 def err_omp_const_variable : Error<
   "const-qualified variable cannot be %0">;
-def note_omp_explicit_dsa : Note <
+def note_omp_explicit_dsa : Note<
   "defined as %0">;
-def note_omp_predetermined_dsa : Note <
+def note_omp_predetermined_dsa : Note<
   "predetermined as %0">;
 def note_omp_referenced : Note <
   "previously referenced here">;
 def err_omp_dsa_with_directives : Error<
   "%0 variable in '#pragma omp %1' cannot be %2 in '#pragma omp %3'">;
 def err_omp_not_for : Error <
-  "only for-loops are allowed for '#pragma omp %0'">;
+  "statement after '#pragma omp %0' must be a for loop">;
 def err_omp_for_variable : Error <
   "variable must be of integer or %select{pointer|random access iterator}0 type">;
 def err_omp_not_canonical_for : Error <
@@ -6922,7 +6924,7 @@ def err_omp_atomic_not_expression : Error <
   "expected expression statement for '#pragma omp atomic %0'">;
 def err_omp_atomic_wrong_statement : Error <
   "statement form is not allowed for '#pragma omp atomic %0'">;
-def err_omp_no_dsa_for_variable : Error <
+def err_omp_no_dsa_for_variable : Error<
   "variable %0 must have explicitly specified data sharing attributes">;
 def err_omp_for_cannot_break: Error<
   "cannot break from a '#pragma omp for' loop">;

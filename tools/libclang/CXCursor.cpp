@@ -509,6 +509,9 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::OMPParallelDirectiveClass:
     K = CXCursor_OMPParallelDirective;
     break;
+  case Stmt::OMPSimdDirectiveClass:
+    K = CXCursor_OMPSimdDirective;
+    break;
   case Stmt::OMPForDirectiveClass:
     K = CXCursor_OMPForDirective;
     break;
@@ -552,7 +555,7 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
     K = CXCursor_OMPOrderedDirective;
     break;
   }
-  
+
   CXCursor C = { K, 0, { Parent, S, TU } };
   return C;
 }
