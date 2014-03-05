@@ -2495,7 +2495,7 @@ public:
   explicit MemInitializerValidatorCCC(CXXRecordDecl *ClassDecl)
       : ClassDecl(ClassDecl) {}
 
-  bool ValidateCandidate(const TypoCorrection &candidate) LLVM_OVERRIDE {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     if (NamedDecl *ND = candidate.getCorrectionDecl()) {
       if (FieldDecl *Member = dyn_cast<FieldDecl>(ND))
         return Member->getDeclContext()->getRedeclContext()->Equals(ClassDecl);
@@ -4104,7 +4104,7 @@ bool Sema::RequireNonAbstractType(SourceLocation Loc, QualType T,
     NonAbstractTypeDiagnoser(unsigned DiagID, AbstractDiagSelID SelID)
       : TypeDiagnoser(DiagID == 0), DiagID(DiagID), SelID(SelID) { }
 
-    void diagnose(Sema &S, SourceLocation Loc, QualType T) LLVM_OVERRIDE {
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       if (Suppressed) return;
       if (SelID == -1)
         S.Diag(Loc, DiagID) << T;
@@ -4520,11 +4520,18 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
     }
   }
 
-  // Check to see if we're trying to lay out a struct using the ms_struct
-  // attribute that is dynamic.
-  if (Record->isMsStruct(Context) && Record->isDynamicClass()) {
-    Diag(Record->getLocation(), diag::warn_pragma_ms_struct_failed);
-    Record->dropAttr<MsStructAttr>();
+  // ms_struct is a request to use the same ABI rules as MSVC.  Check
+  // whether this class uses any C++ features that are implemented
+  // completely differently in MSVC, and if so, emit a diagnostic.
+  // That diagnostic defaults to an error, but we allow projects to
+  // map it down to a warning (or ignore it).  It's a fairly common
+  // practice among users of the ms_struct pragma to mass-annotate
+  // headers, sweeping up a bunch of types that the project doesn't
+  // really rely on MSVC-compatible layout for.  We must therefore
+  // support "ms_struct except for C++ stuff" as a secondary ABI.
+  if (Record->isMsStruct(Context) &&
+      (Record->isPolymorphic() || Record->getNumBases())) {
+    Diag(Record->getLocation(), diag::warn_cxx_ms_struct);
   }
 
   // Declare inheriting constructors. We do this eagerly here because:
@@ -6934,7 +6941,7 @@ namespace {
 // Callback to only accept typo corrections that are namespaces.
 class NamespaceValidatorCCC : public CorrectionCandidateCallback {
 public:
-  bool ValidateCandidate(const TypoCorrection &candidate) LLVM_OVERRIDE {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     if (NamedDecl *ND = candidate.getCorrectionDecl())
       return isa<NamespaceDecl>(ND) || isa<NamespaceAliasDecl>(ND);
     return false;
@@ -7372,7 +7379,7 @@ public:
       : HasTypenameKeyword(HasTypenameKeyword),
         IsInstantiation(IsInstantiation), RequireMember(RequireMember) {}
 
-  bool ValidateCandidate(const TypoCorrection &Candidate) LLVM_OVERRIDE {
+  bool ValidateCandidate(const TypoCorrection &Candidate) override {
     NamedDecl *ND = Candidate.getCorrectionDecl();
 
     // Keywords are not valid here.
@@ -8816,7 +8823,7 @@ class RefBuilder: public ExprBuilder {
   QualType VarType;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.BuildDeclRefExpr(Var, VarType, VK_LValue, Loc).take());
   }
 
@@ -8826,7 +8833,7 @@ public:
 
 class ThisBuilder: public ExprBuilder {
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.ActOnCXXThis(Loc).takeAs<Expr>());
   }
 };
@@ -8838,7 +8845,7 @@ class CastBuilder: public ExprBuilder {
   const CXXCastPath &Path;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.ImpCastExprToType(Builder.build(S, Loc), Type,
                                              CK_UncheckedDerivedToBase, Kind,
                                              &Path).take());
@@ -8853,7 +8860,7 @@ class DerefBuilder: public ExprBuilder {
   const ExprBuilder &Builder;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(
         S.CreateBuiltinUnaryOp(Loc, UO_Deref, Builder.build(S, Loc)).take());
   }
@@ -8869,7 +8876,7 @@ class MemberBuilder: public ExprBuilder {
   LookupResult &MemberLookup;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.BuildMemberReferenceExpr(
         Builder.build(S, Loc), Type, Loc, IsArrow, SS, SourceLocation(), 0,
         MemberLookup, 0).take());
@@ -8885,7 +8892,7 @@ class MoveCastBuilder: public ExprBuilder {
   const ExprBuilder &Builder;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(CastForMoving(S, Builder.build(S, Loc)));
   }
 
@@ -8896,7 +8903,7 @@ class LvalueConvBuilder: public ExprBuilder {
   const ExprBuilder &Builder;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(
         S.DefaultLvalueConversion(Builder.build(S, Loc)).take());
   }
@@ -8909,8 +8916,7 @@ class SubscriptBuilder: public ExprBuilder {
   const ExprBuilder &Index;
 
 public:
-  virtual Expr *build(Sema &S, SourceLocation Loc) const
-      LLVM_OVERRIDE {
+  virtual Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.CreateBuiltinArraySubscriptExpr(
         Base.build(S, Loc), Loc, Index.build(S, Loc), Loc).take());
   }

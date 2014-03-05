@@ -15,8 +15,8 @@
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/SourceMgr.h"
 
 namespace llvm {
@@ -90,6 +90,8 @@ public:
                                      bool RequiresNullTerminator = true) = 0;
   /// \brief Closes the file.
   virtual llvm::error_code close() = 0;
+  /// \brief Sets the name to use for this file.
+  virtual void setName(StringRef Name) = 0;
 };
 
 /// \brief The virtual file system interface.
@@ -145,9 +147,9 @@ public:
   /// \brief Pushes a file system on top of the stack.
   void pushOverlay(IntrusiveRefCntPtr<FileSystem> FS);
 
-  llvm::ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
+  llvm::ErrorOr<Status> status(const Twine &Path) override;
   llvm::error_code openFileForRead(const Twine &Path,
-                                   OwningPtr<File> &Result) LLVM_OVERRIDE;
+                                   OwningPtr<File> &Result) override;
 };
 
 /// \brief Get a globally unique ID for a virtual file or directory.

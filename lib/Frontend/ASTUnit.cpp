@@ -36,7 +36,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Support/Atomic.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -45,6 +44,7 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <sys/stat.h>
@@ -211,7 +211,7 @@ const unsigned DefaultPreambleRebuildInterval = 5;
 /// \brief Tracks the number of ASTUnit objects that are currently active.
 ///
 /// Used for debugging purposes only.
-static llvm::sys::cas_flag ActiveASTUnitObjects;
+static std::atomic<unsigned> ActiveASTUnitObjects;
 
 ASTUnit::ASTUnit(bool _MainFileIsAST)
   : Reader(0), HadModuleLoaderFatalFailure(false),
@@ -228,10 +228,8 @@ ASTUnit::ASTUnit(bool _MainFileIsAST)
     PreambleTopLevelHashValue(0),
     CurrentTopLevelHashValue(0),
     UnsafeToFree(false) { 
-  if (getenv("LIBCLANG_OBJTRACKING")) {
-    llvm::sys::AtomicIncrement(&ActiveASTUnitObjects);
-    fprintf(stderr, "+++ %d translation units\n", (int)ActiveASTUnitObjects);
-  }    
+  if (getenv("LIBCLANG_OBJTRACKING"))
+    fprintf(stderr, "+++ %u translation units\n", ++ActiveASTUnitObjects);
 }
 
 ASTUnit::~ASTUnit() {
@@ -264,10 +262,8 @@ ASTUnit::~ASTUnit() {
 
   ClearCachedCompletionResults();  
   
-  if (getenv("LIBCLANG_OBJTRACKING")) {
-    llvm::sys::AtomicDecrement(&ActiveASTUnitObjects);
-    fprintf(stderr, "--- %d translation units\n", (int)ActiveASTUnitObjects);
-  }    
+  if (getenv("LIBCLANG_OBJTRACKING"))
+    fprintf(stderr, "--- %u translation units\n", --ActiveASTUnitObjects);
 }
 
 void ASTUnit::setPreprocessor(Preprocessor *pp) { PP = pp; }
@@ -1159,9 +1155,8 @@ bool ASTUnit::Parse(llvm::MemoryBuffer *OverrideMainBuffer) {
 
   if (OverrideMainBuffer) {
     std::string ModName = getPreambleFile(this);
-    TranslateStoredDiagnostics(Clang->getModuleManager().getPtr(), ModName,
-                               getSourceManager(), PreambleDiagnostics,
-                               StoredDiagnostics);
+    TranslateStoredDiagnostics(getFileManager(), getSourceManager(),
+                               PreambleDiagnostics, StoredDiagnostics);
   }
 
   if (!Act->Execute())
@@ -1328,6 +1323,53 @@ bool operator==(const ASTUnit::PreambleFileHash &LHS,
          memcmp(LHS.MD5, RHS.MD5, sizeof(LHS.MD5)) == 0;
 }
 } // namespace clang
+
+static std::pair<unsigned, unsigned>
+makeStandaloneRange(CharSourceRange Range, const SourceManager &SM,
+                    const LangOptions &LangOpts) {
+  CharSourceRange FileRange = Lexer::makeFileCharRange(Range, SM, LangOpts);
+  unsigned Offset = SM.getFileOffset(FileRange.getBegin());
+  unsigned EndOffset = SM.getFileOffset(FileRange.getEnd());
+  return std::make_pair(Offset, EndOffset);
+}
+
+static void makeStandaloneFixIt(const SourceManager &SM,
+                                const LangOptions &LangOpts,
+                                const FixItHint &InFix,
+                                ASTUnit::StandaloneFixIt &OutFix) {
+  OutFix.RemoveRange = makeStandaloneRange(InFix.RemoveRange, SM, LangOpts);
+  OutFix.InsertFromRange = makeStandaloneRange(InFix.InsertFromRange, SM,
+                                               LangOpts);
+  OutFix.CodeToInsert = InFix.CodeToInsert;
+  OutFix.BeforePreviousInsertions = InFix.BeforePreviousInsertions;
+}
+
+static void makeStandaloneDiagnostic(const LangOptions &LangOpts,
+                                     const StoredDiagnostic &InDiag,
+                                     ASTUnit::StandaloneDiagnostic &OutDiag) {
+  OutDiag.ID = InDiag.getID();
+  OutDiag.Level = InDiag.getLevel();
+  OutDiag.Message = InDiag.getMessage();
+  OutDiag.LocOffset = 0;
+  if (InDiag.getLocation().isInvalid())
+    return;
+  const SourceManager &SM = InDiag.getLocation().getManager();
+  SourceLocation FileLoc = SM.getFileLoc(InDiag.getLocation());
+  OutDiag.Filename = SM.getFilename(FileLoc);
+  if (OutDiag.Filename.empty())
+    return;
+  OutDiag.LocOffset = SM.getFileOffset(FileLoc);
+  for (StoredDiagnostic::range_iterator
+         I = InDiag.range_begin(), E = InDiag.range_end(); I != E; ++I) {
+    OutDiag.Ranges.push_back(makeStandaloneRange(*I, SM, LangOpts));
+  }
+  for (StoredDiagnostic::fixit_iterator
+         I = InDiag.fixit_begin(), E = InDiag.fixit_end(); I != E; ++I) {
+    ASTUnit::StandaloneFixIt Fix;
+    makeStandaloneFixIt(SM, LangOpts, *I, Fix);
+    OutDiag.FixIts.push_back(Fix);
+  }
+}
 
 /// \brief Attempt to build or re-use a precompiled preamble when (re-)parsing
 /// the source file.
@@ -1589,6 +1631,7 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   checkAndRemoveNonDriverDiags(StoredDiagnostics);
   TopLevelDecls.clear();
   TopLevelDeclsInPreamble.clear();
+  PreambleDiagnostics.clear();
   
   // Create a file manager object to provide access to and cache the filesystem.
   Clang->setFileManager(new FileManager(Clang->getFileSystemOpts()));
@@ -1609,7 +1652,20 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
   }
   
   Act->Execute();
+
+  // Transfer any diagnostics generated when parsing the preamble into the set
+  // of preamble diagnostics.
+  for (stored_diag_iterator
+         I = stored_diag_afterDriver_begin(),
+         E = stored_diag_end(); I != E; ++I) {
+    StandaloneDiagnostic Diag;
+    makeStandaloneDiagnostic(Clang->getLangOpts(), *I, Diag);
+    PreambleDiagnostics.push_back(Diag);
+  }
+
   Act->EndSourceFile();
+
+  checkAndRemoveNonDriverDiags(StoredDiagnostics);
 
   if (!Act->hasEmittedPreamblePCH()) {
     // The preamble PCH failed (e.g. there was a module loading fatal error),
@@ -1623,13 +1679,6 @@ llvm::MemoryBuffer *ASTUnit::getMainBufferWithPrecompiledPreamble(
                                PreprocessorOpts.remapped_file_buffer_end() - 1);
     return 0;
   }
-  
-  // Transfer any diagnostics generated when parsing the preamble into the set
-  // of preamble diagnostics.
-  PreambleDiagnostics.clear();
-  PreambleDiagnostics.insert(PreambleDiagnostics.end(), 
-                            stored_diag_afterDriver_begin(), stored_diag_end());
-  checkAndRemoveNonDriverDiags(StoredDiagnostics);
   
   // Keep track of the preamble we precompiled.
   setPreambleFile(this, FrontendOpts.OutputFile);
@@ -2545,68 +2594,57 @@ bool ASTUnit::serialize(raw_ostream &OS) {
 
 typedef ContinuousRangeMap<unsigned, int, 2> SLocRemap;
 
-static void TranslateSLoc(SourceLocation &L, SLocRemap &Remap) {
-  unsigned Raw = L.getRawEncoding();
-  const unsigned MacroBit = 1U << 31;
-  L = SourceLocation::getFromRawEncoding((Raw & MacroBit) |
-      ((Raw & ~MacroBit) + Remap.find(Raw & ~MacroBit)->second));
-}
-
 void ASTUnit::TranslateStoredDiagnostics(
-                          ASTReader *MMan,
-                          StringRef ModName,
+                          FileManager &FileMgr,
                           SourceManager &SrcMgr,
-                          const SmallVectorImpl<StoredDiagnostic> &Diags,
+                          const SmallVectorImpl<StandaloneDiagnostic> &Diags,
                           SmallVectorImpl<StoredDiagnostic> &Out) {
-  // The stored diagnostic has the old source manager in it; update
-  // the locations to refer into the new source manager. We also need to remap
-  // all the locations to the new view. This includes the diag location, any
-  // associated source ranges, and the source ranges of associated fix-its.
+  // Map the standalone diagnostic into the new source manager. We also need to
+  // remap all the locations to the new view. This includes the diag location,
+  // any associated source ranges, and the source ranges of associated fix-its.
   // FIXME: There should be a cleaner way to do this.
 
   SmallVector<StoredDiagnostic, 4> Result;
   Result.reserve(Diags.size());
-  assert(MMan && "Don't have a module manager");
-  serialization::ModuleFile *Mod = MMan->ModuleMgr.lookup(ModName);
-  assert(Mod && "Don't have preamble module");
-  SLocRemap &Remap = Mod->SLocRemap;
   for (unsigned I = 0, N = Diags.size(); I != N; ++I) {
     // Rebuild the StoredDiagnostic.
-    const StoredDiagnostic &SD = Diags[I];
-    SourceLocation L = SD.getLocation();
-    TranslateSLoc(L, Remap);
+    const StandaloneDiagnostic &SD = Diags[I];
+    if (SD.Filename.empty())
+      continue;
+    const FileEntry *FE = FileMgr.getFile(SD.Filename);
+    if (!FE)
+      continue;
+    FileID FID = SrcMgr.translateFile(FE);
+    SourceLocation FileLoc = SrcMgr.getLocForStartOfFile(FID);
+    if (FileLoc.isInvalid())
+      continue;
+    SourceLocation L = FileLoc.getLocWithOffset(SD.LocOffset);
     FullSourceLoc Loc(L, SrcMgr);
 
     SmallVector<CharSourceRange, 4> Ranges;
-    Ranges.reserve(SD.range_size());
-    for (StoredDiagnostic::range_iterator I = SD.range_begin(),
-                                          E = SD.range_end();
-         I != E; ++I) {
-      SourceLocation BL = I->getBegin();
-      TranslateSLoc(BL, Remap);
-      SourceLocation EL = I->getEnd();
-      TranslateSLoc(EL, Remap);
-      Ranges.push_back(CharSourceRange(SourceRange(BL, EL), I->isTokenRange()));
+    Ranges.reserve(SD.Ranges.size());
+    for (std::vector<std::pair<unsigned, unsigned> >::const_iterator
+           I = SD.Ranges.begin(), E = SD.Ranges.end(); I != E; ++I) {
+      SourceLocation BL = FileLoc.getLocWithOffset((*I).first);
+      SourceLocation EL = FileLoc.getLocWithOffset((*I).second);
+      Ranges.push_back(CharSourceRange::getCharRange(BL, EL));
     }
 
     SmallVector<FixItHint, 2> FixIts;
-    FixIts.reserve(SD.fixit_size());
-    for (StoredDiagnostic::fixit_iterator I = SD.fixit_begin(),
-                                          E = SD.fixit_end();
+    FixIts.reserve(SD.FixIts.size());
+    for (std::vector<StandaloneFixIt>::const_iterator
+           I = SD.FixIts.begin(), E = SD.FixIts.end();
          I != E; ++I) {
       FixIts.push_back(FixItHint());
       FixItHint &FH = FixIts.back();
       FH.CodeToInsert = I->CodeToInsert;
-      SourceLocation BL = I->RemoveRange.getBegin();
-      TranslateSLoc(BL, Remap);
-      SourceLocation EL = I->RemoveRange.getEnd();
-      TranslateSLoc(EL, Remap);
-      FH.RemoveRange = CharSourceRange(SourceRange(BL, EL),
-                                       I->RemoveRange.isTokenRange());
+      SourceLocation BL = FileLoc.getLocWithOffset(I->RemoveRange.first);
+      SourceLocation EL = FileLoc.getLocWithOffset(I->RemoveRange.second);
+      FH.RemoveRange = CharSourceRange::getCharRange(BL, EL);
     }
 
-    Result.push_back(StoredDiagnostic(SD.getLevel(), SD.getID(), 
-                                      SD.getMessage(), Loc, Ranges, FixIts));
+    Result.push_back(StoredDiagnostic(SD.Level, SD.ID, 
+                                      SD.Message, Loc, Ranges, FixIts));
   }
   Result.swap(Out);
 }
@@ -2631,7 +2669,7 @@ void ASTUnit::addFileLevelDecl(Decl *D) {
   assert(SM.isLocalSourceLocation(FileLoc));
   FileID FID;
   unsigned Offset;
-  llvm::tie(FID, Offset) = SM.getDecomposedLoc(FileLoc);
+  std::tie(FID, Offset) = SM.getDecomposedLoc(FileLoc);
   if (FID.isInvalid())
     return;
 
@@ -2814,7 +2852,7 @@ bool ASTUnit::visitLocalTopLevelDecls(void *context, DeclVisitorFn Fn) {
     serialization::ModuleFile &
       Mod = Reader->getModuleManager().getPrimaryModule();
     ASTReader::ModuleDeclIterator MDI, MDE;
-    llvm::tie(MDI, MDE) = Reader->getModuleFileLevelDecls(Mod);
+    std::tie(MDI, MDE) = Reader->getModuleFileLevelDecls(Mod);
     for (; MDI != MDE; ++MDI) {
       if (!Fn(context, *MDI))
         return false;

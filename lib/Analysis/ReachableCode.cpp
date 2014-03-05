@@ -263,6 +263,11 @@ static bool bodyEndsWithNoReturn(const CFGBlock *B) {
 }
 
 static bool bodyEndsWithNoReturn(const CFGBlock::AdjacentBlock &AB) {
+  // If the predecessor is a normal CFG edge, then by definition
+  // the predecessor did not end with a 'noreturn'.
+  if (AB.getReachableBlock())
+    return false;
+
   const CFGBlock *Pred = AB.getPossiblyUnreachableBlock();
   assert(!AB.isReachable() && Pred);
   return bodyEndsWithNoReturn(Pred);
@@ -337,12 +342,6 @@ void DeadCodeScan::reportDeadCode(const CFGBlock *B,
   if (isTrivialReturnPrecededByNoReturn(B, S))
     return;
 
-  // Was this an unreachable 'default' case?  Such cases are covered
-  // by -Wcovered-switch-default, if the user so desires.
-  const Stmt *Label = B->getLabel();
-  if (Label && isa<DefaultStmt>(Label))
-    return;
-
   SourceRange R1, R2;
   SourceLocation Loc = GetUnreachableLoc(S, R1, R2);
   CB.HandleUnreachable(Loc, R1, R2);
@@ -351,6 +350,56 @@ void DeadCodeScan::reportDeadCode(const CFGBlock *B,
 namespace clang { namespace reachable_code {
 
 void Callback::anchor() { }  
+
+/// Returns true if the statement is expanded from a configuration macro.
+static bool isExpandedFromConfigurationMacro(const Stmt *S) {
+  // FIXME: This is not very precise.  Here we just check to see if the
+  // value comes from a macro, but we can do much better.  This is likely
+  // to be over conservative.  This logic is factored into a separate function
+  // so that we can refine it later.
+  SourceLocation L = S->getLocStart();
+  return L.isMacroID();
+}
+
+/// Returns true if the statement represents a configuration value.
+///
+/// A configuration value is something usually determined at compile-time
+/// to conditionally always execute some branch.  Such guards are for
+/// "sometimes unreachable" code.  Such code is usually not interesting
+/// to report as unreachable, and may mask truly unreachable code within
+/// those blocks.
+static bool isConfigurationValue(const Stmt *S) {
+  if (!S)
+    return false;
+
+  if (const Expr *Ex = dyn_cast<Expr>(S))
+    S = Ex->IgnoreParenCasts();
+
+  switch (S->getStmtClass()) {
+    case Stmt::IntegerLiteralClass:
+      return isExpandedFromConfigurationMacro(S);
+    case Stmt::UnaryExprOrTypeTraitExprClass:
+      return true;
+    case Stmt::BinaryOperatorClass: {
+      const BinaryOperator *B = cast<BinaryOperator>(S);
+      return (B->isLogicalOp() || B->isRelationalOp()) &&
+             (isConfigurationValue(B->getLHS()) ||
+              isConfigurationValue(B->getRHS()));
+    }
+    case Stmt::UnaryOperatorClass: {
+      const UnaryOperator *UO = cast<UnaryOperator>(S);
+      return UO->getOpcode() == UO_LNot &&
+             isConfigurationValue(UO->getSubExpr());
+    }
+    default:
+      return false;
+  }
+}
+
+/// Returns true if we should always explore all successors of a block.
+static bool shouldTreatSuccessorsAsReachable(const CFGBlock *B) {
+  return isConfigurationValue(B->getTerminatorCondition());
+}
 
 unsigned ScanReachableFromBlock(const CFGBlock *Start,
                                 llvm::BitVector &Reachable) {
@@ -371,11 +420,49 @@ unsigned ScanReachableFromBlock(const CFGBlock *Start,
   // Find the reachable blocks from 'Start'.
   while (!WL.empty()) {
     const CFGBlock *item = WL.pop_back_val();
-    
+
+    // There are cases where we want to treat all successors as reachable.
+    // The idea is that some "sometimes unreachable" code is not interesting,
+    // and that we should forge ahead and explore those branches anyway.
+    // This allows us to potentially uncover some "always unreachable" code
+    // within the "sometimes unreachable" code.
+    bool TreatAllSuccessorsAsReachable = shouldTreatSuccessorsAsReachable(item);
+
     // Look at the successors and mark then reachable.
     for (CFGBlock::const_succ_iterator I = item->succ_begin(), 
-         E = item->succ_end(); I != E; ++I)
-      if (const CFGBlock *B = *I) {
+         E = item->succ_end(); I != E; ++I) {
+      const CFGBlock *B = *I;
+      if (!B) do {
+        const CFGBlock *UB = I->getPossiblyUnreachableBlock();
+        if (!UB)
+          break;
+
+        if (TreatAllSuccessorsAsReachable) {
+          B = UB;
+          break;
+        }
+
+        // For switch statements, treat all cases as being reachable.
+        // There are many cases where a switch can contain values that
+        // are not in an enumeration but they are still reachable because
+        // other values are possible.
+        //
+        // Note that this is quite conservative.  If one saw:
+        //
+        //  switch (1) {
+        //    case 2: ...
+        //
+        // we should be able to say that 'case 2' is unreachable.  To do
+        // this we can either put more heuristics here, or possibly retain
+        // that information in the CFG itself.
+        //
+        const Stmt *Label = UB->getLabel();
+        if (Label && isa<SwitchCase>(Label))
+          B = UB;
+      }
+      while (false);
+
+      if (B) {
         unsigned blockID = B->getBlockID();
         if (!Reachable[blockID]) {
           Reachable.set(blockID);
@@ -383,6 +470,7 @@ unsigned ScanReachableFromBlock(const CFGBlock *Start,
           ++count;
         }
       }
+    }
   }
   return count;
 }

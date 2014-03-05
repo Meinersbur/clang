@@ -14,10 +14,10 @@
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Atomic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/YAMLParser.h"
+#include <atomic>
 
 using namespace clang;
 using namespace clang::vfs;
@@ -80,9 +80,11 @@ error_code FileSystem::getBufferForFile(const llvm::Twine &Name,
 // RealFileSystem implementation
 //===-----------------------------------------------------------------------===/
 
+namespace {
 /// \brief Wrapper around a raw file descriptor.
 class RealFile : public File {
   int FD;
+  Status S;
   friend class RealFileSystem;
   RealFile(int FD) : FD(FD) {
     assert(FD >= 0 && "Invalid or inactive file descriptor");
@@ -90,20 +92,27 @@ class RealFile : public File {
 
 public:
   ~RealFile();
-  ErrorOr<Status> status() LLVM_OVERRIDE;
+  ErrorOr<Status> status() override;
   error_code getBuffer(const Twine &Name, OwningPtr<MemoryBuffer> &Result,
                        int64_t FileSize = -1,
-                       bool RequiresNullTerminator = true) LLVM_OVERRIDE;
-  error_code close() LLVM_OVERRIDE;
+                       bool RequiresNullTerminator = true) override;
+  error_code close() override;
+  void setName(StringRef Name) override;
 };
+} // end anonymous namespace
 RealFile::~RealFile() { close(); }
 
 ErrorOr<Status> RealFile::status() {
   assert(FD != -1 && "cannot stat closed file");
-  file_status RealStatus;
-  if (error_code EC = sys::fs::status(FD, RealStatus))
-    return EC;
-  return Status(RealStatus);
+  if (!S.isStatusKnown()) {
+    file_status RealStatus;
+    if (error_code EC = sys::fs::status(FD, RealStatus))
+      return EC;
+    Status NewS(RealStatus);
+    NewS.setName(S.getName());
+    S = std::move(NewS);
+  }
+  return S;
 }
 
 error_code RealFile::getBuffer(const Twine &Name,
@@ -131,13 +140,19 @@ error_code RealFile::close() {
   return error_code::success();
 }
 
+void RealFile::setName(StringRef Name) {
+  S.setName(Name);
+}
+
+namespace {
 /// \brief The file system according to your operating system.
 class RealFileSystem : public FileSystem {
 public:
-  ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
+  ErrorOr<Status> status(const Twine &Path) override;
   error_code openFileForRead(const Twine &Path,
-                             OwningPtr<File> &Result) LLVM_OVERRIDE;
+                             OwningPtr<File> &Result) override;
 };
+} // end anonymous namespace
 
 ErrorOr<Status> RealFileSystem::status(const Twine &Path) {
   sys::fs::file_status RealStatus;
@@ -154,6 +169,7 @@ error_code RealFileSystem::openFileForRead(const Twine &Name,
   if (error_code EC = sys::fs::openFileForRead(Name, FD))
     return EC;
   Result.reset(new RealFile(FD));
+  Result->setName(Name.str());
   return error_code::success();
 }
 
@@ -267,7 +283,10 @@ public:
         UseName(UseName) {}
   StringRef getExternalContentsPath() const { return ExternalContentsPath; }
   /// \brief whether to use the external path as the name for this file.
-  NameKind useName() const { return UseName; }
+  bool useExternalName(bool GlobalUseExternalName) const {
+    return UseName == NK_NotSet ? GlobalUseExternalName
+                                : (UseName == NK_External);
+  }
   static bool classof(const Entry *E) { return E->getKind() == EK_File; }
 };
 
@@ -368,9 +387,9 @@ public:
                              void *DiagContext,
                              IntrusiveRefCntPtr<FileSystem> ExternalFS);
 
-  ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
+  ErrorOr<Status> status(const Twine &Path) override;
   error_code openFileForRead(const Twine &Path,
-                             OwningPtr<File> &Result) LLVM_OVERRIDE;
+                             OwningPtr<File> &Result) override;
 };
 
 /// \brief A helper class to hold the common YAML parsing state.
@@ -573,11 +592,11 @@ class VFSFromYAMLParser {
     Entry *Result = 0;
     switch (Kind) {
     case EK_File:
-      Result = new FileEntry(LastComponent, llvm_move(ExternalContentsPath),
+      Result = new FileEntry(LastComponent, std::move(ExternalContentsPath),
                              UseExternalName);
       break;
     case EK_Directory:
-      Result = new DirectoryEntry(LastComponent, llvm_move(EntryArrayContents),
+      Result = new DirectoryEntry(LastComponent, std::move(EntryArrayContents),
           Status("", "", getNextVirtualUniqueID(), sys::TimeValue::now(), 0, 0,
                  0, file_type::directory_file, sys::fs::all_all));
       break;
@@ -714,8 +733,12 @@ VFSFromYAML *VFSFromYAML::create(MemoryBuffer *Buffer,
 }
 
 ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
-  SmallVector<char, 256> Storage;
-  StringRef Path = Path_.toNullTerminatedStringRef(Storage);
+  SmallString<256> Path;
+  Path_.toVector(Path);
+
+  // Handle relative paths
+  if (error_code EC = sys::fs::make_absolute(Path))
+    return EC;
 
   if (Path.empty())
     return error_code(errc::invalid_argument, system_category());
@@ -734,7 +757,10 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
 ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
                                          sys::path::const_iterator End,
                                          Entry *From) {
-  // FIXME: handle . and ..
+  if (Start->equals("."))
+    ++Start;
+
+  // FIXME: handle ..
   if (CaseSensitive ? !Start->equals(From->getName())
                     : !Start->equals_lower(From->getName()))
     // failure to match
@@ -770,8 +796,7 @@ ErrorOr<Status> VFSFromYAML::status(const Twine &Path) {
   if (FileEntry *F = dyn_cast<FileEntry>(*Result)) {
     ErrorOr<Status> S = ExternalFS->status(F->getExternalContentsPath());
     assert(!S || S->getName() == F->getExternalContentsPath());
-    if (S && (F->useName() == FileEntry::NK_Virtual ||
-              (F->useName() == FileEntry::NK_NotSet && !UseExternalNames)))
+    if (S && !F->useExternalName(UseExternalNames))
       S->setName(PathStr);
     return S;
   } else { // directory
@@ -792,7 +817,14 @@ error_code VFSFromYAML::openFileForRead(const Twine &Path,
   if (!F) // FIXME: errc::not_a_file?
     return error_code(errc::invalid_argument, system_category());
 
-  return ExternalFS->openFileForRead(F->getExternalContentsPath(), Result);
+  if (error_code EC = ExternalFS->openFileForRead(F->getExternalContentsPath(),
+                                                  Result))
+    return EC;
+
+  if (!F->useExternalName(UseExternalNames))
+    Result->setName(Path.str());
+
+  return error_code::success();
 }
 
 IntrusiveRefCntPtr<FileSystem>
@@ -803,8 +835,8 @@ vfs::getVFSFromYAML(MemoryBuffer *Buffer, SourceMgr::DiagHandlerTy DiagHandler,
 }
 
 UniqueID vfs::getNextVirtualUniqueID() {
-  static volatile sys::cas_flag UID = 0;
-  sys::cas_flag ID = llvm::sys::AtomicIncrement(&UID);
+  static std::atomic<unsigned> UID;
+  unsigned ID = ++UID;
   // The following assumes that uint64_t max will never collide with a real
   // dev_t value from the OS.
   return UniqueID(std::numeric_limits<uint64_t>::max(), ID);

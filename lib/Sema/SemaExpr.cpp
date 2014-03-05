@@ -806,14 +806,20 @@ void Sema::checkVariadicArgument(const Expr *E, VariadicCallType CT) {
 
   // Complain about passing non-POD types through varargs.
   switch (VAK) {
-  case VAK_Valid:
-    break;
-
   case VAK_ValidInCXX11:
     DiagRuntimeBehavior(
         E->getLocStart(), 0,
         PDiag(diag::warn_cxx98_compat_pass_non_pod_arg_to_vararg)
-          << E->getType() << CT);
+          << Ty << CT);
+    // Fall through.
+  case VAK_Valid:
+    if (Ty->isRecordType()) {
+      // This is unlikely to be what the user intended. If the class has a
+      // 'c_str' member function, the user probably meant to call that.
+      DiagRuntimeBehavior(E->getLocStart(), 0,
+                          PDiag(diag::warn_pass_class_arg_to_vararg)
+                            << Ty << CT << hasCStrMethod(E) << ".c_str()");
+    }
     break;
 
   case VAK_Undefined:
@@ -5998,8 +6004,10 @@ checkPointerTypesForAssignment(Sema &S, QualType LHSType, QualType RHSType) {
   // get the "pointed to" type (ignoring qualifiers at the top level)
   const Type *lhptee, *rhptee;
   Qualifiers lhq, rhq;
-  llvm::tie(lhptee, lhq) = cast<PointerType>(LHSType)->getPointeeType().split();
-  llvm::tie(rhptee, rhq) = cast<PointerType>(RHSType)->getPointeeType().split();
+  std::tie(lhptee, lhq) =
+      cast<PointerType>(LHSType)->getPointeeType().split().asPair();
+  std::tie(rhptee, rhq) =
+      cast<PointerType>(RHSType)->getPointeeType().split().asPair();
 
   Sema::AssignConvertType ConvTy = Sema::Compatible;
 
