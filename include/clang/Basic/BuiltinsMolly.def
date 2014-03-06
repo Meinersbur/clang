@@ -34,3 +34,7 @@ BUILTIN(__builtin_molly_local_elts, "LLiv*", "n") // Currently not used
 
 // int __builtin_molly_orig_main(int argc, char **argv, char **envp)
 BUILTIN(__builtin_molly_orig_main, "iic**c**", "")
+
+// Lack if modulo operator in C (result's sign is same as divisor)
+BUILTIN(__builtin_molly_mod, "LLiLLiLLi", "n")
+

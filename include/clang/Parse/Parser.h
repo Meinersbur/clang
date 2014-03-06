@@ -2415,7 +2415,7 @@ private:
 class PragmaMollyHandler : public PragmaHandler {
 public:
   PragmaMollyHandler(Sema &Actions) : PragmaHandler("molly"), Actions(Actions) {}
-  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &FirstToken) LLVM_OVERRIDE;
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &FirstToken) override;
 private:
   Sema &Actions;
 }; // class PragmaMollyHandler
