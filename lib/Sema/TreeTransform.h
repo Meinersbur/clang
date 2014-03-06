@@ -1315,6 +1315,18 @@ public:
                                          LParenLoc, EndLoc);
   }
 
+  /// \brief Build a new OpenMP 'num_threads' clause.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
+  OMPClause *RebuildOMPNumThreadsClause(Expr *NumThreads,
+                                        SourceLocation StartLoc,
+                                        SourceLocation LParenLoc,
+                                        SourceLocation EndLoc) {
+    return getSema().ActOnOpenMPNumThreadsClause(NumThreads, StartLoc,
+                                                 LParenLoc, EndLoc);
+  }
+
   /// \brief Build a new OpenMP 'default' clause.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -1352,6 +1364,10 @@ public:
                                                    EndLoc);
   }
 
+  /// \brief Build a new OpenMP 'shared' clause.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
   OMPClause *RebuildOMPSharedClause(ArrayRef<Expr *> VarList,
                                     SourceLocation StartLoc,
                                     SourceLocation LParenLoc,
@@ -6323,6 +6339,18 @@ TreeTransform<Derived>::TransformOMPIfClause(OMPIfClause *C) {
     return 0;
   return getDerived().RebuildOMPIfClause(Cond.take(), C->getLocStart(),
                                          C->getLParenLoc(), C->getLocEnd());
+}
+
+template<typename Derived>
+OMPClause *
+TreeTransform<Derived>::TransformOMPNumThreadsClause(OMPNumThreadsClause *C) {
+  ExprResult NumThreads = getDerived().TransformExpr(C->getNumThreads());
+  if (NumThreads.isInvalid())
+    return 0;
+  return getDerived().RebuildOMPNumThreadsClause(NumThreads.take(),
+                                                 C->getLocStart(),
+                                                 C->getLParenLoc(),
+                                                 C->getLocEnd());
 }
 
 template<typename Derived>

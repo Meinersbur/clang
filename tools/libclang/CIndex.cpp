@@ -1937,6 +1937,10 @@ void OMPClauseEnqueue::VisitOMPIfClause(const OMPIfClause *C) {
   Visitor->AddStmt(C->getCondition());
 }
 
+void OMPClauseEnqueue::VisitOMPNumThreadsClause(const OMPNumThreadsClause *C) {
+  Visitor->AddStmt(C->getNumThreads());
+}
+
 void EnqueueVisitor::EnqueueChildren(const OMPClause *S) {
   unsigned size = WL.size();
   for (Stmt::const_child_range Child = S->children(); Child; ++Child) {

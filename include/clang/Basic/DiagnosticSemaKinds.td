@@ -2153,6 +2153,9 @@ def note_overridden_method : Note<
   "overridden method is here">;
 
 // Thread Safety Attributes
+def warn_invalid_capability_name : Warning<
+  "invalid capability name '%0'; capability name must be 'mutex' or 'role'">,
+  InGroup<ThreadSafetyAttributes>, DefaultIgnore;
 def warn_thread_attribute_ignored : Warning<
   "ignoring %0 attribute because its argument is invalid">,
   InGroup<ThreadSafetyAttributes>, DefaultIgnore;
@@ -3771,10 +3774,11 @@ def warn_ivars_in_interface : Warning<
 def ext_enum_value_not_int : Extension<
   "ISO C restricts enumerator values to range of 'int' (%0 is too "
   "%select{small|large}1)">;
-def warn_enum_too_large : Warning<
-  "enumeration values exceed range of largest integer">;
-def warn_enumerator_too_large : Warning<
-  "enumerator value %0 is not representable in the largest integer type">;
+def ext_enum_too_large : ExtWarn<
+  "enumeration values exceed range of largest integer">, InGroup<EnumTooLarge>;
+def ext_enumerator_increment_too_large : ExtWarn<
+  "incremented enumerator value %0 is not representable in the "
+  "largest integer type">, InGroup<EnumTooLarge>;
   
 def warn_illegal_constant_array_size : Extension<
   "size of static array must be an integer constant expression">;
@@ -6913,6 +6917,20 @@ def err_omp_for_wrong_count : Error <
   "unable to calculate number of iterations of the for-loop">;
 def err_omp_type_not_rai : Error <
   "iteration variable is not of a random access iterator type">;
+def err_omp_negative_expression_in_clause : Error<
+  "argument to '%0' clause must be a positive integer value">;
+def err_omp_not_integral : Error<
+  "expression must have integral or unscoped enumeration "
+  "type, not %0">;
+def err_omp_incomplete_type : Error<
+  "expression has incomplete class type %0">;
+def err_omp_explicit_conversion : Error<
+  "expression requires explicit conversion from %0 to %1">;
+def note_omp_conversion_here : Note<
+  "conversion to %select{integral|enumeration}0 type %1 declared here">;
+def err_omp_ambiguous_conversion : Error<
+  "ambiguous conversion from type %0 to an integral or unscoped "
+  "enumeration type">;
 def err_omp_for_loop_var_dsa : Error <
   "loop iteration variable may not be %0">;
 def err_omp_sections_not_section : Error <
