@@ -9,11 +9,11 @@ namespace clang {
       std::string islstr;
       unsigned distdims;
     public:
-      /* implicit */ MollyTransformClause(llvm::StringRef islstr, unsigned distdims) : islstr(islstr), distdims(distdims) {      }
+      /* implicit */ MollyTransformClause(llvm::StringRef islstr, unsigned distdims) : islstr(islstr), distdims(distdims) { }
 
       StringRef getIslStr() { return islstr; }
       unsigned getClusterDims() { return distdims; } 
-    }; // MollyTransformClause
+    }; // class MollyTransformClause
 
     typedef std::vector<MollyTransformClause> ClausesListTy;
 

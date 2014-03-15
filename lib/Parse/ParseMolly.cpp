@@ -24,6 +24,25 @@ public:
 }; // struct PragmaMollyInfo
 
 
+struct PragmaMollyTransformInfo {
+  std::string islstr; 
+  //int clusterdims;
+
+public:
+  PragmaMollyTransformInfo(StringRef islstr) : islstr(islstr) { }
+}; // struct PragmaMollyTransformInfo
+
+
+void Parser::HandleMollyTransform() {
+  assert(Tok.is(tok::annot_pragma_molly_transform));
+  auto transformInfo = static_cast<PragmaMollyTransformInfo*>(Tok.getAnnotationValue()); // FIXME: Who has to free this annotation?
+  auto islstr = transformInfo->islstr;
+  ConsumeToken();
+
+  Actions.ActOnMollyTransformClause(islstr, 0);
+}
+
+
 // Mostly copied from Parser::ParseOpenMPDeclarativeOrExecutableDirective
 StmtResult Parser::ParseMollyAnnotation(bool StandAloneAllowed) {
   assert(Tok.is(tok::annot_pragma_molly) && "Not a Molly directive!");
@@ -69,6 +88,7 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
   PP.Lex(OpTok);
   IdentifierInfo *OpII = OpTok.getIdentifierInfo();
   if (OpII->isStr("transform")) {
+    uint64_t dstlvl = 0;
 
     Token LParTok;
     PP.Lex(LParTok);
@@ -77,27 +97,27 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
     }
 
     string islstr;
-    Token commaTok;
-    PP.LexStringLiteral(commaTok, islstr, nullptr, true);
+    Token tok;
+    PP.LexStringLiteral(tok, islstr, nullptr, true);
 
-    if (commaTok.isNot(tok::comma)) {
-      llvm_unreachable("comma expected");
+    // Optional comma-part
+    if (tok.is(tok::comma)) {
+      Token distlvlTok;
+      PP.Lex(distlvlTok);
+      if (distlvlTok.isNot(tok::numeric_constant)) {
+        llvm_unreachable("int constant expected");
+      }
+      //TODO: is there a more direct way to just parse an integer literal?
+      llvm::APSInt Val;
+      auto retval = Actions.ActOnNumericConstant(distlvlTok).get()->isIntegerConstantExpr(Val, Actions.getASTContext());
+      assert(retval);
+      dstlvl = Val.getZExtValue();
+
+      // Process next token
+      PP.Lex(tok);
     }
 
-    Token distlvlTok;
-    PP.Lex(distlvlTok);
-    if (distlvlTok.isNot(tok::numeric_constant)) {
-      llvm_unreachable("int constant expected");
-    }
-    //TODO: is there a more direct way to just parse an integer literal?
-    llvm::APSInt Val;
-    auto retval = Actions.ActOnNumericConstant(distlvlTok).get()->isIntegerConstantExpr(Val, Actions.getASTContext());
-    assert(retval);
-    auto dstlvl = Val.getZExtValue();
-
-    Token rparenTok;
-    PP.Lex(rparenTok);
-    if (rparenTok.isNot(tok::r_paren)) {
+    if (tok.isNot(tok::r_paren)) {
       llvm_unreachable("rparen expected");
     }
 
@@ -107,16 +127,27 @@ void PragmaMollyHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Int
       llvm_unreachable("end-of-pragma expected");
     }
 
+
+
+    auto Info = (PragmaMollyTransformInfo*)PP.getPreprocessorAllocator().Allocate(sizeof(PragmaMollyInfo), llvm::alignOf<PragmaMollyInfo>());
+    new (Info)PragmaMollyTransformInfo(islstr);
+
+    Token *Toks = new Token[1]; //(Token*) PP.getPreprocessorAllocator().Allocate(sizeof(Token) * 1, llvm::alignOf<Token>());
+    Token &Annot = Toks[0];
+    Annot.startToken();
+    Annot.setKind(tok::annot_pragma_molly_transform);
+    Annot.setAnnotationValue(const_cast<void*>(static_cast<const void*>(Info)));
+    PP.EnterTokenStream(Toks, 1, /*DisableMacroExpansion=*/true, /*OwnsTokens=*/true);
+
     // PragmaPack creates an annotation token that the the parser will handle. Why? Better distinction between Lexer and Parser?
     //   Possible answer: maybe because Parser can check whether it is placed correctly 
     //   Or maybe to support _Pragma
     // OpenMP invokes the parser to parse the next statement itself.
     // Here, we directly instruct Sema to annotate the next variable.
     // I don't know which approach is better
-    Actions.ActOnMollyTransformClause(islstr, dstlvl);
+    //Actions.ActOnMollyTransformClause(islstr, dstlvl);
 
-  }
-  else if (OpII->isStr("where")) {
+  } else if (OpII->isStr("where")) {
     Token LParTok;
     PP.Lex(LParTok);
     if (LParTok.isNot(tok::l_paren)) {

@@ -631,6 +631,11 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
   case tok::annot_pragma_ms_vtordisp:
     HandlePragmaMSVtorDisp();
     return DeclGroupPtrTy();
+#ifdef MOLLY
+  case tok::annot_pragma_molly_transform:
+    HandleMollyTransform();
+    return DeclGroupPtrTy();
+#endif /* MOLLY */
   case tok::semi:
     // Either a C++11 empty-declaration or attribute-declaration.
     SingleDecl = Actions.ActOnEmptyDeclaration(getCurScope(),

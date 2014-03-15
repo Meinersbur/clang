@@ -626,6 +626,7 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
   bool hasDimArg = false;
   bool hasValArg = false;
   bool hasCoordArgs = false;
+  auto builder = &cgf->Builder;
   switch (BuiltinID) {
   case Builtin::BI__builtin_molly_ptr:
     intrincId = Intrinsic::molly_ptr;
@@ -679,13 +680,24 @@ bool CodeGenMolly::EmitMollyBuiltin(clang::CodeGen::RValue &result, clang::CodeG
     intrincId = Intrinsic::molly_local_indexof;
     hasCoordArgs = true;
     break;
+  case Builtin::BI__builtin_molly_mod: {
+    Function *func = cgm->getIntrinsic(Intrinsic::molly_mod);
+    assert(E->getNumArgs() == 2);
+    auto clangDivident = E->getArg(0);
+    auto clangDivisor = E->getArg(1);
+    auto llvmDivident = cgf->EmitScalarExpr(clangDivident);
+    auto llvmDivisor = cgf->EmitScalarExpr(clangDivisor);
+    llvm::Value *llvmArgs[] = { llvmDivident, llvmDivisor };
+    auto callInstr = builder->CreateCall(func, llvmArgs, "mollymod");
+    result = RValue::get(callInstr);
+    return true;
+  } break;
   default:
     return false; // Not a Molly intrinsic
   }
 
   auto &llvmContext = cgm->getLLVMContext();
   auto &clangContext = cgm->getContext();
-  auto builder = &cgf->Builder;
   auto nArgs = E->getNumArgs();
   //auto nDims = (nArgs - 1);
 

@@ -1617,11 +1617,11 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   if (Value *V = EmitTargetBuiltinExpr(BuiltinID, E))
     return RValue::get(V);
 
-  // BEGIN Molly
+#ifdef MOLLY
   RValue result;
   if (CGM.MollyGen.EmitMollyBuiltin(result, &CGM, this, FD, BuiltinID, E))
     return result;
-  // END Molly
+#endif /* MOLLY */
 
   ErrorUnsupported(E, "builtin function");
 

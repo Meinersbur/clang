@@ -8093,7 +8093,7 @@ public:
   void ActOnMollyTransformClause(StringRef islaff, int parallelLevel);
 
   StmtResult ActOnMollyWhereDirective(Stmt *AStmt, StringRef islstr);
-#endif
+#endif /* MOLLY */
 };
 
 /// \brief RAII object that enters a new expression evaluation context.

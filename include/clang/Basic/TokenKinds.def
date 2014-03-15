@@ -700,7 +700,8 @@ ANNOTATION(module_begin)
 ANNOTATION(module_end)
 
 #ifdef MOLLY 
-ANNOTATION(pragma_molly)
+ANNOTATION(pragma_molly) // TODO: rename: pragma_molly_where
+ANNOTATION(pragma_molly_transform)
 #endif /* MOLLY */
 
 #undef ANNOTATION

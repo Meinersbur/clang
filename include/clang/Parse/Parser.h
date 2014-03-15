@@ -2409,6 +2409,7 @@ private:
   virtual void CodeCompleteNaturalLanguage();
 
 #ifdef MOLLY
+  void HandleMollyTransform();
   StmtResult ParseMollyAnnotation(bool StandAloneAllowed);
 #endif /* MOLLY */
 };
