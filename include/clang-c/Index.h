@@ -2140,21 +2140,6 @@ enum CXCursorKind {
   /** \brief OpenMP parallel directive.
    */
   CXCursor_OMPParallelDirective          = 232,
-  CXCursor_OMPForDirective               = 233,
-  CXCursor_OMPSectionsDirective          = 234,
-  CXCursor_OMPSectionDirective           = 235,
-  CXCursor_OMPSingleDirective            = 236,
-  CXCursor_OMPTaskDirective              = 237,
-  CXCursor_OMPTaskyieldDirective         = 238,
-  CXCursor_OMPMasterDirective            = 239,
-  CXCursor_OMPCriticalDirective          = 240,
-  CXCursor_OMPBarrierDirective           = 241,
-  CXCursor_OMPTaskwaitDirective          = 242,
-  CXCursor_OMPTaskgroupDirective         = 243,
-  CXCursor_OMPAtomicDirective            = 244,
-  CXCursor_OMPFlushDirective             = 245,
-  CXCursor_OMPOrderedDirective           = 246,
-
   /** \brief OpenMP simd directive.
    */
   CXCursor_OMPSimdDirective              = 247,

@@ -698,19 +698,17 @@ public:
     ArchDefinePpcgr  = 1 << 1,
     ArchDefinePpcsq  = 1 << 2,
     ArchDefine440    = 1 << 3,
-    ArchDefine440fp2 = 1 << 4,
-    ArchDefine450    = 1 << 5,
-    ArchDefine450fp2 = 1 << 6,
-    ArchDefine603    = 1 << 7,
-    ArchDefine604    = 1 << 8,
-    ArchDefinePwr4   = 1 << 9,
-    ArchDefinePwr5   = 1 << 10,
-    ArchDefinePwr5x  = 1 << 11,
-    ArchDefinePwr6   = 1 << 12,
-    ArchDefinePwr6x  = 1 << 13,
-    ArchDefinePwr7   = 1 << 14,
-    ArchDefineA2     = 1 << 15,
-    ArchDefineA2q    = 1 << 16
+    ArchDefine450    = 1 << 4,
+    ArchDefine603    = 1 << 5,
+    ArchDefine604    = 1 << 6,
+    ArchDefinePwr4   = 1 << 7,
+    ArchDefinePwr5   = 1 << 8,
+    ArchDefinePwr5x  = 1 << 9,
+    ArchDefinePwr6   = 1 << 10,
+    ArchDefinePwr6x  = 1 << 11,
+    ArchDefinePwr7   = 1 << 12,
+    ArchDefineA2     = 1 << 13,
+    ArchDefineA2q    = 1 << 14
   } ArchDefineTypes;
 
   // Note: GCC recognizes the following additional cpus:
@@ -721,9 +719,7 @@ public:
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
       .Case("generic", true)
       .Case("440", true)
-      .Case("440fp2", true)
       .Case("450", true)
-      .Case("450fp2", true)
       .Case("601", true)
       .Case("602", true)
       .Case("603", true)
@@ -992,10 +988,7 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
   // CPU identification.
   ArchDefineTypes defs = (ArchDefineTypes)llvm::StringSwitch<int>(CPU)
     .Case("440",   ArchDefine440)
-    .Case("440fp2",ArchDefine440  | ArchDefine440fp2)
     .Case("450",   ArchDefine450  | ArchDefine440)
-    .Case("450fp2",ArchDefine450  | ArchDefine440 | ArchDefine440fp2
-                     | ArchDefine450fp2)
     .Case("601",   ArchDefineName)
     .Case("602",   ArchDefineName | ArchDefinePpcgr)
     .Case("603",   ArchDefineName | ArchDefinePpcgr)
@@ -1050,16 +1043,8 @@ void PPCTargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("_ARCH_PPCSQ");
   if (defs & ArchDefine440)
     Builder.defineMacro("_ARCH_440");
-  if (defs & ArchDefine440fp2) {
-    Builder.defineMacro("_ARCH_440FP2");
-    Builder.defineMacro("_ARCH_440D");
-  }
   if (defs & ArchDefine450)
     Builder.defineMacro("_ARCH_450");
-  if (defs & ArchDefine450fp2) {
-    Builder.defineMacro("_ARCH_450FP2");
-    Builder.defineMacro("_ARCH_450D");
-  }
   if (defs & ArchDefine603)
     Builder.defineMacro("_ARCH_603");
   if (defs & ArchDefine604)

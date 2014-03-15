@@ -2707,7 +2707,8 @@ static Distro DetectDistro(llvm::Triple::ArchType Arch) {
           .Case("saucy", UbuntuSaucy)
           .Case("trusty", UbuntuTrusty)
           .Default(UnknownDistro);
-    return Version;
+    if (Version != UnknownDistro)
+      return Version;
   }
 
   if (!llvm::MemoryBuffer::getFile("/etc/redhat-release", File)) {

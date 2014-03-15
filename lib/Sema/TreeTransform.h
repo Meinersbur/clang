@@ -1381,7 +1381,7 @@ public:
     return getSema().ActOnMollyWhereDirective(AStmt, islstr);
   }
 #endif /* MOLLY */
-
+  
   /// \brief Rebuild the operand to an Objective-C \@synchronized statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -6318,11 +6318,6 @@ TreeTransform<Derived>::TransformOMPParallelDirective(OMPParallelDirective *D) {
   getDerived().getSema().StartOpenMPDSABlock(OMPD_parallel, DirName, 0);
   StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
   getDerived().getSema().EndOpenMPDSABlock(Res.get());
-  return Res;
-}
-
-template<typename Derived>
-StmtResult
 TreeTransform<Derived>::TransformOMPSimdDirective(OMPSimdDirective *D) {
   DeclarationNameInfo DirName;
   getDerived().getSema().StartOpenMPDSABlock(OMPD_simd, DirName, 0);
@@ -6421,6 +6416,7 @@ TreeTransform<Derived>::TransformOMPSharedClause(OMPSharedClause *C) {
                                              C->getLocEnd());
 }
 
+
 #ifdef MOLLY
 template<typename Derived>
 StmtResult TreeTransform<Derived>::TransformMollyWhereDirective(MollyWhereDirective *D) {
@@ -6434,7 +6430,7 @@ StmtResult TreeTransform<Derived>::TransformMollyWhereDirective(MollyWhereDirect
 
   return getDerived().RebuildMollyWhereDirective(trans.take(), D->getIslStr());
 }
-#endif
+#endif /* MOLLY */
 
 //===----------------------------------------------------------------------===//
 // Expression transformation

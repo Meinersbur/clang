@@ -1774,6 +1774,7 @@ void ASTStmtReader::VisitOMPSimdDirective(OMPSimdDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+
 #ifdef MOLLY
 void ASTStmtReader::VisitMollyWhereDirective(MollyWhereDirective *D) {
   //TODO: Implement

@@ -214,9 +214,6 @@ Sema::~Sema() {
   llvm::DeleteContainerSeconds(LateParsedTemplateMap);
   if (PackContext) FreePackedContext();
   if (VisContext) FreeVisContext();
-  // Destroys data sharing attributes stack for OpenMP
-  DestroyDataSharingAttributesStack();
-
   // Kill all the active scopes.
   for (unsigned I = 1, E = FunctionScopes.size(); I != E; ++I)
     delete FunctionScopes[I];
@@ -235,6 +232,9 @@ Sema::~Sema() {
   // If Sema's ExternalSource is the multiplexer - we own it.
   if (isMultiplexExternalSource)
     delete ExternalSource;
+
+  // Destroys data sharing attributes stack for OpenMP
+  DestroyDataSharingAttributesStack();
 }
 
 /// makeUnavailableInSystemHeader - There is an error in the current
