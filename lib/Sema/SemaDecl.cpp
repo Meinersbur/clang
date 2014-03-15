@@ -1794,16 +1794,16 @@ void Sema::MergeTypedefNameDecl(TypedefNameDecl *New, LookupResult &OldDecls) {
 static bool DeclHasAttr(const Decl *D, const Attr *A) {
   const OwnershipAttr *OA = dyn_cast<OwnershipAttr>(A);
   const AnnotateAttr *Ann = dyn_cast<AnnotateAttr>(A);
-  for (Decl::attr_iterator i = D->attr_begin(), e = D->attr_end(); i != e; ++i)
-    if ((*i)->getKind() == A->getKind()) {
+  for (const auto *i : D->attrs())
+    if (i->getKind() == A->getKind()) {
       if (Ann) {
-        if (Ann->getAnnotation() == cast<AnnotateAttr>(*i)->getAnnotation())
+        if (Ann->getAnnotation() == cast<AnnotateAttr>(i)->getAnnotation())
           return true;
         continue;
       }
       // FIXME: Don't hardcode this check
-      if (OA && isa<OwnershipAttr>(*i))
-        return OA->getOwnKind() == cast<OwnershipAttr>(*i)->getOwnKind();
+      if (OA && isa<OwnershipAttr>(i))
+        return OA->getOwnKind() == cast<OwnershipAttr>(i)->getOwnKind();
       return true;
     }
 
@@ -2000,12 +2000,9 @@ static const Decl *getDefinition(const Decl *D) {
 }
 
 static bool hasAttribute(const Decl *D, attr::Kind Kind) {
-  for (Decl::attr_iterator I = D->attr_begin(), E = D->attr_end();
-       I != E; ++I) {
-    Attr *Attribute = *I;
+  for (const auto *Attribute : D->attrs())
     if (Attribute->getKind() == Kind)
       return true;
-  }
   return false;
 }
 
@@ -3469,12 +3466,10 @@ static bool InjectAnonymousStructOrUnionMembers(Sema &SemaRef, Scope *S,
   bool Invalid = false;
 
   // Look every FieldDecl and IndirectFieldDecl with a name.
-  for (RecordDecl::decl_iterator D = AnonRecord->decls_begin(),
-                               DEnd = AnonRecord->decls_end();
-       D != DEnd; ++D) {
-    if ((isa<FieldDecl>(*D) || isa<IndirectFieldDecl>(*D)) &&
-        cast<NamedDecl>(*D)->getDeclName()) {
-      ValueDecl *VD = cast<ValueDecl>(*D);
+  for (auto *D : AnonRecord->decls()) {
+    if ((isa<FieldDecl>(D) || isa<IndirectFieldDecl>(D)) &&
+        cast<NamedDecl>(D)->getDeclName()) {
+      ValueDecl *VD = cast<ValueDecl>(D);
       if (CheckAnonMemberRedeclaration(SemaRef, S, Owner, VD->getDeclName(),
                                        VD->getLocation(), diagKind)) {
         // C++ [class.union]p2:
@@ -3490,9 +3485,8 @@ static bool InjectAnonymousStructOrUnionMembers(Sema &SemaRef, Scope *S,
         //   anonymous union is declared.
         unsigned OldChainingSize = Chaining.size();
         if (IndirectFieldDecl *IF = dyn_cast<IndirectFieldDecl>(VD))
-          for (IndirectFieldDecl::chain_iterator PI = IF->chain_begin(),
-               PE = IF->chain_end(); PI != PE; ++PI)
-            Chaining.push_back(*PI);
+          for (auto *PI : IF->chain())
+            Chaining.push_back(PI);
         else
           Chaining.push_back(VD);
 
@@ -3550,11 +3544,9 @@ StorageClassSpecToVarDeclStorageClass(const DeclSpec &DS) {
 static SourceLocation findDefaultInitializer(const CXXRecordDecl *Record) {
   assert(Record->hasInClassInitializer());
 
-  for (DeclContext::decl_iterator I = Record->decls_begin(),
-                                  E = Record->decls_end();
-       I != E; ++I) {
-    FieldDecl *FD = dyn_cast<FieldDecl>(*I);
-    if (IndirectFieldDecl *IFD = dyn_cast<IndirectFieldDecl>(*I))
+  for (const auto *I : Record->decls()) {
+    const auto *FD = dyn_cast<FieldDecl>(I);
+    if (const auto *IFD = dyn_cast<IndirectFieldDecl>(I))
       FD = IFD->getAnonField();
     if (FD && FD->hasInClassInitializer())
       return FD->getLocation();
@@ -3664,10 +3656,8 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
     //   The member-specification of an anonymous union shall only
     //   define non-static data members. [Note: nested types and
     //   functions cannot be declared within an anonymous union. ]
-    for (DeclContext::decl_iterator Mem = Record->decls_begin(),
-                                 MemEnd = Record->decls_end();
-         Mem != MemEnd; ++Mem) {
-      if (FieldDecl *FD = dyn_cast<FieldDecl>(*Mem)) {
+    for (auto *Mem : Record->decls()) {
+      if (auto *FD = dyn_cast<FieldDecl>(Mem)) {
         // C++ [class.union]p3:
         //   An anonymous union shall not have private or protected
         //   members (clause 11).
@@ -3685,14 +3675,14 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
         //   array of such objects.
         if (CheckNontrivialField(FD))
           Invalid = true;
-      } else if ((*Mem)->isImplicit()) {
+      } else if (Mem->isImplicit()) {
         // Any implicit members are fine.
-      } else if (isa<TagDecl>(*Mem) && (*Mem)->getDeclContext() != Record) {
+      } else if (isa<TagDecl>(Mem) && Mem->getDeclContext() != Record) {
         // This is a type that showed up in an
         // elaborated-type-specifier inside the anonymous struct or
         // union, but which actually declares a type outside of the
         // anonymous struct or union. It's okay.
-      } else if (RecordDecl *MemRecord = dyn_cast<RecordDecl>(*Mem)) {
+      } else if (auto *MemRecord = dyn_cast<RecordDecl>(Mem)) {
         if (!MemRecord->isAnonymousStructOrUnion() &&
             MemRecord->getDeclName()) {
           // Visual C++ allows type definition in anonymous struct or union.
@@ -3713,26 +3703,26 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
                diag::ext_anonymous_record_with_anonymous_type)
             << (int)Record->isUnion();
         }
-      } else if (isa<AccessSpecDecl>(*Mem)) {
+      } else if (isa<AccessSpecDecl>(Mem)) {
         // Any access specifier is fine.
       } else {
         // We have something that isn't a non-static data
         // member. Complain about it.
         unsigned DK = diag::err_anonymous_record_bad_member;
-        if (isa<TypeDecl>(*Mem))
+        if (isa<TypeDecl>(Mem))
           DK = diag::err_anonymous_record_with_type;
-        else if (isa<FunctionDecl>(*Mem))
+        else if (isa<FunctionDecl>(Mem))
           DK = diag::err_anonymous_record_with_function;
-        else if (isa<VarDecl>(*Mem))
+        else if (isa<VarDecl>(Mem))
           DK = diag::err_anonymous_record_with_static;
         
         // Visual C++ allows type definition in anonymous struct or union.
         if (getLangOpts().MicrosoftExt &&
             DK == diag::err_anonymous_record_with_type)
-          Diag((*Mem)->getLocation(), diag::ext_anonymous_record_with_type)
+          Diag(Mem->getLocation(), diag::ext_anonymous_record_with_type)
             << (int)Record->isUnion();
         else {
-          Diag((*Mem)->getLocation(), DK)
+          Diag(Mem->getLocation(), DK)
               << (int)Record->isUnion();
           Invalid = true;
         }
@@ -5543,11 +5533,9 @@ void Sema::CheckShadow(Scope *S, VarDecl *D, const LookupResult& R) {
     if (shadowedVar->isExternC()) {
       // For shadowing external vars, make sure that we point to the global
       // declaration, not a locally scoped extern declaration.
-      for (VarDecl::redecl_iterator
-             I = shadowedVar->redecls_begin(), E = shadowedVar->redecls_end();
-           I != E; ++I)
+      for (auto I : shadowedVar->redecls())
         if (I->isFileVarDecl()) {
-          ShadowedDecl = *I;
+          ShadowedDecl = I;
           break;
         }
     }
@@ -6488,9 +6476,7 @@ static void checkIsValidOpenCLKernelParameter(
     // Add a null marker so we know when we've gone back up a level
     VisitStack.push_back((const Decl *) 0);
 
-    for (RecordDecl::field_iterator I = RD->field_begin(),
-           E = RD->field_end(); I != E; ++I) {
-      const FieldDecl *FD = *I;
+    for (const auto *FD : RD->fields()) {
       QualType QT = FD->getType();
 
       if (ValidTypes.count(QT.getTypePtr()))
@@ -7331,11 +7317,8 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
 
     llvm::SmallPtrSet<const Type *, 16> ValidTypes;
-    for (FunctionDecl::param_iterator PI = NewFD->param_begin(),
-         PE = NewFD->param_end(); PI != PE; ++PI) {
-      ParmVarDecl *Param = *PI;
+    for (auto Param : NewFD->params())
       checkIsValidOpenCLKernelParameter(*this, D, Param, ValidTypes);
-    }
   }
 
   MarkUnusedFileScopedDecl(NewFD);
@@ -9626,8 +9609,7 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
                            /*CheckParameterNames=*/true);
 
   // Introduce our parameters into the function scope
-  for (unsigned p = 0, NumParams = FD->getNumParams(); p < NumParams; ++p) {
-    ParmVarDecl *Param = FD->getParamDecl(p);
+  for (auto Param : FD->params()) {
     Param->setOwningFunction(FD);
 
     // If this has an identifier, add it to the scope stack.
@@ -9652,9 +9634,8 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
       // and reattach to the current context.
       if (D->getLexicalDeclContext() == Context.getTranslationUnitDecl()) {
         // Is the decl actually in the context?
-        for (DeclContext::decl_iterator DI = Context.getTranslationUnitDecl()->decls_begin(),
-               DE = Context.getTranslationUnitDecl()->decls_end(); DI != DE; ++DI) {
-          if (*DI == D) {  
+        for (const auto *DI : Context.getTranslationUnitDecl()->decls()) {
+          if (DI == D) {  
             Context.getTranslationUnitDecl()->removeDecl(D);
             break;
           }
@@ -9669,10 +9650,9 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D) {
 
       // Similarly, dive into enums and fish their constants out, making them
       // accessible in this scope.
-      if (EnumDecl *ED = dyn_cast<EnumDecl>(D)) {
-        for (EnumDecl::enumerator_iterator EI = ED->enumerator_begin(),
-               EE = ED->enumerator_end(); EI != EE; ++EI)
-          PushOnScopeChains(*EI, FnBodyScope, /*AddToContext=*/false);
+      if (auto *ED = dyn_cast<EnumDecl>(D)) {
+        for (auto *EI : ED->enumerators())
+          PushOnScopeChains(EI, FnBodyScope, /*AddToContext=*/false);
       }
     }
   }
@@ -10355,8 +10335,7 @@ bool Sema::isAcceptableTagRedeclaration(const TagDecl *Previous,
       }
 
       bool previousMismatch = false;
-      for (TagDecl::redecl_iterator I(Previous->redecls_begin()),
-           E(Previous->redecls_end()); I != E; ++I) {
+      for (auto I : Previous->redecls()) {
         if (I->getTagKind() != NewTag) {
           if (!previousMismatch) {
             previousMismatch = true;
@@ -11913,9 +11892,8 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
   // members of anonymous structs and unions in the total.
   unsigned NumNamedMembers = 0;
   if (Record) {
-    for (RecordDecl::decl_iterator i = Record->decls_begin(),
-                                   e = Record->decls_end(); i != e; i++) {
-      if (IndirectFieldDecl *IFD = dyn_cast<IndirectFieldDecl>(*i))
+    for (const auto *I : Record->decls()) {
+      if (const auto *IFD = dyn_cast<IndirectFieldDecl>(I))
         if (IFD->getDeclName())
           ++NumNamedMembers;
     }
