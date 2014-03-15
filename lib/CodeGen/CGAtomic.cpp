@@ -15,6 +15,7 @@
 #include "CGCall.h"
 #include "CodeGenModule.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/CodeGen/CGFunctionInfo.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Intrinsics.h"
@@ -56,10 +57,10 @@ namespace {
       ASTContext &C = CGF.getContext();
 
       uint64_t valueAlignInBits;
-      llvm::tie(ValueSizeInBits, valueAlignInBits) = C.getTypeInfo(ValueTy);
+      std::tie(ValueSizeInBits, valueAlignInBits) = C.getTypeInfo(ValueTy);
 
       uint64_t atomicAlignInBits;
-      llvm::tie(AtomicSizeInBits, atomicAlignInBits) = C.getTypeInfo(AtomicTy);
+      std::tie(AtomicSizeInBits, atomicAlignInBits) = C.getTypeInfo(AtomicTy);
 
       assert(ValueSizeInBits <= AtomicSizeInBits);
       assert(valueAlignInBits <= atomicAlignInBits);

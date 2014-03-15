@@ -19,8 +19,8 @@
 #include "clang/Analysis/CFG.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/Support/Allocator.h"
+#include <memory>
 
 namespace clang {
 
@@ -69,16 +69,16 @@ class AnalysisDeclContext {
 
   const Decl * const D;
 
-  OwningPtr<CFG> cfg, completeCFG;
-  OwningPtr<CFGStmtMap> cfgStmtMap;
+  std::unique_ptr<CFG> cfg, completeCFG;
+  std::unique_ptr<CFGStmtMap> cfgStmtMap;
 
   CFG::BuildOptions cfgBuildOptions;
   CFG::BuildOptions::ForcedBlkExprs *forcedBlkExprs;
 
   bool builtCFG, builtCompleteCFG;
-  OwningPtr<ParentMap> PM;
-  OwningPtr<PseudoConstantAnalysis> PCA;
-  OwningPtr<CFGReverseBlockReachabilityAnalysis> CFA;
+  std::unique_ptr<ParentMap> PM;
+  std::unique_ptr<PseudoConstantAnalysis> PCA;
+  std::unique_ptr<CFGReverseBlockReachabilityAnalysis> CFA;
 
   llvm::BumpPtrAllocator A;
 
@@ -252,7 +252,7 @@ public:
   virtual void Profile(llvm::FoldingSetNodeID &ID) = 0;
 
   void dumpStack(raw_ostream &OS, StringRef Indent = "") const;
-  LLVM_ATTRIBUTE_USED void dumpStack() const;
+  void dumpStack() const;
 
 public:
   static void ProfileCommon(llvm::FoldingSetNodeID &ID,
@@ -409,7 +409,8 @@ public:
                              bool addInitializers = false,
                              bool addTemporaryDtors = false,
                              bool synthesizeBodies = false,
-                             bool addStaticInitBranches = false);
+                             bool addStaticInitBranches = false,
+                             bool addCXXNewAllocator = true);
 
   ~AnalysisDeclContextManager();
 

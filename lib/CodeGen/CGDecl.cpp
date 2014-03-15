@@ -19,9 +19,9 @@
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
-#include "clang/AST/DeclOpenMP.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -86,13 +86,10 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::StaticAssert: // static_assert(X, ""); [C++0x]
   case Decl::Label:        // __label__ x;
   case Decl::Import:
+  case Decl::OMPThreadPrivate:
   case Decl::Empty:
     // None of these decls require codegen support.
     return;
-
-  case Decl::OMPThreadPrivate:
-    CGM.EmitOMPThreadPrivate(cast<OMPThreadPrivateDecl>(&D));
-    break;
 
   case Decl::NamespaceAlias:
     if (CGDebugInfo *DI = getDebugInfo())
@@ -335,7 +332,7 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
     var->setSection(SA->getName());
 
   if (D.hasAttr<UsedAttr>())
-    CGM.AddUsedGlobal(var);
+    CGM.addUsedGlobal(var);
 
   // We may have to cast the constant because of the initializer
   // mismatch above.
@@ -826,7 +823,7 @@ void CodeGenFunction::EmitAutoVarDecl(const VarDecl &D) {
 }
 
 /// EmitAutoVarAlloca - Emit the alloca and debug information for a
-/// local variable.  Does not emit initalization or destruction.
+/// local variable.  Does not emit initialization or destruction.
 CodeGenFunction::AutoVarEmission
 CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
   QualType Ty = D.getType();
@@ -947,12 +944,12 @@ CodeGenFunction::EmitAutoVarAlloca(const VarDecl &D) {
 
       // Push a cleanup block and restore the stack there.
       // FIXME: in general circumstances, this should be an EH cleanup.
-      EHStack.pushCleanup<CallStackRestore>(NormalCleanup, Stack);
+      pushStackRestore(NormalCleanup, Stack);
     }
 
     llvm::Value *elementCount;
     QualType elementType;
-    llvm::tie(elementCount, elementType) = getVLASize(Ty);
+    std::tie(elementCount, elementType) = getVLASize(Ty);
 
     llvm::Type *llvmTy = ConvertTypeForMem(elementType);
 
@@ -1347,6 +1344,10 @@ void CodeGenFunction::pushDestroy(CleanupKind cleanupKind, llvm::Value *addr,
                                      destroyer, useEHCleanupForArray);
 }
 
+void CodeGenFunction::pushStackRestore(CleanupKind Kind, llvm::Value *SPMem) {
+  EHStack.pushCleanup<CallStackRestore>(Kind, SPMem);
+}
+
 void CodeGenFunction::pushLifetimeExtendedDestroy(
     CleanupKind cleanupKind, llvm::Value *addr, QualType type,
     Destroyer *destroyer, bool useEHCleanupForArray) {
@@ -1606,7 +1607,7 @@ namespace {
 /// Emit an alloca (or GlobalValue depending on target)
 /// for the specified parameter and set up LocalDeclMap.
 void CodeGenFunction::EmitParmDecl(const VarDecl &D, llvm::Value *Arg,
-                                   unsigned ArgNo) {
+                                   bool ArgIsPointer, unsigned ArgNo) {
   // FIXME: Why isn't ImplicitParamDecl a ParmVarDecl?
   assert((isa<ParmVarDecl>(D) || isa<ImplicitParamDecl>(D)) &&
          "Invalid argument to EmitParmDecl");
@@ -1644,30 +1645,32 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, llvm::Value *Arg,
   }
 
   llvm::Value *DeclPtr;
-  bool HasNonScalarEvalKind = !CodeGenFunction::hasScalarEvaluationKind(Ty);
-  // If this is an aggregate or variable sized value, reuse the input pointer.
-  if (HasNonScalarEvalKind || !Ty->isConstantSizeType()) {
+  bool DoStore = false;
+  bool IsScalar = hasScalarEvaluationKind(Ty);
+  CharUnits Align = getContext().getDeclAlign(&D);
+  // If we already have a pointer to the argument, reuse the input pointer.
+  if (ArgIsPointer) {
+    assert(isa<llvm::PointerType>(Arg->getType()));
     DeclPtr = Arg;
     // Push a destructor cleanup for this parameter if the ABI requires it.
-    if (HasNonScalarEvalKind &&
-        getTarget().getCXXABI().isArgumentDestroyedByCallee()) {
-      if (const CXXRecordDecl *RD = Ty->getAsCXXRecordDecl()) {
-        if (RD->hasNonTrivialDestructor())
-          pushDestroy(QualType::DK_cxx_destructor, DeclPtr, Ty);
-      }
+    if (!IsScalar &&
+        getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
+      const CXXRecordDecl *RD = Ty->getAsCXXRecordDecl();
+      if (RD && RD->hasNonTrivialDestructor())
+        pushDestroy(QualType::DK_cxx_destructor, DeclPtr, Ty);
     }
   } else {
     // Otherwise, create a temporary to hold the value.
     llvm::AllocaInst *Alloc = CreateTempAlloca(ConvertTypeForMem(Ty),
                                                D.getName() + ".addr");
-    CharUnits Align = getContext().getDeclAlign(&D);
     Alloc->setAlignment(Align.getQuantity());
     DeclPtr = Alloc;
+    DoStore = true;
+  }
 
-    bool doStore = true;
-
+  LValue lv = MakeAddrLValue(DeclPtr, Ty, Align);
+  if (IsScalar) {
     Qualifiers qs = Ty.getQualifiers();
-    LValue lv = MakeAddrLValue(DeclPtr, Ty, Align);
     if (Qualifiers::ObjCLifetime lt = qs.getObjCLifetime()) {
       // We honor __attribute__((ns_consumed)) for types with lifetime.
       // For __strong, it's handled by just skipping the initial retain;
@@ -1696,7 +1699,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, llvm::Value *Arg,
             llvm::Value *Null = CGM.EmitNullConstant(D.getType());
             EmitStoreOfScalar(Null, lv, /* isInitialization */ true);
             EmitARCStoreStrongCall(lv.getAddress(), Arg, true);
-            doStore = false;
+            DoStore = false;
           }
           else
           // Don't use objc_retainBlock for block pointers, because we
@@ -1715,18 +1718,18 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, llvm::Value *Arg,
 
         if (lt == Qualifiers::OCL_Weak) {
           EmitARCInitWeak(DeclPtr, Arg);
-          doStore = false; // The weak init is a store, no need to do two.
+          DoStore = false; // The weak init is a store, no need to do two.
         }
       }
 
       // Enter the cleanup scope.
       EmitAutoVarWithLifetime(*this, D, DeclPtr, lt);
     }
-
-    // Store the initial value into the alloca.
-    if (doStore)
-      EmitStoreOfScalar(Arg, lv, /* isInitialization */ true);
   }
+
+  // Store the initial value into the alloca.
+  if (DoStore)
+    EmitStoreOfScalar(Arg, lv, /* isInitialization */ true);
 
   llvm::Value *&DMEntry = LocalDeclMap[&D];
   assert(DMEntry == 0 && "Decl already exists in localdeclmap!");

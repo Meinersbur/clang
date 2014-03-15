@@ -18,10 +18,10 @@
 #include "clang/Lex/ModuleMap.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Allocator.h"
+#include <memory>
 #include <vector>
 
 namespace clang {
@@ -158,6 +158,7 @@ class HeaderSearch {
   /// \brief Header-search options used to initialize this header search.
   IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts;
 
+  DiagnosticsEngine &Diags;
   FileManager &FileMgr;
   /// \#include search path information.  Requests for \#include "x" search the
   /// directory of the \#including file first, then each directory in SearchDirs
@@ -204,7 +205,7 @@ class HeaderSearch {
   /// include_alias pragma for Microsoft compatibility.
   typedef llvm::StringMap<std::string, llvm::BumpPtrAllocator>
     IncludeAliasMap;
-  OwningPtr<IncludeAliasMap> IncludeAliases;
+  std::unique_ptr<IncludeAliasMap> IncludeAliases;
 
   /// HeaderMaps - This is a mapping from FileEntry -> HeaderMap, uniquing
   /// headermaps.  This vector owns the headermap.
@@ -231,6 +232,8 @@ class HeaderSearch {
   unsigned NumIncluded;
   unsigned NumMultiIncludeFileOptzn;
   unsigned NumFrameworkLookups, NumSubFrameworkLookups;
+
+  bool EnabledModules;
 
   // HeaderSearch doesn't support default or copy construction.
   HeaderSearch(const HeaderSearch&) LLVM_DELETED_FUNCTION;
@@ -278,9 +281,7 @@ public:
   }
 
   /// \brief Checks whether the map exists or not.
-  bool HasIncludeAliasMap() const {
-    return IncludeAliases.isValid();
-  }
+  bool HasIncludeAliasMap() const { return (bool)IncludeAliases; }
 
   /// \brief Map the source include name to the dest include name.
   ///
@@ -347,13 +348,15 @@ public:
   /// \returns If successful, this returns 'UsedDir', the DirectoryLookup member
   /// the file was found in, or null if not applicable.
   ///
+  /// \param IncludeLoc Used for diagnostics if valid.
+  ///
   /// \param isAngled indicates whether the file reference is a <> reference.
   ///
   /// \param CurDir If non-null, the file was found in the specified directory
   /// search location.  This is used to implement \#include_next.
   ///
-  /// \param CurFileEnt If non-null, indicates where the \#including file is, in
-  /// case a relative search is needed.
+  /// \param Includers Indicates where the \#including file(s) are, in case
+  /// relative searches are needed. In reverse order of inclusion.
   ///
   /// \param SearchPath If non-null, will be set to the search path relative
   /// to which the file was found. If the include path is absolute, SearchPath
@@ -366,10 +369,10 @@ public:
   /// \param SuggestedModule If non-null, and the file found is semantically
   /// part of a known module, this will be set to the module that should
   /// be imported instead of preprocessing/parsing the file found.
-  const FileEntry *LookupFile(StringRef Filename, bool isAngled,
-                              const DirectoryLookup *FromDir,
+  const FileEntry *LookupFile(StringRef Filename, SourceLocation IncludeLoc,
+                              bool isAngled, const DirectoryLookup *FromDir,
                               const DirectoryLookup *&CurDir,
-                              const FileEntry *CurFileEnt,
+                              ArrayRef<const FileEntry *> Includers,
                               SmallVectorImpl<char> *SearchPath,
                               SmallVectorImpl<char> *RelativePath,
                               ModuleMap::KnownHeader *SuggestedModule,
@@ -458,6 +461,9 @@ public:
   /// FileEntry, uniquing them through the 'HeaderMaps' datastructure.
   const HeaderMap *CreateHeaderMap(const FileEntry *FE);
 
+  /// Returns true if modules are enabled.
+  bool enabledModules() const { return EnabledModules; }
+
   /// \brief Retrieve the name of the module file that should be used to 
   /// load the given module.
   ///
@@ -491,6 +497,7 @@ public:
 
   /// \brief Determine whether there is a module map that may map the header
   /// with the given file name to a (sub)module.
+  /// Always returns false if modules are disabled.
   ///
   /// \param Filename The name of the file.
   ///

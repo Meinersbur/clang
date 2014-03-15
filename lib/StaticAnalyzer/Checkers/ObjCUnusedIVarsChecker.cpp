@@ -101,9 +101,8 @@ static void Scan(IvarUsageMap& M, const ObjCContainerDecl *D) {
 
 static void Scan(IvarUsageMap &M, const DeclContext *C, const FileID FID,
                  SourceManager &SM) {
-  for (DeclContext::decl_iterator I=C->decls_begin(), E=C->decls_end();
-       I!=E; ++I)
-    if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(*I)) {
+  for (const auto *I : C->decls())
+    if (const auto *FD = dyn_cast<FunctionDecl>(I)) {
       SourceLocation L = FD->getLocStart();
       if (SM.getFileID(L) == FID)
         Scan(M, FD->getBody());
@@ -111,7 +110,8 @@ static void Scan(IvarUsageMap &M, const DeclContext *C, const FileID FID,
 }
 
 static void checkObjCUnusedIvar(const ObjCImplementationDecl *D,
-                                BugReporter &BR) {
+                                BugReporter &BR,
+                                const CheckerBase *Checker) {
 
   const ObjCInterfaceDecl *ID = D->getClassInterface();
   IvarUsageMap M;
@@ -128,8 +128,8 @@ static void checkObjCUnusedIvar(const ObjCImplementationDecl *D,
     // (c) are iboutlets
     // (d) are unnamed bitfields
     if (ID->getAccessControl() != ObjCIvarDecl::Private ||
-        ID->getAttr<UnusedAttr>() || ID->getAttr<IBOutletAttr>() ||
-        ID->getAttr<IBOutletCollectionAttr>() ||
+        ID->hasAttr<UnusedAttr>() || ID->hasAttr<IBOutletAttr>() ||
+        ID->hasAttr<IBOutletCollectionAttr>() ||
         ID->isUnnamedBitfield())
       continue;
 
@@ -172,7 +172,7 @@ static void checkObjCUnusedIvar(const ObjCImplementationDecl *D,
 
       PathDiagnosticLocation L =
         PathDiagnosticLocation::create(I->first, BR.getSourceManager());
-      BR.EmitBasicReport(D, "Unused instance variable", "Optimization",
+      BR.EmitBasicReport(D, Checker, "Unused instance variable", "Optimization",
                          os.str(), L);
     }
 }
@@ -187,7 +187,7 @@ class ObjCUnusedIvarsChecker : public Checker<
 public:
   void checkASTDecl(const ObjCImplementationDecl *D, AnalysisManager& mgr,
                     BugReporter &BR) const {
-    checkObjCUnusedIvar(D, BR);
+    checkObjCUnusedIvar(D, BR, this);
   }
 };
 }

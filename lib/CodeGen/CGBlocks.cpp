@@ -18,9 +18,9 @@
 #include "CodeGenModule.h"
 #include "clang/AST/DeclObjC.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/CallSite.h"
 #include <algorithm>
 #include <cstdio>
 
@@ -53,7 +53,7 @@ static llvm::Constant *buildCopyHelper(CodeGenModule &CGM,
   return CodeGenFunction(CGM).GenerateCopyHelperFunction(blockInfo);
 }
 
-/// Build the helper function to dipose of a block.
+/// Build the helper function to dispose of a block.
 static llvm::Constant *buildDisposeHelper(CodeGenModule &CGM,
                                           const CGBlockInfo &blockInfo) {
   return CodeGenFunction(CGM).GenerateDestroyHelperFunction(blockInfo);
@@ -300,8 +300,8 @@ static void initializeForBlockHeader(CodeGenModule &CGM, CGBlockInfo &info,
 
   // The header is basically a 'struct { void *; int; int; void *; void *; }'.
   CharUnits ptrSize, ptrAlign, intSize, intAlign;
-  llvm::tie(ptrSize, ptrAlign) = C.getTypeInfoInChars(C.VoidPtrTy);
-  llvm::tie(intSize, intAlign) = C.getTypeInfoInChars(C.IntTy);
+  std::tie(ptrSize, ptrAlign) = C.getTypeInfoInChars(C.VoidPtrTy);
+  std::tie(intSize, intAlign) = C.getTypeInfoInChars(C.IntTy);
 
   // Are there crazy embedded platforms where this isn't true?
   assert(intSize <= ptrSize && "layout assumptions horribly violated");
@@ -679,7 +679,7 @@ llvm::Value *CodeGenFunction::EmitBlockLiteral(const BlockExpr *blockExpr) {
   }
 
   // Find the block info for this block and take ownership of it.
-  OwningPtr<CGBlockInfo> blockInfo;
+  std::unique_ptr<CGBlockInfo> blockInfo;
   blockInfo.reset(findAndRemoveBlockInfo(&FirstBlockInfo,
                                          blockExpr->getBlockDecl()));
 
@@ -1117,16 +1117,14 @@ CodeGenFunction::GenerateBlockFunction(GlobalDecl GD,
   args.push_back(&selfDecl);
 
   // Now add the rest of the parameters.
-  for (BlockDecl::param_const_iterator i = blockDecl->param_begin(),
-       e = blockDecl->param_end(); i != e; ++i)
-    args.push_back(*i);
+  for (auto i : blockDecl->params())
+    args.push_back(i);
 
   // Create the function declaration.
   const FunctionProtoType *fnType = blockInfo.getBlockExpr()->getFunctionType();
-  const CGFunctionInfo &fnInfo =
-    CGM.getTypes().arrangeFunctionDeclaration(fnType->getResultType(), args,
-                                              fnType->getExtInfo(),
-                                              fnType->isVariadic());
+  const CGFunctionInfo &fnInfo = CGM.getTypes().arrangeFreeFunctionDeclaration(
+      fnType->getReturnType(), args, fnType->getExtInfo(),
+      fnType->isVariadic());
   if (CGM.ReturnTypeUsesSRet(fnInfo))
     blockInfo.UsesStret = true;
 
@@ -1140,7 +1138,7 @@ CodeGenFunction::GenerateBlockFunction(GlobalDecl GD,
   CGM.SetInternalFunctionAttributes(blockDecl, fn, fnInfo);
 
   // Begin generating the function.
-  StartFunction(blockDecl, fnType->getResultType(), fn, fnInfo, args,
+  StartFunction(blockDecl, fnType->getReturnType(), fn, fnInfo, args,
                 blockInfo.getBlockExpr()->getBody()->getLocStart());
 
   // Okay.  Undo some of what StartFunction did.
@@ -1201,8 +1199,14 @@ CodeGenFunction::GenerateBlockFunction(GlobalDecl GD,
 
   if (IsLambdaConversionToBlock)
     EmitLambdaBlockInvokeBody();
-  else
+  else {
+    PGO.assignRegionCounters(blockDecl, fn);
+    RegionCounter Cnt = getPGORegionCounter(blockDecl->getBody());
+    Cnt.beginRegion(Builder);
     EmitStmt(blockDecl->getBody());
+    PGO.emitWriteoutFunction();
+    PGO.destroyRegionCounters();
+  }
 
   // Remember where we were...
   llvm::BasicBlock *resume = Builder.GetInsertBlock();
@@ -1285,10 +1289,8 @@ CodeGenFunction::GenerateCopyHelperFunction(const CGBlockInfo &blockInfo) {
   ImplicitParamDecl srcDecl(0, SourceLocation(), 0, C.VoidPtrTy);
   args.push_back(&srcDecl);
 
-  const CGFunctionInfo &FI =
-    CGM.getTypes().arrangeFunctionDeclaration(C.VoidTy, args,
-                                              FunctionType::ExtInfo(),
-                                              /*variadic*/ false);
+  const CGFunctionInfo &FI = CGM.getTypes().arrangeFreeFunctionDeclaration(
+      C.VoidTy, args, FunctionType::ExtInfo(), /*variadic=*/false);
 
   // FIXME: it would be nice if these were mergeable with things with
   // identical semantics.
@@ -1460,10 +1462,8 @@ CodeGenFunction::GenerateDestroyHelperFunction(const CGBlockInfo &blockInfo) {
   ImplicitParamDecl srcDecl(0, SourceLocation(), 0, C.VoidPtrTy);
   args.push_back(&srcDecl);
 
-  const CGFunctionInfo &FI =
-    CGM.getTypes().arrangeFunctionDeclaration(C.VoidTy, args,
-                                              FunctionType::ExtInfo(),
-                                              /*variadic*/ false);
+  const CGFunctionInfo &FI = CGM.getTypes().arrangeFreeFunctionDeclaration(
+      C.VoidTy, args, FunctionType::ExtInfo(), /*variadic=*/false);
 
   // FIXME: We'd like to put these into a mergable by content, with
   // internal linkage.
@@ -1751,10 +1751,8 @@ generateByrefCopyHelper(CodeGenFunction &CGF,
   ImplicitParamDecl src(0, SourceLocation(), 0, Context.VoidPtrTy);
   args.push_back(&src);
 
-  const CGFunctionInfo &FI =
-    CGF.CGM.getTypes().arrangeFunctionDeclaration(R, args,
-                                                  FunctionType::ExtInfo(),
-                                                  /*variadic*/ false);
+  const CGFunctionInfo &FI = CGF.CGM.getTypes().arrangeFreeFunctionDeclaration(
+      R, args, FunctionType::ExtInfo(), /*variadic=*/false);
 
   CodeGenTypes &Types = CGF.CGM.getTypes();
   llvm::FunctionType *LTy = Types.GetFunctionType(FI);
@@ -1822,10 +1820,8 @@ generateByrefDisposeHelper(CodeGenFunction &CGF,
   ImplicitParamDecl src(0, SourceLocation(), 0, Context.VoidPtrTy);
   args.push_back(&src);
 
-  const CGFunctionInfo &FI =
-    CGF.CGM.getTypes().arrangeFunctionDeclaration(R, args,
-                                                  FunctionType::ExtInfo(),
-                                                  /*variadic*/ false);
+  const CGFunctionInfo &FI = CGF.CGM.getTypes().arrangeFreeFunctionDeclaration(
+      R, args, FunctionType::ExtInfo(), /*variadic=*/false);
 
   CodeGenTypes &Types = CGF.CGM.getTypes();
   llvm::FunctionType *LTy = Types.GetFunctionType(FI);

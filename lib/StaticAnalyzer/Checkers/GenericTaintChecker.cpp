@@ -43,10 +43,10 @@ private:
   /// Denotes the return vale.
   static const unsigned ReturnValueIndex = UINT_MAX - 1;
 
-  mutable OwningPtr<BugType> BT;
+  mutable std::unique_ptr<BugType> BT;
   inline void initBugType() const {
     if (!BT)
-      BT.reset(new BugType("Use of Untrusted Data", "Untrusted Data"));
+      BT.reset(new BugType(this, "Use of Untrusted Data", "Untrusted Data"));
   }
 
   /// \brief Catch taint related bugs. Check if tainted data is passed to a

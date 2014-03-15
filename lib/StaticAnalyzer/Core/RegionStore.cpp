@@ -104,7 +104,7 @@ public:
            Data == X.Data;
   }
 
-  LLVM_ATTRIBUTE_USED void dump() const;
+  void dump() const;
 };
 } // end anonymous namespace
 
@@ -133,9 +133,7 @@ namespace llvm {
   };
 } // end llvm namespace
 
-void BindingKey::dump() const {
-  llvm::errs() << *this;
-}
+LLVM_DUMP_METHOD void BindingKey::dump() const { llvm::errs() << *this; }
 
 //===----------------------------------------------------------------------===//
 // Actual Store type.
@@ -224,9 +222,7 @@ public:
    }
   }
 
-  LLVM_ATTRIBUTE_USED void dump() const {
-    dump(llvm::errs(), "\n");
-  }
+  LLVM_DUMP_METHOD void dump() const { dump(llvm::errs(), "\n"); }
 };
 } // end anonymous namespace
 
@@ -1016,7 +1012,7 @@ void invalidateRegionsWorker::VisitCluster(const MemRegion *baseR,
          BI != BE; ++BI) {
       const VarRegion *VR = BI.getCapturedRegion();
       const VarDecl *VD = VR->getDecl();
-      if (VD->getAttr<BlocksAttr>() || !VD->hasLocalStorage()) {
+      if (VD->hasAttr<BlocksAttr>() || !VD->hasLocalStorage()) {
         AddToWorkList(VR);
       }
       else if (Loc::isLocType(VR->getValueType())) {
@@ -1630,7 +1626,7 @@ RegionStoreManager::getBindingForFieldOrElementCommon(RegionBindingsConstRef B,
   // Lazy binding?
   Store lazyBindingStore = NULL;
   const SubRegion *lazyBindingRegion = NULL;
-  llvm::tie(lazyBindingStore, lazyBindingRegion) = findLazyBinding(B, R, R);
+  std::tie(lazyBindingStore, lazyBindingRegion) = findLazyBinding(B, R, R);
   if (lazyBindingRegion)
     return getLazyBinding(lazyBindingRegion,
                           getRegionBindings(lazyBindingStore));
@@ -1791,7 +1787,7 @@ RegionStoreManager::getInterestingValues(nonloc::LazyCompoundVal LCV) {
   // values to return.
   const ClusterBindings *Cluster = B.lookup(LazyR->getBaseRegion());
   if (!Cluster)
-    return (LazyBindingsMap[LCV.getCVData()] = llvm_move(List));
+    return (LazyBindingsMap[LCV.getCVData()] = std::move(List));
 
   SmallVector<BindingPair, 32> Bindings;
   collectSubRegionBindings(Bindings, svalBuilder, *Cluster, LazyR,
@@ -1813,7 +1809,7 @@ RegionStoreManager::getInterestingValues(nonloc::LazyCompoundVal LCV) {
     List.push_back(V);
   }
 
-  return (LazyBindingsMap[LCV.getCVData()] = llvm_move(List));
+  return (LazyBindingsMap[LCV.getCVData()] = std::move(List));
 }
 
 NonLoc RegionStoreManager::createLazyBinding(RegionBindingsConstRef B,
@@ -2066,9 +2062,7 @@ RegionStoreManager::tryBindSmallStruct(RegionBindingsConstRef B,
     if (Class->getNumBases() != 0 || Class->getNumVBases() != 0)
       return None;
 
-  for (RecordDecl::field_iterator I = RD->field_begin(), E = RD->field_end();
-       I != E; ++I) {
-    const FieldDecl *FD = *I;
+  for (const auto *FD : RD->fields()) {
     if (FD->isUnnamedBitfield())
       continue;
 
@@ -2081,7 +2075,7 @@ RegionStoreManager::tryBindSmallStruct(RegionBindingsConstRef B,
     if (!(Ty->isScalarType() || Ty->isReferenceType()))
       return None;
 
-    Fields.push_back(*I);
+    Fields.push_back(FD);
   }
 
   RegionBindingsRef NewB = B;

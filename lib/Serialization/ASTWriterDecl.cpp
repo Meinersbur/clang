@@ -414,9 +414,8 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   }
 
   Record.push_back(D->param_size());
-  for (FunctionDecl::param_iterator P = D->param_begin(), PEnd = D->param_end();
-       P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (auto P : D->params())
+    Writer.AddDeclRef(P, Record);
   Code = serialization::DECL_FUNCTION;
 }
 
@@ -451,13 +450,12 @@ void ASTDeclWriter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
   // FIXME: stable encoding for in/out/inout/bycopy/byref/oneway
   Record.push_back(D->getObjCDeclQualifier());
   Record.push_back(D->hasRelatedResultType());
-  Writer.AddTypeRef(D->getResultType(), Record);
-  Writer.AddTypeSourceInfo(D->getResultTypeSourceInfo(), Record);
+  Writer.AddTypeRef(D->getReturnType(), Record);
+  Writer.AddTypeSourceInfo(D->getReturnTypeSourceInfo(), Record);
   Writer.AddSourceLocation(D->getLocEnd(), Record);
   Record.push_back(D->param_size());
-  for (ObjCMethodDecl::param_iterator P = D->param_begin(),
-                                   PEnd = D->param_end(); P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (const auto *P : D->params())
+    Writer.AddDeclRef(P, Record);
 
   Record.push_back(D->SelLocsKind);
   unsigned NumStoredSelLocs = D->getNumStoredSelLocs();
@@ -489,6 +487,7 @@ void ASTDeclWriter::VisitObjCInterfaceDecl(ObjCInterfaceDecl *D) {
     Writer.AddDeclRef(D->getSuperClass(), Record);
     Writer.AddSourceLocation(D->getSuperClassLoc(), Record);
     Writer.AddSourceLocation(D->getEndOfDefinitionLoc(), Record);
+    Record.push_back(Data.HasDesignatedInitializers);
 
     // Write out the protocols that are directly referenced by the @interface.
     Record.push_back(Data.ReferencedProtocols.size());
@@ -528,7 +527,6 @@ void ASTDeclWriter::VisitObjCIvarDecl(ObjCIvarDecl *D) {
   // FIXME: stable encoding for @public/@private/@protected/@package
   Record.push_back(D->getAccessControl());
   Record.push_back(D->getSynthesize());
-  Record.push_back(D->getBackingIvarReferencedInAccessor());
 
   if (!D->hasAttrs() &&
       !D->isImplicit() &&
@@ -688,10 +686,8 @@ void ASTDeclWriter::VisitIndirectFieldDecl(IndirectFieldDecl *D) {
   VisitValueDecl(D);
   Record.push_back(D->getChainingSize());
 
-  for (IndirectFieldDecl::chain_iterator
-       P = D->chain_begin(),
-       PEnd = D->chain_end(); P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (const auto *P : D->chain())
+    Writer.AddDeclRef(P, Record);
   Code = serialization::DECL_INDIRECTFIELD;
 }
 
@@ -1817,8 +1813,10 @@ static bool isRequiredDecl(const Decl *D, ASTContext &Context) {
   // An ObjCMethodDecl is never considered as "required" because its
   // implementation container always is.
 
-  // File scoped assembly or obj-c implementation must be seen.
-  if (isa<FileScopeAsmDecl>(D) || isa<ObjCImplDecl>(D))
+  // File scoped assembly or obj-c implementation must be seen. ImportDecl is
+  // used by codegen to determine the set of imported modules to search for
+  // inputs for automatic linking.
+  if (isa<FileScopeAsmDecl>(D) || isa<ObjCImplDecl>(D) || isa<ImportDecl>(D))
     return true;
 
   return Context.DeclMustBeEmitted(D);
@@ -1906,10 +1904,8 @@ void ASTWriter::WriteDecl(ASTContext &Context, Decl *D) {
   // Flush C++ base specifiers, if there are any.
   FlushCXXBaseSpecifiers();
   
-  // Note "external" declarations so that we can add them to a record in the
-  // AST file later.
-  //
-  // FIXME: This should be renamed, the predicate is much more complicated.
+  // Note declarations that should be deserialized eagerly so that we can add
+  // them to a record in the AST file later.
   if (isRequiredDecl(D, Context))
-    ExternalDefinitions.push_back(ID);
+    EagerlyDeserializedDecls.push_back(ID);
 }

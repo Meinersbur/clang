@@ -633,6 +633,9 @@ public:
       return llvm::ConstantStruct::get(STy, Elts);
     }
 
+    case CK_AddressSpaceConversion:
+      return llvm::ConstantExpr::getAddrSpaceCast(C, destType);
+
     case CK_LValueToRValue:
     case CK_AtomicToNonAtomic:
     case CK_NonAtomicToAtomic:
@@ -917,7 +920,7 @@ public:
     }
     case Expr::CallExprClass: {
       CallExpr* CE = cast<CallExpr>(E);
-      unsigned builtin = CE->isBuiltinCall();
+      unsigned builtin = CE->getBuiltinCallee();
       if (builtin !=
             Builtin::BI__builtin___CFStringMakeConstantString &&
           builtin !=
@@ -1062,13 +1065,13 @@ llvm::Constant *CodeGenModule::EmitConstantValue(const APValue &Value,
       if (!Offset->isNullValue()) {
         llvm::Constant *Casted = llvm::ConstantExpr::getBitCast(C, Int8PtrTy);
         Casted = llvm::ConstantExpr::getGetElementPtr(Casted, Offset);
-        C = llvm::ConstantExpr::getBitCast(Casted, C->getType());
+        C = llvm::ConstantExpr::getPointerCast(Casted, C->getType());
       }
 
       // Convert to the appropriate type; this could be an lvalue for
       // an integer.
       if (isa<llvm::PointerType>(DestTy))
-        return llvm::ConstantExpr::getBitCast(C, DestTy);
+        return llvm::ConstantExpr::getPointerCast(C, DestTy);
 
       return llvm::ConstantExpr::getPtrToInt(C, DestTy);
     } else {
@@ -1356,19 +1359,16 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
   }
 
   // Fill in all the fields.
-  for (RecordDecl::field_iterator I = record->field_begin(),
-         E = record->field_end(); I != E; ++I) {
-    const FieldDecl *field = *I;
-
+  for (const auto *Field : record->fields()) {
     // Fill in non-bitfields. (Bitfields always use a zero pattern, which we
     // will fill in later.)
-    if (!field->isBitField()) {
-      unsigned fieldIndex = layout.getLLVMFieldNo(field);
-      elements[fieldIndex] = CGM.EmitNullConstant(field->getType());
+    if (!Field->isBitField()) {
+      unsigned fieldIndex = layout.getLLVMFieldNo(Field);
+      elements[fieldIndex] = CGM.EmitNullConstant(Field->getType());
     }
 
     // For unions, stop after the first named field.
-    if (record->isUnion() && field->getDeclName())
+    if (record->isUnion() && Field->getDeclName())
       break;
   }
 

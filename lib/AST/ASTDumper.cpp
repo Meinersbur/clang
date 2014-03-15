@@ -32,11 +32,22 @@ using namespace clang::comments;
 
 namespace  {
   // Colors used for various parts of the AST dump
+  // Do not use bold yellow for any text.  It is hard to read on white screens.
 
   struct TerminalColor {
     raw_ostream::Colors Color;
     bool Bold;
   };
+
+  // Red           - CastColor
+  // Green         - TypeColor
+  // Bold Green    - DeclKindNameColor, UndeserializedColor
+  // Yellow        - AddressColor, LocationColor
+  // Blue          - CommentColor, NullColor, IndentColor
+  // Bold Blue     - AttrColor
+  // Bold Magenta  - StmtColor
+  // Cyan          - ValueKindColor, ObjectKindColor
+  // Bold Cyan     - ValueColor, DeclNameColor
 
   // Decl kind names (VarDecl, FunctionDecl, etc)
   static const TerminalColor DeclKindNameColor = { raw_ostream::GREEN, true };
@@ -45,7 +56,7 @@ namespace  {
   // Statement names (DeclStmt, ImplicitCastExpr, etc)
   static const TerminalColor StmtColor = { raw_ostream::MAGENTA, true };
   // Comment names (FullComment, ParagraphComment, TextComment, etc)
-  static const TerminalColor CommentColor = { raw_ostream::YELLOW, true };
+  static const TerminalColor CommentColor = { raw_ostream::BLUE, false };
 
   // Type names (int, float, etc, plus user defined types)
   static const TerminalColor TypeColor = { raw_ostream::GREEN, false };
@@ -569,6 +580,7 @@ void ASTDumper::dumpAttr(const Attr *A) {
   IndentScope Indent(*this);
   {
     ColorScope Color(*this, AttrColor);
+
     switch (A->getKind()) {
 #define ATTR(X) case attr::X: OS << #X; break;
 #include "clang/Basic/AttrList.inc"
@@ -579,6 +591,8 @@ void ASTDumper::dumpAttr(const Attr *A) {
   dumpPointer(A);
   dumpSourceRange(A->getRange());
 #include "clang/AST/AttrDump.inc"
+  if (A->isImplicit())
+    OS << " Implicit";
 }
 
 static void dumpPreviousDeclImpl(raw_ostream &OS, ...) {}
@@ -748,7 +762,7 @@ void ASTDumper::dumpDecl(const Decl *D) {
     if (ND->isHidden())
       OS << " hidden";
 
-  bool HasAttrs = D->attr_begin() != D->attr_end();
+  bool HasAttrs = D->hasAttrs();
   const FullComment *Comment =
       D->getASTContext().getLocalCommentForDeclUncached(D);
   // Decls within functions are visited by the body
@@ -1241,8 +1255,6 @@ void ASTDumper::VisitObjCIvarDecl(const ObjCIvarDecl *D) {
   dumpType(D->getType());
   if (D->getSynthesize())
     OS << " synthesize";
-  if (D->getBackingIvarReferencedInAccessor())
-    OS << " BackingIvarReferencedInAccessor";
 
   switch (D->getAccessControl()) {
   case ObjCIvarDecl::None:
@@ -1269,7 +1281,7 @@ void ASTDumper::VisitObjCMethodDecl(const ObjCMethodDecl *D) {
   else
     OS << " +";
   dumpName(D);
-  dumpType(D->getResultType());
+  dumpType(D->getReturnType());
 
   bool OldMoreChildren = hasMoreChildren();
   bool IsVariadic = D->isVariadic();
@@ -1427,9 +1439,8 @@ void ASTDumper::VisitObjCPropertyImplDecl(const ObjCPropertyImplDecl *D) {
 }
 
 void ASTDumper::VisitBlockDecl(const BlockDecl *D) {
-  for (BlockDecl::param_const_iterator I = D->param_begin(), E = D->param_end();
-       I != E; ++I)
-    dumpDecl(*I);
+  for (auto I : D->params())
+    dumpDecl(I);
 
   if (D->isVariadic()) {
     IndentScope Indent(*this);
@@ -1661,6 +1672,7 @@ void ASTDumper::VisitPredefinedExpr(const PredefinedExpr *Node) {
   default: llvm_unreachable("unknown case");
   case PredefinedExpr::Func:           OS <<  " __func__"; break;
   case PredefinedExpr::Function:       OS <<  " __FUNCTION__"; break;
+  case PredefinedExpr::FuncDName:      OS <<  " __FUNCDNAME__"; break;
   case PredefinedExpr::LFunction:      OS <<  " L__FUNCTION__"; break;
   case PredefinedExpr::PrettyFunction: OS <<  " __PRETTY_FUNCTION__";break;
   }
@@ -1837,7 +1849,8 @@ void ASTDumper::dumpCXXTemporary(const CXXTemporary *Temporary) {
 
 void ASTDumper::VisitObjCMessageExpr(const ObjCMessageExpr *Node) {
   VisitExpr(Node);
-  OS << " selector=" << Node->getSelector().getAsString();
+  OS << " selector=";
+  Node->getSelector().print(OS);
   switch (Node->getReceiverKind()) {
   case ObjCMessageExpr::Instance:
     break;
@@ -1859,7 +1872,8 @@ void ASTDumper::VisitObjCMessageExpr(const ObjCMessageExpr *Node) {
 
 void ASTDumper::VisitObjCBoxedExpr(const ObjCBoxedExpr *Node) {
   VisitExpr(Node);
-  OS << " selector=" << Node->getBoxingMethod()->getSelector().getAsString();
+  OS << " selector=";
+  Node->getBoxingMethod()->getSelector().print(OS);
 }
 
 void ASTDumper::VisitObjCAtCatchStmt(const ObjCAtCatchStmt *Node) {
@@ -1878,7 +1892,8 @@ void ASTDumper::VisitObjCEncodeExpr(const ObjCEncodeExpr *Node) {
 void ASTDumper::VisitObjCSelectorExpr(const ObjCSelectorExpr *Node) {
   VisitExpr(Node);
 
-  OS << " " << Node->getSelector().getAsString();
+  OS << " ";
+  Node->getSelector().print(OS);
 }
 
 void ASTDumper::VisitObjCProtocolExpr(const ObjCProtocolExpr *Node) {
@@ -1892,13 +1907,13 @@ void ASTDumper::VisitObjCPropertyRefExpr(const ObjCPropertyRefExpr *Node) {
   if (Node->isImplicitProperty()) {
     OS << " Kind=MethodRef Getter=\"";
     if (Node->getImplicitPropertyGetter())
-      OS << Node->getImplicitPropertyGetter()->getSelector().getAsString();
+      Node->getImplicitPropertyGetter()->getSelector().print(OS);
     else
       OS << "(null)";
 
     OS << "\" Setter=\"";
     if (ObjCMethodDecl *Setter = Node->getImplicitPropertySetter())
-      OS << Setter->getSelector().getAsString();
+      Setter->getSelector().print(OS);
     else
       OS << "(null)";
     OS << "\"";
@@ -1925,7 +1940,7 @@ void ASTDumper::VisitObjCSubscriptRefExpr(const ObjCSubscriptRefExpr *Node) {
   else
     OS << " Kind=DictionarySubscript GetterForDictionary=\"";
   if (Node->getAtIndexMethodDecl())
-    OS << Node->getAtIndexMethodDecl()->getSelector().getAsString();
+    Node->getAtIndexMethodDecl()->getSelector().print(OS);
   else
     OS << "(null)";
 
@@ -1934,7 +1949,7 @@ void ASTDumper::VisitObjCSubscriptRefExpr(const ObjCSubscriptRefExpr *Node) {
   else
     OS << "\" SetterForDictionary=\"";
   if (Node->setAtIndexMethodDecl())
-    OS << Node->setAtIndexMethodDecl()->getSelector().getAsString();
+    Node->setAtIndexMethodDecl()->getSelector().print(OS);
   else
     OS << "(null)";
 }
@@ -2094,27 +2109,25 @@ void ASTDumper::visitVerbatimLineComment(const VerbatimLineComment *C) {
 // Decl method implementations
 //===----------------------------------------------------------------------===//
 
-void Decl::dump() const {
-  dump(llvm::errs());
-}
+LLVM_DUMP_METHOD void Decl::dump() const { dump(llvm::errs()); }
 
-void Decl::dump(raw_ostream &OS) const {
+LLVM_DUMP_METHOD void Decl::dump(raw_ostream &OS) const {
   ASTDumper P(OS, &getASTContext().getCommentCommandTraits(),
               &getASTContext().getSourceManager());
   P.dumpDecl(this);
 }
 
-void Decl::dumpColor() const {
+LLVM_DUMP_METHOD void Decl::dumpColor() const {
   ASTDumper P(llvm::errs(), &getASTContext().getCommentCommandTraits(),
               &getASTContext().getSourceManager(), /*ShowColors*/true);
   P.dumpDecl(this);
 }
 
-void DeclContext::dumpLookups() const {
+LLVM_DUMP_METHOD void DeclContext::dumpLookups() const {
   dumpLookups(llvm::errs());
 }
 
-void DeclContext::dumpLookups(raw_ostream &OS) const {
+LLVM_DUMP_METHOD void DeclContext::dumpLookups(raw_ostream &OS) const {
   const DeclContext *DC = this;
   while (!DC->isTranslationUnit())
     DC = DC->getParent();
@@ -2127,21 +2140,21 @@ void DeclContext::dumpLookups(raw_ostream &OS) const {
 // Stmt method implementations
 //===----------------------------------------------------------------------===//
 
-void Stmt::dump(SourceManager &SM) const {
+LLVM_DUMP_METHOD void Stmt::dump(SourceManager &SM) const {
   dump(llvm::errs(), SM);
 }
 
-void Stmt::dump(raw_ostream &OS, SourceManager &SM) const {
+LLVM_DUMP_METHOD void Stmt::dump(raw_ostream &OS, SourceManager &SM) const {
   ASTDumper P(OS, 0, &SM);
   P.dumpStmt(this);
 }
 
-void Stmt::dump() const {
+LLVM_DUMP_METHOD void Stmt::dump() const {
   ASTDumper P(llvm::errs(), 0, 0);
   P.dumpStmt(this);
 }
 
-void Stmt::dumpColor() const {
+LLVM_DUMP_METHOD void Stmt::dumpColor() const {
   ASTDumper P(llvm::errs(), 0, 0, /*ShowColors*/true);
   P.dumpStmt(this);
 }
@@ -2150,11 +2163,9 @@ void Stmt::dumpColor() const {
 // Comment method implementations
 //===----------------------------------------------------------------------===//
 
-void Comment::dump() const {
-  dump(llvm::errs(), 0, 0);
-}
+LLVM_DUMP_METHOD void Comment::dump() const { dump(llvm::errs(), 0, 0); }
 
-void Comment::dump(const ASTContext &Context) const {
+LLVM_DUMP_METHOD void Comment::dump(const ASTContext &Context) const {
   dump(llvm::errs(), &Context.getCommentCommandTraits(),
        &Context.getSourceManager());
 }
@@ -2166,7 +2177,7 @@ void Comment::dump(raw_ostream &OS, const CommandTraits *Traits,
   D.dumpFullComment(FC);
 }
 
-void Comment::dumpColor() const {
+LLVM_DUMP_METHOD void Comment::dumpColor() const {
   const FullComment *FC = dyn_cast<FullComment>(this);
   ASTDumper D(llvm::errs(), 0, 0, /*ShowColors*/true);
   D.dumpFullComment(FC);

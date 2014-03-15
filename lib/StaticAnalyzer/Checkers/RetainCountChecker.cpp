@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ClangSACheckers.h"
+#include "AllocationDiagnostics.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -20,6 +21,7 @@
 #include "clang/Analysis/DomainSpecific/CocoaConventions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/StaticAnalyzer/Checkers/ObjCRetainCount.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/PathDiagnostic.h"
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -28,7 +30,6 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
-#include "clang/StaticAnalyzer/Checkers/ObjCRetainCount.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/ImmutableList.h"
@@ -37,8 +38,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include <cstdarg>
-
-#include "AllocationDiagnostics.h"
 
 using namespace clang;
 using namespace ento;
@@ -653,11 +652,11 @@ public:
      AF(BPAlloc), ScratchArgs(AF.getEmptyMap()),
      ObjCAllocRetE(gcenabled
                     ? RetEffect::MakeGCNotOwned()
-                    : (usesARC ? RetEffect::MakeARCNotOwned()
+                    : (usesARC ? RetEffect::MakeNotOwned(RetEffect::ObjC)
                                : RetEffect::MakeOwned(RetEffect::ObjC, true))),
      ObjCInitRetE(gcenabled 
                     ? RetEffect::MakeGCNotOwned()
-                    : (usesARC ? RetEffect::MakeARCNotOwned()
+                    : (usesARC ? RetEffect::MakeNotOwned(RetEffect::ObjC)
                                : RetEffect::MakeOwnedWhenTrackedReceiver())) {
     InitializeClassMethodSummaries();
     InitializeMethodSummaries();
@@ -689,7 +688,7 @@ public:
   const RetainSummary *getMethodSummary(const ObjCMethodDecl *MD) {
     const ObjCInterfaceDecl *ID = MD->getClassInterface();
     Selector S = MD->getSelector();
-    QualType ResultTy = MD->getResultType();
+    QualType ResultTy = MD->getReturnType();
 
     ObjCMethodSummariesTy *CachedSummaries;
     if (MD->isInstanceMethod())
@@ -861,7 +860,7 @@ void RetainSummaryManager::updateSummaryForCall(const RetainSummary *&S,
     // Special cases where the callback argument CANNOT free the return value.
     // This can generally only happen if we know that the callback will only be
     // called when the return value is already being deallocated.
-    if (const FunctionCall *FC = dyn_cast<FunctionCall>(&Call)) {
+    if (const SimpleFunctionCall *FC = dyn_cast<SimpleFunctionCall>(&Call)) {
       if (IdentifierInfo *Name = FC->getDecl()->getIdentifier()) {
         // When the CGBitmapContext is deallocated, the callback here will free
         // the associated data buffer.
@@ -909,7 +908,7 @@ RetainSummaryManager::getSummary(const CallEvent &Call,
   const RetainSummary *Summ;
   switch (Call.getKind()) {
   case CE_Function:
-    Summ = getFunctionSummary(cast<FunctionCall>(Call).getDecl());
+    Summ = getFunctionSummary(cast<SimpleFunctionCall>(Call).getDecl());
     break;
   case CE_CXXMember:
   case CE_CXXMemberOperator:
@@ -971,7 +970,7 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
     FName = FName.substr(FName.find_first_not_of('_'));
 
     // Inspect the result type.
-    QualType RetTy = FT->getResultType();
+    QualType RetTy = FT->getReturnType();
 
     // FIXME: This should all be refactored into a chain of "summary lookup"
     //  filters.
@@ -1102,7 +1101,7 @@ RetainSummaryManager::getFunctionSummary(const FunctionDecl *FD) {
         break;
       }
 
-      if (FD->getAttr<CFAuditedTransferAttr>()) {
+      if (FD->hasAttr<CFAuditedTransferAttr>()) {
         S = getCFCreateGetRuleSummary(FD);
         break;
       }
@@ -1175,7 +1174,7 @@ RetainSummaryManager::getUnarySummary(const FunctionType* FT,
   // Sanity check that this is *really* a unary function.  This can
   // happen if people do weird things.
   const FunctionProtoType* FTP = dyn_cast<FunctionProtoType>(FT);
-  if (!FTP || FTP->getNumArgs() != 1)
+  if (!FTP || FTP->getNumParams() != 1)
     return getPersistentStopSummary();
 
   assert (ScratchArgs.isEmpty());
@@ -1214,21 +1213,21 @@ Optional<RetEffect>
 RetainSummaryManager::getRetEffectFromAnnotations(QualType RetTy,
                                                   const Decl *D) {
   if (cocoa::isCocoaObjectRef(RetTy)) {
-    if (D->getAttr<NSReturnsRetainedAttr>())
+    if (D->hasAttr<NSReturnsRetainedAttr>())
       return ObjCAllocRetE;
 
-    if (D->getAttr<NSReturnsNotRetainedAttr>() ||
-        D->getAttr<NSReturnsAutoreleasedAttr>())
+    if (D->hasAttr<NSReturnsNotRetainedAttr>() ||
+        D->hasAttr<NSReturnsAutoreleasedAttr>())
       return RetEffect::MakeNotOwned(RetEffect::ObjC);
 
   } else if (!RetTy->isPointerType()) {
     return None;
   }
 
-  if (D->getAttr<CFReturnsRetainedAttr>())
+  if (D->hasAttr<CFReturnsRetainedAttr>())
     return RetEffect::MakeOwned(RetEffect::CF, true);
 
-  if (D->getAttr<CFReturnsNotRetainedAttr>())
+  if (D->hasAttr<CFReturnsNotRetainedAttr>())
     return RetEffect::MakeNotOwned(RetEffect::CF);
 
   return None;
@@ -1248,13 +1247,13 @@ RetainSummaryManager::updateSummaryFromAnnotations(const RetainSummary *&Summ,
   for (FunctionDecl::param_const_iterator pi = FD->param_begin(), 
          pe = FD->param_end(); pi != pe; ++pi, ++parm_idx) {
     const ParmVarDecl *pd = *pi;
-    if (pd->getAttr<NSConsumedAttr>())
+    if (pd->hasAttr<NSConsumedAttr>())
       Template->addArg(AF, parm_idx, DecRefMsg);
-    else if (pd->getAttr<CFConsumedAttr>())
+    else if (pd->hasAttr<CFConsumedAttr>())
       Template->addArg(AF, parm_idx, DecRef);      
   }
-  
-  QualType RetTy = FD->getResultType();
+
+  QualType RetTy = FD->getReturnType();
   if (Optional<RetEffect> RetE = getRetEffectFromAnnotations(RetTy, FD))
     Template->setRetEffect(*RetE);
 }
@@ -1269,7 +1268,7 @@ RetainSummaryManager::updateSummaryFromAnnotations(const RetainSummary *&Summ,
   RetainSummaryTemplate Template(Summ, *this);
 
   // Effects on the receiver.
-  if (MD->getAttr<NSConsumesSelfAttr>())
+  if (MD->hasAttr<NSConsumesSelfAttr>())
     Template->setReceiverEffect(DecRefMsg);      
   
   // Effects on the parameters.
@@ -1278,14 +1277,14 @@ RetainSummaryManager::updateSummaryFromAnnotations(const RetainSummary *&Summ,
          pi=MD->param_begin(), pe=MD->param_end();
        pi != pe; ++pi, ++parm_idx) {
     const ParmVarDecl *pd = *pi;
-    if (pd->getAttr<NSConsumedAttr>())
+    if (pd->hasAttr<NSConsumedAttr>())
       Template->addArg(AF, parm_idx, DecRefMsg);      
-    else if (pd->getAttr<CFConsumedAttr>()) {
+    else if (pd->hasAttr<CFConsumedAttr>()) {
       Template->addArg(AF, parm_idx, DecRef);      
     }   
   }
-  
-  QualType RetTy = MD->getResultType();
+
+  QualType RetTy = MD->getReturnType();
   if (Optional<RetEffect> RetE = getRetEffectFromAnnotations(RetTy, MD))
     Template->setRetEffect(*RetE);
 }
@@ -1507,6 +1506,11 @@ void RetainSummaryManager::InitializeMethodSummaries() {
   //   as for NSWindow objects.
   addClassMethSummary("NSPanel", "alloc", NoTrackYet);
 
+  // For NSNull, objects returned by +null are singletons that ignore
+  // retain/release semantics.  Just don't track them.
+  // <rdar://problem/12858915>
+  addClassMethSummary("NSNull", "null", NoTrackYet);
+
   // Don't track allocated autorelease pools, as it is okay to prematurely
   // exit a method.
   addClassMethSummary("NSAutoreleasePool", "alloc", NoTrackYet);
@@ -1543,8 +1547,9 @@ namespace {
 
   class CFRefBug : public BugType {
   protected:
-    CFRefBug(StringRef name)
-    : BugType(name, categories::MemoryCoreFoundationObjectiveC) {}
+    CFRefBug(const CheckerBase *checker, StringRef name)
+        : BugType(checker, name, categories::MemoryCoreFoundationObjectiveC) {}
+
   public:
 
     // FIXME: Eventually remove.
@@ -1555,7 +1560,8 @@ namespace {
 
   class UseAfterRelease : public CFRefBug {
   public:
-    UseAfterRelease() : CFRefBug("Use-after-release") {}
+    UseAfterRelease(const CheckerBase *checker)
+        : CFRefBug(checker, "Use-after-release") {}
 
     const char *getDescription() const {
       return "Reference-counted object is used after it is released";
@@ -1564,7 +1570,7 @@ namespace {
 
   class BadRelease : public CFRefBug {
   public:
-    BadRelease() : CFRefBug("Bad release") {}
+    BadRelease(const CheckerBase *checker) : CFRefBug(checker, "Bad release") {}
 
     const char *getDescription() const {
       return "Incorrect decrement of the reference count of an object that is "
@@ -1574,8 +1580,8 @@ namespace {
 
   class DeallocGC : public CFRefBug {
   public:
-    DeallocGC()
-    : CFRefBug("-dealloc called while using garbage collection") {}
+    DeallocGC(const CheckerBase *checker)
+        : CFRefBug(checker, "-dealloc called while using garbage collection") {}
 
     const char *getDescription() const {
       return "-dealloc called while using garbage collection";
@@ -1584,8 +1590,8 @@ namespace {
 
   class DeallocNotOwned : public CFRefBug {
   public:
-    DeallocNotOwned()
-    : CFRefBug("-dealloc sent to non-exclusively owned object") {}
+    DeallocNotOwned(const CheckerBase *checker)
+        : CFRefBug(checker, "-dealloc sent to non-exclusively owned object") {}
 
     const char *getDescription() const {
       return "-dealloc sent to object that may be referenced elsewhere";
@@ -1594,8 +1600,8 @@ namespace {
 
   class OverAutorelease : public CFRefBug {
   public:
-    OverAutorelease()
-    : CFRefBug("Object autoreleased too many times") {}
+    OverAutorelease(const CheckerBase *checker)
+        : CFRefBug(checker, "Object autoreleased too many times") {}
 
     const char *getDescription() const {
       return "Object autoreleased too many times";
@@ -1604,8 +1610,8 @@ namespace {
 
   class ReturnedNotOwnedForOwned : public CFRefBug {
   public:
-    ReturnedNotOwnedForOwned()
-    : CFRefBug("Method should return an owned object") {}
+    ReturnedNotOwnedForOwned(const CheckerBase *checker)
+        : CFRefBug(checker, "Method should return an owned object") {}
 
     const char *getDescription() const {
       return "Object with a +0 retain count returned to caller where a +1 "
@@ -1615,8 +1621,7 @@ namespace {
 
   class Leak : public CFRefBug {
   public:
-    Leak(StringRef name)
-    : CFRefBug(name) {
+    Leak(const CheckerBase *checker, StringRef name) : CFRefBug(checker, name) {
       // Leaks should not be reported if they are post-dominated by a sink.
       setSuppressOnSink(true);
     }
@@ -2212,9 +2217,9 @@ CFRefLeakReportVisitor::getEndPath(BugReporterContext &BRC,
     os << (isa<ObjCMethodDecl>(D) ? " is returned from a method "
                                   : " is returned from a function ");
     
-    if (D->getAttr<CFReturnsNotRetainedAttr>())
+    if (D->hasAttr<CFReturnsNotRetainedAttr>())
       os << "that is annotated as CF_RETURNS_NOT_RETAINED";
-    else if (D->getAttr<NSReturnsNotRetainedAttr>())
+    else if (D->hasAttr<NSReturnsNotRetainedAttr>())
       os << "that is annotated as NS_RETURNS_NOT_RETAINED";
     else {
       if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
@@ -2333,19 +2338,19 @@ class RetainCountChecker
                     check::RegionChanges,
                     eval::Assume,
                     eval::Call > {
-  mutable OwningPtr<CFRefBug> useAfterRelease, releaseNotOwned;
-  mutable OwningPtr<CFRefBug> deallocGC, deallocNotOwned;
-  mutable OwningPtr<CFRefBug> overAutorelease, returnNotOwnedForOwned;
-  mutable OwningPtr<CFRefBug> leakWithinFunction, leakAtReturn;
-  mutable OwningPtr<CFRefBug> leakWithinFunctionGC, leakAtReturnGC;
+  mutable std::unique_ptr<CFRefBug> useAfterRelease, releaseNotOwned;
+  mutable std::unique_ptr<CFRefBug> deallocGC, deallocNotOwned;
+  mutable std::unique_ptr<CFRefBug> overAutorelease, returnNotOwnedForOwned;
+  mutable std::unique_ptr<CFRefBug> leakWithinFunction, leakAtReturn;
+  mutable std::unique_ptr<CFRefBug> leakWithinFunctionGC, leakAtReturnGC;
 
-  typedef llvm::DenseMap<SymbolRef, const SimpleProgramPointTag *> SymbolTagMap;
+  typedef llvm::DenseMap<SymbolRef, const CheckerProgramPointTag *> SymbolTagMap;
 
   // This map is only used to ensure proper deletion of any allocated tags.
   mutable SymbolTagMap DeadSymbolTags;
 
-  mutable OwningPtr<RetainSummaryManager> Summaries;
-  mutable OwningPtr<RetainSummaryManager> SummariesGC;
+  mutable std::unique_ptr<RetainSummaryManager> Summaries;
+  mutable std::unique_ptr<RetainSummaryManager> SummariesGC;
   mutable SummaryLogTy SummaryLog;
   mutable bool ShouldResetSummaryLog;
 
@@ -2402,17 +2407,18 @@ public:
                                      bool GCEnabled) const {
     if (GCEnabled) {
       if (!leakWithinFunctionGC)
-        leakWithinFunctionGC.reset(new Leak("Leak of object when using "
-                                             "garbage collection"));
+        leakWithinFunctionGC.reset(new Leak(this, "Leak of object when using "
+                                                  "garbage collection"));
       return leakWithinFunctionGC.get();
     } else {
       if (!leakWithinFunction) {
         if (LOpts.getGC() == LangOptions::HybridGC) {
-          leakWithinFunction.reset(new Leak("Leak of object when not using "
+          leakWithinFunction.reset(new Leak(this,
+                                            "Leak of object when not using "
                                             "garbage collection (GC) in "
                                             "dual GC/non-GC code"));
         } else {
-          leakWithinFunction.reset(new Leak("Leak"));
+          leakWithinFunction.reset(new Leak(this, "Leak"));
         }
       }
       return leakWithinFunction.get();
@@ -2422,17 +2428,19 @@ public:
   CFRefBug *getLeakAtReturnBug(const LangOptions &LOpts, bool GCEnabled) const {
     if (GCEnabled) {
       if (!leakAtReturnGC)
-        leakAtReturnGC.reset(new Leak("Leak of returned object when using "
+        leakAtReturnGC.reset(new Leak(this,
+                                      "Leak of returned object when using "
                                       "garbage collection"));
       return leakAtReturnGC.get();
     } else {
       if (!leakAtReturn) {
         if (LOpts.getGC() == LangOptions::HybridGC) {
-          leakAtReturn.reset(new Leak("Leak of returned object when not using "
+          leakAtReturn.reset(new Leak(this,
+                                      "Leak of returned object when not using "
                                       "garbage collection (GC) in dual "
                                       "GC/non-GC code"));
         } else {
-          leakAtReturn.reset(new Leak("Leak of returned object"));
+          leakAtReturn.reset(new Leak(this, "Leak of returned object"));
         }
       }
       return leakAtReturn.get();
@@ -2731,6 +2739,16 @@ static QualType GetReturnType(const Expr *RetE, ASTContext &Ctx) {
   return RetTy;
 }
 
+static bool wasSynthesizedProperty(const ObjCMethodCall *Call,
+                                   ExplodedNode *N) {
+  if (!Call || !Call->getDecl()->isPropertyAccessor())
+    return false;
+
+  CallExitEnd PP = N->getLocation().castAs<CallExitEnd>();
+  const StackFrameContext *Frame = PP.getCalleeContext();
+  return Frame->getAnalysisDeclContext()->isBodyAutosynthesized();
+}
+
 // We don't always get the exact modeling of the function with regards to the
 // retain count checker even when the function is inlined. For example, we need
 // to stop tracking the symbols which were marked with StopTrackingHard.
@@ -2765,6 +2783,15 @@ void RetainCountChecker::processSummaryOfInlined(const RetainSummary &Summ,
     SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();
     if (Sym)
       state = removeRefBinding(state, Sym);
+  } else if (RE.getKind() == RetEffect::NotOwnedSymbol) {
+    if (wasSynthesizedProperty(MsgInvocation, C.getPredecessor())) {
+      // Believe the summary if we synthesized the body and the return value is
+      // untracked. This handles property getters.
+      SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();
+      if (Sym && !getRefBinding(state, Sym))
+        state = setRefBinding(state, Sym, RefVal::makeNotOwned(RE.getObjKind(),
+                                                               Sym->getType()));
+    }
   }
   
   C.addTransition(state);
@@ -2857,7 +2884,6 @@ void RetainCountChecker::checkSummary(const RetainSummary &Summ,
     }
 
     case RetEffect::GCNotOwnedSymbol:
-    case RetEffect::ARCNotOwnedSymbol:
     case RetEffect::NotOwnedSymbol: {
       const Expr *Ex = CallOrMsg.getOriginExpr();
       SymbolRef Sym = CallOrMsg.getReturnValue().getAsSymbol();
@@ -3053,22 +3079,22 @@ void RetainCountChecker::processNonLeakError(ProgramStateRef St,
       llvm_unreachable("Unhandled error.");
     case RefVal::ErrorUseAfterRelease:
       if (!useAfterRelease)
-        useAfterRelease.reset(new UseAfterRelease());
+        useAfterRelease.reset(new UseAfterRelease(this));
       BT = &*useAfterRelease;
       break;
     case RefVal::ErrorReleaseNotOwned:
       if (!releaseNotOwned)
-        releaseNotOwned.reset(new BadRelease());
+        releaseNotOwned.reset(new BadRelease(this));
       BT = &*releaseNotOwned;
       break;
     case RefVal::ErrorDeallocGC:
       if (!deallocGC)
-        deallocGC.reset(new DeallocGC());
+        deallocGC.reset(new DeallocGC(this));
       BT = &*deallocGC;
       break;
     case RefVal::ErrorDeallocNotOwned:
       if (!deallocNotOwned)
-        deallocNotOwned.reset(new DeallocNotOwned());
+        deallocNotOwned.reset(new DeallocNotOwned(this));
       BT = &*deallocNotOwned;
       break;
   }
@@ -3232,8 +3258,7 @@ void RetainCountChecker::checkPreStmt(const ReturnStmt *S,
     return;
 
   // Update the autorelease counts.
-  static SimpleProgramPointTag
-         AutoreleaseTag("RetainCountChecker : Autorelease");
+  static CheckerProgramPointTag AutoreleaseTag(this, "Autorelease");
   state = handleAutoreleaseCounts(state, Pred, &AutoreleaseTag, C, Sym, X);
 
   // Did we cache out?
@@ -3294,8 +3319,7 @@ void RetainCountChecker::checkReturnWithRetEffect(const ReturnStmt *S,
         // Generate an error node.
         state = setRefBinding(state, Sym, X);
 
-        static SimpleProgramPointTag
-               ReturnOwnLeakTag("RetainCountChecker : ReturnsOwnLeak");
+        static CheckerProgramPointTag ReturnOwnLeakTag(this, "ReturnsOwnLeak");
         ExplodedNode *N = C.addTransition(state, Pred, &ReturnOwnLeakTag);
         if (N) {
           const LangOptions &LOpts = C.getASTContext().getLangOpts();
@@ -3315,12 +3339,12 @@ void RetainCountChecker::checkReturnWithRetEffect(const ReturnStmt *S,
       // owned object.
       state = setRefBinding(state, Sym, X ^ RefVal::ErrorReturnedNotOwned);
 
-      static SimpleProgramPointTag
-             ReturnNotOwnedTag("RetainCountChecker : ReturnNotOwnedForOwned");
+      static CheckerProgramPointTag ReturnNotOwnedTag(this, 
+                                                      "ReturnNotOwnedForOwned");
       ExplodedNode *N = C.addTransition(state, Pred, &ReturnNotOwnedTag);
       if (N) {
         if (!returnNotOwnedForOwned)
-          returnNotOwnedForOwned.reset(new ReturnedNotOwnedForOwned());
+          returnNotOwnedForOwned.reset(new ReturnedNotOwnedForOwned(this));
 
         CFRefReport *report =
             new CFRefReport(*returnNotOwnedForOwned,
@@ -3375,7 +3399,7 @@ void RetainCountChecker::checkBind(SVal loc, SVal val, const Stmt *S,
   // false positives.
   if (const VarRegion *LVR = dyn_cast_or_null<VarRegion>(loc.getAsRegion())) {
     const VarDecl *VD = LVR->getDecl();
-    if (VD->getAttr<CleanupAttr>()) {
+    if (VD->hasAttr<CleanupAttr>()) {
       escapes = true;
     }
   }
@@ -3508,7 +3532,7 @@ RetainCountChecker::handleAutoreleaseCounts(ProgramStateRef state,
     os << "has a +" << V.getCount() << " retain count";
 
     if (!overAutorelease)
-      overAutorelease.reset(new OverAutorelease());
+      overAutorelease.reset(new OverAutorelease(this));
 
     const LangOptions &LOpts = Ctx.getASTContext().getLangOpts();
     CFRefReport *report =
@@ -3602,13 +3626,13 @@ void RetainCountChecker::checkEndFunction(CheckerContext &Ctx) const {
 
 const ProgramPointTag *
 RetainCountChecker::getDeadSymbolTag(SymbolRef sym) const {
-  const SimpleProgramPointTag *&tag = DeadSymbolTags[sym];
+  const CheckerProgramPointTag *&tag = DeadSymbolTags[sym];
   if (!tag) {
     SmallString<64> buf;
     llvm::raw_svector_ostream out(buf);
-    out << "RetainCountChecker : Dead Symbol : ";
+    out << "Dead Symbol : ";
     sym->dumpToStream(out);
-    tag = new SimpleProgramPointTag(out.str());
+    tag = new CheckerProgramPointTag(this, out.str());
   }
   return tag;  
 }

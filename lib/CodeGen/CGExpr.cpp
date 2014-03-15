@@ -85,6 +85,7 @@ llvm::AllocaInst *CodeGenFunction::CreateMemTemp(QualType Ty,
 /// EvaluateExprAsBool - Perform the usual unary conversions on the specified
 /// expression and compare the result against zero, returning an Int1Ty value.
 llvm::Value *CodeGenFunction::EvaluateExprAsBool(const Expr *E) {
+  PGO.setCurrentStmt(E);
   if (const MemberPointerType *MPT = E->getType()->getAs<MemberPointerType>()) {
     llvm::Value *MemPtr = EmitScalarExpr(E);
     return CGM.getCXXABI().EmitMemberPointerIsNotNull(*this, MemPtr, MPT);
@@ -389,7 +390,7 @@ LValue CodeGenFunction::EmitMaterializeTemporaryExpr(
     case SubobjectAdjustment::MemberPointerAdjustment: {
       llvm::Value *Ptr = EmitScalarExpr(Adjustment.Ptr.RHS);
       Object = CGM.getCXXABI().EmitMemberDataPointerAddress(
-                    *this, Object, Ptr, Adjustment.Ptr.MPT);
+          *this, E, Object, Ptr, Adjustment.Ptr.MPT);
       break;
     }
     }
@@ -1553,6 +1554,12 @@ void CodeGenFunction::EmitStoreThroughExtVectorComponentLValue(RValue Src,
       for (unsigned i = 0; i != NumDstElts; ++i)
         Mask.push_back(Builder.getInt32(i));
 
+      // When the vector size is odd and .odd or .hi is used, the last element
+      // of the Elts constant array will be one past the size of the vector.
+      // Ignore the last element here, if it is greater than the mask size.
+      if (getAccessedFieldNo(NumSrcElts - 1, Elts) == Mask.size())
+        NumSrcElts--;
+
       // modify when what gets shuffled in
       for (unsigned i = 0; i != NumSrcElts; ++i)
         Mask[getAccessedFieldNo(i, Elts)] = Builder.getInt32(i+NumDstElts);
@@ -1712,7 +1719,7 @@ static LValue EmitFunctionDeclLValue(CodeGenFunction &CGF,
       // isn't the same as the type of a use.  Correct for this with a
       // bitcast.
       QualType NoProtoType =
-          CGF.getContext().getFunctionNoProtoType(Proto->getResultType());
+          CGF.getContext().getFunctionNoProtoType(Proto->getReturnType());
       NoProtoType = CGF.getContext().getPointerType(NoProtoType);
       V = CGF.Builder.CreateBitCast(V, CGF.ConvertType(NoProtoType));
     }
@@ -1736,17 +1743,6 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   // A DeclRefExpr for a reference initialized by a constant expression can
   // appear without being odr-used. Directly emit the constant initializer.
   if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
-
-    // CodeGen for threadprivate variables.
-    if (getLangOpts().OpenMP) {
-      if (llvm::Value *Val =
-               CGM.CreateOpenMPThreadPrivateCached(VD, E->getExprLoc(), *this))
-        return MakeAddrLValue(Val, T, Alignment);
-      // CodeGen for OpenMP private variables - works only in CapturedStmt.
-      else if (llvm::Value *Val = CGM.OpenMPSupport.getOpenMPPrivateVar(VD))
-        return MakeAddrLValue(Val, T, Alignment);
-    }
-
     const Expr *Init = VD->getAnyInitializer(VD);
     if (Init && !isa<ParmVarDecl>(VD) && VD->getType()->isReferenceType() &&
         VD->isUsableInConstantExpressions(getContext()) &&
@@ -1835,8 +1831,8 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
     return LV;
   }
 
-  if (const FunctionDecl *fn = dyn_cast<FunctionDecl>(ND))
-    return EmitFunctionDeclLValue(*this, E, fn);
+  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND))
+    return EmitFunctionDeclLValue(*this, E, FD);
 
   llvm_unreachable("Unhandled DeclRefExpr");
 }
@@ -1955,6 +1951,7 @@ LValue CodeGenFunction::EmitPredefinedLValue(const PredefinedExpr *E) {
   case PredefinedExpr::Func:
   case PredefinedExpr::Function:
   case PredefinedExpr::LFunction:
+  case PredefinedExpr::FuncDName:
   case PredefinedExpr::PrettyFunction: {
     PredefinedExpr::IdentType IdentType = E->getIdentType();
     std::string GlobalVarName;
@@ -1966,6 +1963,9 @@ LValue CodeGenFunction::EmitPredefinedLValue(const PredefinedExpr *E) {
       break;
     case PredefinedExpr::Function:
       GlobalVarName = "__FUNCTION__.";
+      break;
+    case PredefinedExpr::FuncDName:
+      GlobalVarName = "__FUNCDNAME__.";
       break;
     case PredefinedExpr::LFunction:
       GlobalVarName = "L__FUNCTION__.";
@@ -2034,7 +2034,10 @@ LValue CodeGenFunction::EmitPredefinedLValue(const PredefinedExpr *E) {
 /// followed by an array of i8 containing the type name. TypeKind is 0 for an
 /// integer, 1 for a floating point value, and -1 for anything else.
 llvm::Constant *CodeGenFunction::EmitCheckTypeDescriptor(QualType T) {
-  // FIXME: Only emit each type's descriptor once.
+  // Only emit each type's descriptor once.
+  if (llvm::Constant *C = CGM.getTypeDescriptor(T))
+    return C;
+
   uint16_t TypeKind = -1;
   uint16_t TypeInfo = 0;
 
@@ -2067,6 +2070,10 @@ llvm::Constant *CodeGenFunction::EmitCheckTypeDescriptor(QualType T) {
                              llvm::GlobalVariable::PrivateLinkage,
                              Descriptor);
   GV->setUnnamedAddr(true);
+
+  // Remember the descriptor for this type.
+  CGM.setTypeDescriptor(T, GV);
+
   return GV;
 }
 
@@ -2109,9 +2116,7 @@ llvm::Constant *CodeGenFunction::EmitCheckSourceLocation(SourceLocation Loc) {
   PresumedLoc PLoc = getContext().getSourceManager().getPresumedLoc(Loc);
 
   llvm::Constant *Data[] = {
-    // FIXME: Only emit each file name once.
-    PLoc.isValid() ? cast<llvm::Constant>(
-                       Builder.CreateGlobalStringPtr(PLoc.getFilename()))
+    PLoc.isValid() ? CGM.GetAddrOfConstantCString(PLoc.getFilename(), ".src")
                    : llvm::Constant::getNullValue(Int8PtrTy),
     Builder.getInt32(PLoc.isValid() ? PLoc.getLine() : 0),
     Builder.getInt32(PLoc.isValid() ? PLoc.getColumn() : 0)
@@ -2647,6 +2652,7 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   }
 
   OpaqueValueMapping binding(*this, expr);
+  RegionCounter Cnt = getPGORegionCounter(expr);
 
   const Expr *condExpr = expr->getCond();
   bool CondExprBool;
@@ -2654,8 +2660,12 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
     const Expr *live = expr->getTrueExpr(), *dead = expr->getFalseExpr();
     if (!CondExprBool) std::swap(live, dead);
 
-    if (!ContainsLabel(dead))
+    if (!ContainsLabel(dead)) {
+      // If the true case is live, we need to track its region.
+      if (CondExprBool)
+        Cnt.beginRegion(Builder);
       return EmitLValue(live);
+    }
   }
 
   llvm::BasicBlock *lhsBlock = createBasicBlock("cond.true");
@@ -2663,10 +2673,11 @@ EmitConditionalOperatorLValue(const AbstractConditionalOperator *expr) {
   llvm::BasicBlock *contBlock = createBasicBlock("cond.end");
 
   ConditionalEvaluation eval(*this);
-  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock);
+  EmitBranchOnBoolExpr(condExpr, lhsBlock, rhsBlock, Cnt.getCount());
 
   // Any temporaries created here are conditional.
   EmitBlock(lhsBlock);
+  Cnt.beginRegion(Builder);
   eval.begin(*this);
   LValue lhs = EmitLValue(expr->getTrueExpr());
   eval.end(*this);
@@ -2740,6 +2751,7 @@ LValue CodeGenFunction::EmitCastLValue(const CastExpr *E) {
   case CK_ARCReclaimReturnedObject:
   case CK_ARCExtendBlockObject:
   case CK_CopyAndAutoreleaseBlockObject:
+  case CK_AddressSpaceConversion:
     return EmitUnsupportedLValue(E, "unexpected cast lvalue");
 
   case CK_Dependent:
@@ -3057,7 +3069,7 @@ LValue CodeGenFunction::EmitObjCMessageExprLValue(const ObjCMessageExpr *E) {
   if (!RV.isScalar())
     return MakeAddrLValue(RV.getAggregateAddr(), E->getType());
 
-  assert(E->getMethodDecl()->getResultType()->isReferenceType() &&
+  assert(E->getMethodDecl()->getReturnType()->isReferenceType() &&
          "Can't have a scalar return unless the return type is a "
          "reference type!");
 
@@ -3227,8 +3239,8 @@ EmitPointerToDataMemberBinaryExpr(const BinaryOperator *E) {
   const MemberPointerType *MPT
     = E->getRHS()->getType()->getAs<MemberPointerType>();
 
-  llvm::Value *AddV =
-    CGM.getCXXABI().EmitMemberDataPointerAddress(*this, BaseV, OffsetV, MPT);
+  llvm::Value *AddV = CGM.getCXXABI().EmitMemberDataPointerAddress(
+      *this, E, BaseV, OffsetV, MPT);
 
   return MakeAddrLValue(AddV, MPT->getPointeeType());
 }

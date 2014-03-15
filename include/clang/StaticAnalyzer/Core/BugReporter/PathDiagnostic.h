@@ -21,13 +21,13 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PointerUnion.h"
 #include <deque>
-#include <list>
 #include <iterator>
+#include <list>
 #include <string>
 #include <vector>
 
 namespace clang {
-
+class ConditionalOperator;
 class AnalysisDeclContext;
 class BinaryOperator;
 class CompoundStmt;
@@ -210,6 +210,9 @@ public:
   /// Create the location for the operator of the binary expression.
   /// Assumes the statement has a valid location.
   static PathDiagnosticLocation createOperatorLoc(const BinaryOperator *BO,
+                                                  const SourceManager &SM);
+  static PathDiagnosticLocation createConditionalColonLoc(
+                                                  const ConditionalOperator *CO,
                                                   const SourceManager &SM);
 
   /// For member expressions, return the location of the '.' or '->'.
@@ -420,7 +423,7 @@ public:
     return Result;
   }
 
-  LLVM_ATTRIBUTE_USED void dump() const;
+  void dump() const;
 };
 
 class PathDiagnosticSpotPiece : public PathDiagnosticPiece {
@@ -496,7 +499,7 @@ class PathDiagnosticEventPiece : public PathDiagnosticSpotPiece {
   /// supply a message that will be used to construct an extra hint on the
   /// returns from all the calls on the stack from this event to the final
   /// diagnostic.
-  OwningPtr<StackHintGenerator> CallStackHint;
+  std::unique_ptr<StackHintGenerator> CallStackHint;
 
 public:
   PathDiagnosticEventPiece(const PathDiagnosticLocation &pos,
@@ -520,10 +523,8 @@ public:
   bool isPrunable() const {
     return IsPrunable.hasValue() ? IsPrunable.getValue() : false;
   }
-  
-  bool hasCallStackHint() {
-    return CallStackHint.isValid();
-  }
+
+  bool hasCallStackHint() { return (bool)CallStackHint; }
 
   /// Produce the hint for the given node. The node contains 
   /// information about the call for which the diagnostic can be generated.
@@ -707,6 +708,7 @@ public:
 ///  diagnostic.  It represents an ordered-collection of PathDiagnosticPieces,
 ///  each which represent the pieces of the path.
 class PathDiagnostic : public llvm::FoldingSetNode {
+  std::string CheckName;
   const Decl *DeclWithIssue;
   std::string BugType;
   std::string VerboseDesc;
@@ -727,8 +729,8 @@ class PathDiagnostic : public llvm::FoldingSetNode {
 
   PathDiagnostic() LLVM_DELETED_FUNCTION;
 public:
-  PathDiagnostic(const Decl *DeclWithIssue, StringRef bugtype,
-                 StringRef verboseDesc, StringRef shortDesc,
+  PathDiagnostic(StringRef CheckName, const Decl *DeclWithIssue,
+                 StringRef bugtype, StringRef verboseDesc, StringRef shortDesc,
                  StringRef category, PathDiagnosticLocation LocationToUnique,
                  const Decl *DeclToUnique);
 
@@ -785,6 +787,7 @@ public:
   StringRef getShortDescription() const {
     return ShortDesc.empty() ? VerboseDesc : ShortDesc;
   }
+  StringRef getCheckName() const { return CheckName; }
   StringRef getBugType() const { return BugType; }
   StringRef getCategory() const { return Category; }
 

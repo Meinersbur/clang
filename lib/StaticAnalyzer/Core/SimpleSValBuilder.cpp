@@ -97,7 +97,7 @@ SVal SimpleSValBuilder::evalCastFromNonLoc(NonLoc val, QualType castTy) {
     return UnknownVal();
   }
 
-  // If value is a non integer constant, produce unknown.
+  // If value is a non-integer constant, produce unknown.
   if (!val.getAs<nonloc::ConcreteInt>())
     return UnknownVal();
 
@@ -108,7 +108,7 @@ SVal SimpleSValBuilder::evalCastFromNonLoc(NonLoc val, QualType castTy) {
   }
 
   // Only handle casts from integers to integers - if val is an integer constant
-  // being cast to a non integer type, produce unknown.
+  // being cast to a non-integer type, produce unknown.
   if (!isLocType && !castTy->isIntegralOrEnumerationType())
     return UnknownVal();
 
@@ -158,7 +158,7 @@ SVal SimpleSValBuilder::evalCastFromLoc(Loc val, QualType castTy) {
       }
 
       case loc::GotoLabelKind:
-        // Labels and non symbolic memory regions are always true.
+        // Labels and non-symbolic memory regions are always true.
         return makeTruthVal(true, castTy);
     }
   }
@@ -569,11 +569,10 @@ static SVal evalBinOpFieldRegionFieldRegion(const FieldRegion *LeftFR,
   // members and the units in which bit-fields reside have addresses that
   // increase in the order in which they are declared."
   bool leftFirst = (op == BO_LT || op == BO_LE);
-  for (RecordDecl::field_iterator I = RD->field_begin(),
-       E = RD->field_end(); I!=E; ++I) {
-    if (*I == LeftFD)
+  for (const auto *I : RD->fields()) {
+    if (I == LeftFD)
       return SVB.makeTruthVal(leftFirst, resultTy);
-    if (*I == RightFD)
+    if (I == RightFD)
       return SVB.makeTruthVal(!leftFirst, resultTy);
   }
 

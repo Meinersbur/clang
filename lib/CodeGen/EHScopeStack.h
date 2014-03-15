@@ -19,8 +19,8 @@
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/Value.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Value.h"
 
 namespace clang {
 namespace CodeGen {
@@ -65,9 +65,9 @@ template <class T> struct InvariantValue {
 template <class T> struct DominatingValue : InvariantValue<T> {};
 
 template <class T, bool mightBeInstruction =
-            llvm::is_base_of<llvm::Value, T>::value &&
-            !llvm::is_base_of<llvm::Constant, T>::value &&
-            !llvm::is_base_of<llvm::BasicBlock, T>::value>
+            std::is_base_of<llvm::Value, T>::value &&
+            !std::is_base_of<llvm::Constant, T>::value &&
+            !std::is_base_of<llvm::BasicBlock, T>::value>
 struct DominatingPointer;
 template <class T> struct DominatingPointer<T,false> : InvariantValue<T*> {};
 // template <class T> struct DominatingPointer<T,true> at end of file

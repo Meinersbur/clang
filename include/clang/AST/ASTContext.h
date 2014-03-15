@@ -33,10 +33,10 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Support/Allocator.h"
+#include <memory>
 #include <vector>
 
 namespace llvm {
@@ -66,6 +66,7 @@ namespace clang {
   class UnresolvedSetIterator;
   class UsingDecl;
   class UsingShadowDecl;
+  class VTableContextBase;
 
   namespace Builtin { class Context; }
 
@@ -82,7 +83,7 @@ class ASTContext : public RefCountedBase<ASTContext> {
   mutable llvm::FoldingSet<ExtQuals> ExtQualNodes;
   mutable llvm::FoldingSet<ComplexType> ComplexTypes;
   mutable llvm::FoldingSet<PointerType> PointerTypes;
-  mutable llvm::FoldingSet<DecayedType> DecayedTypes;
+  mutable llvm::FoldingSet<AdjustedType> AdjustedTypes;
   mutable llvm::FoldingSet<BlockPointerType> BlockPointerTypes;
   mutable llvm::FoldingSet<LValueReferenceType> LValueReferenceTypes;
   mutable llvm::FoldingSet<RValueReferenceType> RValueReferenceTypes;
@@ -364,6 +365,7 @@ private:
   /// \brief Side-table of mangling numbers for declarations which rarely
   /// need them (like static local vars).
   llvm::DenseMap<const NamedDecl *, unsigned> MangleNumbers;
+  llvm::DenseMap<const VarDecl *, unsigned> StaticLocalNumbers;
 
   /// \brief Mapping that stores parameterIndex values for ParmVarDecls when
   /// that value exceeds the bitfield size of ParmVarDeclBits.ParameterIndex.
@@ -392,7 +394,7 @@ private:
   PartialDiagnostic::StorageAllocator DiagAllocator;
 
   /// \brief The current C++ ABI.
-  OwningPtr<CXXABI> ABI;
+  std::unique_ptr<CXXABI> ABI;
   CXXABI *createCXXABI(const TargetInfo &T);
 
   /// \brief The logical -> physical address space map.
@@ -415,7 +417,7 @@ public:
   SelectorTable &Selectors;
   Builtin::Context &BuiltinInfo;
   mutable DeclarationNameTable DeclarationNames;
-  OwningPtr<ExternalASTSource> ExternalSource;
+  IntrusiveRefCntPtr<ExternalASTSource> ExternalSource;
   ASTMutationListener *Listener;
 
   /// \brief Contains parents of a node.
@@ -810,11 +812,13 @@ public:
   /// The external AST source provides the ability to load parts of
   /// the abstract syntax tree as needed from some external storage,
   /// e.g., a precompiled header.
-  void setExternalSource(OwningPtr<ExternalASTSource> &Source);
+  void setExternalSource(IntrusiveRefCntPtr<ExternalASTSource> Source);
 
   /// \brief Retrieve a pointer to the external AST source associated
   /// with this AST context, if any.
-  ExternalASTSource *getExternalSource() const { return ExternalSource.get(); }
+  ExternalASTSource *getExternalSource() const {
+    return ExternalSource.getPtr();
+  }
 
   /// \brief Attach an AST mutation listener to the AST context.
   ///
@@ -831,6 +835,14 @@ public:
 
   void PrintStats() const;
   const SmallVectorImpl<Type *>& getTypes() const { return Types; }
+
+  /// \brief Create a new implicit TU-level CXXRecordDecl or RecordDecl
+  /// declaration.
+  RecordDecl *buildImplicitRecord(StringRef Name,
+                                  RecordDecl::TagKind TK = TTK_Struct) const;
+
+  /// \brief Create a new implicit TU-level typedef declaration.
+  TypedefDecl *buildImplicitTypedef(QualType T, StringRef Name) const;
 
   /// \brief Retrieve the declaration for the 128-bit signed integer type.
   TypedefDecl *getInt128Decl() const;
@@ -913,6 +925,14 @@ public:
   QualType getPointerType(QualType T) const;
   CanQualType getPointerType(CanQualType T) const {
     return CanQualType::CreateUnsafe(getPointerType((QualType) T));
+  }
+
+  /// \brief Return the uniqued reference to a type adjusted from the original
+  /// type to a new type.
+  QualType getAdjustedType(QualType Orig, QualType New) const;
+  CanQualType getAdjustedType(CanQualType Orig, CanQualType New) const {
+    return CanQualType::CreateUnsafe(
+        getAdjustedType((QualType)Orig, (QualType)New));
   }
 
   /// \brief Return the uniqued reference to the decayed version of the given
@@ -1126,6 +1146,13 @@ public:
   QualType getObjCObjectType(QualType Base,
                              ObjCProtocolDecl * const *Protocols,
                              unsigned NumProtocols) const;
+  
+  bool ObjCObjectAdoptsQTypeProtocols(QualType QT, ObjCInterfaceDecl *Decl);
+  /// QIdProtocolsAdoptObjCObjectProtocols - Checks that protocols in
+  /// QT's qualified-id protocol list adopt all protocols in IDecl's list
+  /// of protocols.
+  bool QIdProtocolsAdoptObjCObjectProtocols(QualType QT,
+                                            ObjCInterfaceDecl *IDecl);
 
   /// \brief Return a ObjCObjectPointerType type for the given ObjCObjectType.
   QualType getObjCObjectPointerType(QualType OIT) const;
@@ -1382,6 +1409,10 @@ public:
 
   bool ProtocolCompatibleWithProtocol(ObjCProtocolDecl *lProto,
                                       ObjCProtocolDecl *rProto) const;
+  
+  ObjCPropertyImplDecl *getObjCPropertyImplDeclForPropertyDecl(
+                                                  const ObjCPropertyDecl *PD,
+                                                  const Decl *Container) const;
 
   /// \brief Return the size of type \p T for Objective-C encoding purpose,
   /// in characters.
@@ -1704,6 +1735,8 @@ public:
 
   bool isNearlyEmpty(const CXXRecordDecl *RD) const;
 
+  VTableContextBase *getVTableContext();
+
   MangleContext *createMangleContext();
   
   void DeepCollectObjCIvars(const ObjCInterfaceDecl *OI, bool leafClass,
@@ -1994,9 +2027,9 @@ public:
                       bool Unqualified = false, bool BlockReturnType = false);
   QualType mergeFunctionTypes(QualType, QualType, bool OfBlockPointer=false,
                               bool Unqualified = false);
-  QualType mergeFunctionArgumentTypes(QualType, QualType,
-                                      bool OfBlockPointer=false,
-                                      bool Unqualified = false);
+  QualType mergeFunctionParameterTypes(QualType, QualType,
+                                       bool OfBlockPointer = false,
+                                       bool Unqualified = false);
   QualType mergeTransparentUnionType(QualType, QualType,
                                      bool OfBlockPointer=false,
                                      bool Unqualified = false);
@@ -2139,6 +2172,9 @@ public:
   void setManglingNumber(const NamedDecl *ND, unsigned Number);
   unsigned getManglingNumber(const NamedDecl *ND) const;
 
+  void setStaticLocalNumber(const VarDecl *VD, unsigned Number);
+  unsigned getStaticLocalNumber(const VarDecl *VD) const;
+
   /// \brief Retrieve the context for computing mangling numbers in the given
   /// DeclContext.
   MangleNumberingContext &getManglingNumberContext(const DeclContext *DC);
@@ -2264,7 +2300,9 @@ private:
   friend class DeclarationNameTable;
   void ReleaseDeclContextMaps();
 
-  llvm::OwningPtr<ParentMap> AllParents;
+  std::unique_ptr<ParentMap> AllParents;
+
+  std::unique_ptr<VTableContextBase> VTContext;
 };
 
 /// \brief Utility function for constructing a nullary selector.

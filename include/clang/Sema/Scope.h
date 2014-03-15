@@ -18,6 +18,12 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
+namespace llvm {
+
+class raw_ostream;
+
+}
+
 namespace clang {
 
 class Decl;
@@ -109,6 +115,10 @@ private:
   /// interrelates with other control flow statements.
   unsigned short Flags;
 
+  /// \brief Declarations with static linkage are mangled with the number of
+  /// scopes seen as a component.
+  unsigned short MSLocalManglingNumber;
+
   /// PrototypeDepth - This is the number of function prototype scopes
   /// enclosing this scope, including this scope.
   unsigned short PrototypeDepth;
@@ -120,6 +130,7 @@ private:
   /// FnParent - If this scope has a parent scope that is a function body, this
   /// pointer is non-null and points to it.  This is used for label processing.
   Scope *FnParent;
+  Scope *MSLocalManglingParent;
 
   /// BreakParent/ContinueParent - This is a direct link to the innermost
   /// BreakScope/ContinueScope which contains the contents of this scope
@@ -181,6 +192,11 @@ public:
   const Scope *getFnParent() const { return FnParent; }
   Scope *getFnParent() { return FnParent; }
 
+  const Scope *getMSLocalManglingParent() const {
+    return MSLocalManglingParent;
+  }
+  Scope *getMSLocalManglingParent() { return MSLocalManglingParent; }
+
   /// getContinueParent - Return the closest scope that a continue statement
   /// would be affected by.
   Scope *getContinueParent() {
@@ -232,6 +248,22 @@ public:
     DeclsInScope.erase(D);
   }
 
+  void incrementMSLocalManglingNumber() {
+    if (Scope *MSLMP = getMSLocalManglingParent())
+      MSLMP->MSLocalManglingNumber += 1;
+  }
+
+  void decrementMSLocalManglingNumber() {
+    if (Scope *MSLMP = getMSLocalManglingParent())
+      MSLMP->MSLocalManglingNumber -= 1;
+  }
+
+  unsigned getMSLocalManglingNumber() const {
+    if (const Scope *MSLMP = getMSLocalManglingParent())
+      return MSLMP->MSLocalManglingNumber;
+    return 1;
+  }
+
   /// isDeclScope - Return true if this is the scope that the specified decl is
   /// declared in.
   bool isDeclScope(Decl *D) {
@@ -273,6 +305,18 @@ public:
     return false;
   }
 
+  /// isInObjcMethodOuterScope - Return true if this scope is an
+  /// Objective-C method outer most body.
+  bool isInObjcMethodOuterScope() const {
+    if (const Scope *S = this) {
+      // If this scope is an objc method scope, then we succeed.
+      if (S->getFlags() & ObjCMethodScope)
+        return true;
+    }
+    return false;
+  }
+
+  
   /// isTemplateParamScope - Return true if this scope is a C++
   /// template parameter scope.
   bool isTemplateParamScope() const {
@@ -303,14 +347,14 @@ public:
     }
     return false;
   }
-  
-  /// \brief Determine whether this scope is a C++ 'try' block.
-  bool isTryScope() const { return getFlags() & Scope::TryScope; }
 
   /// \brief Determines whether this scope is the OpenMP directive scope
   bool isOpenMPDirectiveScope() const {
     return (getFlags() & Scope::OpenMPDirectiveScope);
   }
+
+  /// \brief Determine whether this scope is a C++ 'try' block.
+  bool isTryScope() const { return getFlags() & Scope::TryScope; }
 
   /// containedInPrototypeScope - Return true if this or a parent scope
   /// is a FunctionPrototypeScope.
@@ -342,6 +386,14 @@ public:
   /// Init - This is used by the parser to implement scope caching.
   ///
   void Init(Scope *parent, unsigned flags);
+
+  /// \brief Sets up the specified scope flags and adjusts the scope state
+  /// variables accordingly.
+  ///
+  void AddFlags(unsigned Flags);
+
+  void dumpImpl(raw_ostream &OS) const;
+  void dump() const;
 };
 
 }  // end namespace clang

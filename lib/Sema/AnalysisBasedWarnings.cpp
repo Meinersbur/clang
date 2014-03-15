@@ -73,8 +73,119 @@ namespace {
 
 /// CheckUnreachable - Check for unreachable code.
 static void CheckUnreachable(Sema &S, AnalysisDeclContext &AC) {
+  // As a heuristic prune all diagnostics not in the main file.  Currently
+  // the majority of warnings in headers are false positives.  These
+  // are largely caused by configuration state, e.g. preprocessor
+  // defined code, etc.
+  //
+  // Note that this is also a performance optimization.  Analyzing
+  // headers many times can be expensive.
+  if (!S.getSourceManager().isInMainFile(AC.getDecl()->getLocStart()))
+    return;
+
   UnreachableCodeHandler UC(S);
-  reachable_code::FindUnreachableCode(AC, UC);
+  reachable_code::FindUnreachableCode(AC, S.getPreprocessor(), UC);
+}
+
+//===----------------------------------------------------------------------===//
+// Check for infinite self-recursion in functions
+//===----------------------------------------------------------------------===//
+
+// All blocks are in one of three states.  States are ordered so that blocks
+// can only move to higher states.
+enum RecursiveState {
+  FoundNoPath,
+  FoundPath,
+  FoundPathWithNoRecursiveCall
+};
+
+static void checkForFunctionCall(Sema &S, const FunctionDecl *FD,
+                                 CFGBlock &Block, unsigned ExitID,
+                                 llvm::SmallVectorImpl<RecursiveState> &States,
+                                 RecursiveState State) {
+  unsigned ID = Block.getBlockID();
+
+  // A block's state can only move to a higher state.
+  if (States[ID] >= State)
+    return;
+
+  States[ID] = State;
+
+  // Found a path to the exit node without a recursive call.
+  if (ID == ExitID && State == FoundPathWithNoRecursiveCall)
+    return;
+
+  if (State == FoundPathWithNoRecursiveCall) {
+    // If the current state is FoundPathWithNoRecursiveCall, the successors
+    // will be either FoundPathWithNoRecursiveCall or FoundPath.  To determine
+    // which, process all the Stmt's in this block to find any recursive calls.
+    for (CFGBlock::iterator I = Block.begin(), E = Block.end(); I != E; ++I) {
+      if (I->getKind() != CFGElement::Statement)
+        continue;
+
+      const CallExpr *CE = dyn_cast<CallExpr>(I->getAs<CFGStmt>()->getStmt());
+      if (CE && CE->getCalleeDecl() &&
+          CE->getCalleeDecl()->getCanonicalDecl() == FD) {
+
+        // Skip function calls which are qualified with a templated class.
+        if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(
+                CE->getCallee()->IgnoreParenImpCasts())) {
+          if (NestedNameSpecifier *NNS = DRE->getQualifier()) {
+            if (NNS->getKind() == NestedNameSpecifier::TypeSpec &&
+                isa<TemplateSpecializationType>(NNS->getAsType())) {
+               continue;
+            }
+          }
+        }
+
+        if (const CXXMemberCallExpr *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+          if (isa<CXXThisExpr>(MCE->getImplicitObjectArgument()) ||
+              !MCE->getMethodDecl()->isVirtual()) {
+            State = FoundPath;
+            break;
+          }
+        } else {
+          State = FoundPath;
+          break;
+        }
+      }
+    }
+  }
+
+  for (CFGBlock::succ_iterator I = Block.succ_begin(), E = Block.succ_end();
+       I != E; ++I)
+    if (*I)
+      checkForFunctionCall(S, FD, **I, ExitID, States, State);
+}
+
+static void checkRecursiveFunction(Sema &S, const FunctionDecl *FD,
+                                   const Stmt *Body,
+                                   AnalysisDeclContext &AC) {
+  FD = FD->getCanonicalDecl();
+
+  // Only run on non-templated functions and non-templated members of
+  // templated classes.
+  if (FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate &&
+      FD->getTemplatedKind() != FunctionDecl::TK_MemberSpecialization)
+    return;
+
+  CFG *cfg = AC.getCFG();
+  if (cfg == 0) return;
+
+  // If the exit block is unreachable, skip processing the function.
+  if (cfg->getExit().pred_empty())
+    return;
+
+  // Mark all nodes as FoundNoPath, then begin processing the entry block.
+  llvm::SmallVector<RecursiveState, 16> states(cfg->getNumBlockIDs(),
+                                               FoundNoPath);
+  checkForFunctionCall(S, FD, cfg->getEntry(), cfg->getExit().getBlockID(),
+                       states, FoundPathWithNoRecursiveCall);
+
+  // Check that the exit block is reachable.  This prevents triggering the
+  // warning on functions that do not terminate.
+  if (states[cfg->getExit().getBlockID()] == FoundPath)
+    S.Diag(Body->getLocStart(), diag::warn_infinite_recursive_function);
 }
 
 //===----------------------------------------------------------------------===//
@@ -330,18 +441,18 @@ static void CheckFallThroughForBody(Sema &S, const Decl *D, const Stmt *Body,
   bool HasNoReturn = false;
 
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-    ReturnsVoid = FD->getResultType()->isVoidType();
+    ReturnsVoid = FD->getReturnType()->isVoidType();
     HasNoReturn = FD->isNoReturn();
   }
   else if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D)) {
-    ReturnsVoid = MD->getResultType()->isVoidType();
+    ReturnsVoid = MD->getReturnType()->isVoidType();
     HasNoReturn = MD->hasAttr<NoReturnAttr>();
   }
   else if (isa<BlockDecl>(D)) {
     QualType BlockTy = blkExpr->getType();
     if (const FunctionType *FT =
           BlockTy->getPointeeType()->getAs<FunctionType>()) {
-      if (FT->getResultType()->isVoidType())
+      if (FT->getReturnType()->isVoidType())
         ReturnsVoid = true;
       if (FT->getNoReturnAttr())
         HasNoReturn = true;
@@ -776,6 +887,7 @@ namespace {
       while (!BlockQueue.empty()) {
         const CFGBlock *P = BlockQueue.front();
         BlockQueue.pop_front();
+        if (!P) continue;
 
         const Stmt *Term = P->getTerminator();
         if (Term && isa<SwitchStmt>(Term))
@@ -977,24 +1089,6 @@ static void DiagnoseSwitchLabelsFallthrough(Sema &S, AnalysisDeclContext &AC,
 
 }
 
-namespace {
-typedef std::pair<const Stmt *,
-                  sema::FunctionScopeInfo::WeakObjectUseMap::const_iterator>
-        StmtUsesPair;
-
-class StmtUseSorter {
-  const SourceManager &SM;
-
-public:
-  explicit StmtUseSorter(const SourceManager &SM) : SM(SM) { }
-
-  bool operator()(const StmtUsesPair &LHS, const StmtUsesPair &RHS) {
-    return SM.isBeforeInTranslationUnit(LHS.first->getLocStart(),
-                                        RHS.first->getLocStart());
-  }
-};
-}
-
 static bool isInLoop(const ASTContext &Ctx, const ParentMap &PM,
                      const Stmt *S) {
   assert(S);
@@ -1029,6 +1123,8 @@ static void diagnoseRepeatedUseOfWeak(Sema &S,
   typedef sema::FunctionScopeInfo::WeakObjectProfileTy WeakObjectProfileTy;
   typedef sema::FunctionScopeInfo::WeakObjectUseMap WeakObjectUseMap;
   typedef sema::FunctionScopeInfo::WeakUseVector WeakUseVector;
+  typedef std::pair<const Stmt *, WeakObjectUseMap::const_iterator>
+  StmtUsesPair;
 
   ASTContext &Ctx = S.getASTContext();
 
@@ -1087,8 +1183,12 @@ static void diagnoseRepeatedUseOfWeak(Sema &S,
     return;
 
   // Sort by first use so that we emit the warnings in a deterministic order.
+  SourceManager &SM = S.getSourceManager();
   std::sort(UsesByStmt.begin(), UsesByStmt.end(),
-            StmtUseSorter(S.getSourceManager()));
+            [&SM](const StmtUsesPair &LHS, const StmtUsesPair &RHS) {
+    return SM.isBeforeInTranslationUnit(LHS.first->getLocStart(),
+                                        RHS.first->getLocStart());
+  });
 
   // Classify the current code body for better warning text.
   // This enum should stay in sync with the cases in
@@ -1169,19 +1269,7 @@ static void diagnoseRepeatedUseOfWeak(Sema &S,
   }
 }
 
-
 namespace {
-struct SLocSort {
-  bool operator()(const UninitUse &a, const UninitUse &b) {
-    // Prefer a more confident report over a less confident one.
-    if (a.getKind() != b.getKind())
-      return a.getKind() > b.getKind();
-    SourceLocation aLoc = a.getUser()->getLocStart();
-    SourceLocation bLoc = b.getUser()->getLocStart();
-    return aLoc.getRawEncoding() < bLoc.getRawEncoding();
-  }
-};
-
 class UninitValsDiagReporter : public UninitVariablesHandler {
   Sema &S;
   typedef SmallVector<UninitUse, 2> UsesVec;
@@ -1240,8 +1328,14 @@ public:
         // Sort the uses by their SourceLocations.  While not strictly
         // guaranteed to produce them in line/column order, this will provide
         // a stable ordering.
-        std::sort(vec->begin(), vec->end(), SLocSort());
-        
+        std::sort(vec->begin(), vec->end(),
+                  [](const UninitUse &a, const UninitUse &b) {
+          // Prefer a more confident report over a less confident one.
+          if (a.getKind() != b.getKind())
+            return a.getKind() > b.getKind();
+          return a.getUser()->getLocStart() < b.getUser()->getLocStart();
+        });
+
         for (UsesVec::iterator vi = vec->begin(), ve = vec->end(); vi != ve;
              ++vi) {
           // If we have self-init, downgrade all uses to 'may be uninitialized'.
@@ -1629,6 +1723,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   AC.getCFGBuildOptions().AddInitializers = true;
   AC.getCFGBuildOptions().AddImplicitDtors = true;
   AC.getCFGBuildOptions().AddTemporaryDtors = true;
+  AC.getCFGBuildOptions().AddCXXNewAllocator = false;
 
   // Force that certain expressions appear as CFGElements in the CFG.  This
   // is used to speed up various analyses.
@@ -1788,6 +1883,16 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
       Diags.getDiagnosticLevel(diag::warn_arc_repeated_use_of_weak,
                                D->getLocStart()) != DiagnosticsEngine::Ignored)
     diagnoseRepeatedUseOfWeak(S, fscope, D, AC.getParentMap());
+
+
+  // Check for infinite self-recursion in functions
+  if (Diags.getDiagnosticLevel(diag::warn_infinite_recursive_function,
+                               D->getLocStart())
+      != DiagnosticsEngine::Ignored) {
+    if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
+      checkRecursiveFunction(S, FD, Body, AC);
+    }
+  }
 
   // Collect statistics about the CFG if it was built.
   if (S.CollectStats && AC.isCFGBuilt()) {

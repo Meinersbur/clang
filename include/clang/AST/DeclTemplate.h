@@ -710,9 +710,11 @@ public:
     getCommonPtr()->InstantiatedFromMember.setPointer(TD);
   }
 
+  typedef redeclarable_base::redecl_range redecl_range;
   typedef redeclarable_base::redecl_iterator redecl_iterator;
   using redeclarable_base::redecls_begin;
   using redeclarable_base::redecls_end;
+  using redeclarable_base::redecls;
   using redeclarable_base::getPreviousDecl;
   using redeclarable_base::getMostRecentDecl;
   using redeclarable_base::isFirstDecl;
@@ -826,14 +828,14 @@ public:
   /// NULL if no such declaration exists.
   FunctionTemplateDecl *getPreviousDecl() {
     return cast_or_null<FunctionTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+             static_cast<RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
   /// \brief Retrieve the previous declaration of this function template, or
   /// NULL if no such declaration exists.
   const FunctionTemplateDecl *getPreviousDecl() const {
     return cast_or_null<FunctionTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+       static_cast<const RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
   FunctionTemplateDecl *getInstantiatedFromMemberTemplate() {
@@ -892,12 +894,9 @@ public:
 /// This class is inheritedly privately by different kinds of template
 /// parameters and is not part of the Decl hierarchy. Just a facility.
 class TemplateParmPosition {
-protected:
-  // FIXME: This should probably never be called, but it's here as
-  TemplateParmPosition()
-    : Depth(0), Position(0)
-  { /* llvm_unreachable("Cannot create positionless template parameter"); */ }
+  TemplateParmPosition() LLVM_DELETED_FUNCTION;
 
+protected:
   TemplateParmPosition(unsigned D, unsigned P)
     : Depth(D), Position(P)
   { }
@@ -1449,7 +1448,8 @@ public:
                                     bool Qualified) const;
 
   ClassTemplateSpecializationDecl *getMostRecentDecl() {
-    CXXRecordDecl *Recent = CXXRecordDecl::getMostRecentDecl();
+    CXXRecordDecl *Recent = static_cast<CXXRecordDecl *>(
+                              this)->getMostRecentDecl();
     while (!isa<ClassTemplateSpecializationDecl>(Recent)) {
       // FIXME: Does injected class name need to be in the redeclarations chain?
       assert(Recent->isInjectedClassName() && Recent->getPreviousDecl());
@@ -1691,7 +1691,8 @@ public:
 
   ClassTemplatePartialSpecializationDecl *getMostRecentDecl() {
     return cast<ClassTemplatePartialSpecializationDecl>(
-                   ClassTemplateSpecializationDecl::getMostRecentDecl());
+             static_cast<ClassTemplateSpecializationDecl *>(
+               this)->getMostRecentDecl());
   }
 
   /// Get the list of template parameters
@@ -1890,19 +1891,20 @@ public:
   /// NULL if no such declaration exists.
   ClassTemplateDecl *getPreviousDecl() {
     return cast_or_null<ClassTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+             static_cast<RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
   /// \brief Retrieve the previous declaration of this class template, or
   /// NULL if no such declaration exists.
   const ClassTemplateDecl *getPreviousDecl() const {
     return cast_or_null<ClassTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+             static_cast<const RedeclarableTemplateDecl *>(
+               this)->getPreviousDecl());
   }
 
   ClassTemplateDecl *getMostRecentDecl() {
     return cast<ClassTemplateDecl>(
-        RedeclarableTemplateDecl::getMostRecentDecl());
+        static_cast<RedeclarableTemplateDecl *>(this)->getMostRecentDecl());
   }
   const ClassTemplateDecl *getMostRecentDecl() const {
     return const_cast<ClassTemplateDecl*>(this)->getMostRecentDecl();
@@ -2132,14 +2134,15 @@ public:
   /// NULL if no such declaration exists.
   TypeAliasTemplateDecl *getPreviousDecl() {
     return cast_or_null<TypeAliasTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+             static_cast<RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
   /// \brief Retrieve the previous declaration of this function template, or
   /// NULL if no such declaration exists.
   const TypeAliasTemplateDecl *getPreviousDecl() const {
     return cast_or_null<TypeAliasTemplateDecl>(
-             RedeclarableTemplateDecl::getPreviousDecl());
+             static_cast<const RedeclarableTemplateDecl *>(
+               this)->getPreviousDecl());
   }
 
   TypeAliasTemplateDecl *getInstantiatedFromMemberTemplate() {
@@ -2168,7 +2171,7 @@ public:
 
 /// \brief Declaration of a function specialization at template class scope.
 ///
-/// This is a non standard extension needed to support MSVC.
+/// This is a non-standard extension needed to support MSVC.
 ///
 /// For example:
 /// \code
@@ -2210,9 +2213,8 @@ public:
                                                       CXXMethodDecl *FD,
                                                    bool HasExplicitTemplateArgs,
                                         TemplateArgumentListInfo TemplateArgs) {
-    return new (C) ClassScopeFunctionSpecializationDecl(DC , Loc, FD,
-                                                        HasExplicitTemplateArgs,
-                                                        TemplateArgs);
+    return new (C, DC) ClassScopeFunctionSpecializationDecl(
+        DC, Loc, FD, HasExplicitTemplateArgs, TemplateArgs);
   }
 
   static ClassScopeFunctionSpecializationDecl *
@@ -2317,7 +2319,7 @@ public:
                                     bool Qualified) const;
 
   VarTemplateSpecializationDecl *getMostRecentDecl() {
-    VarDecl *Recent = VarDecl::getMostRecentDecl();
+    VarDecl *Recent = static_cast<VarDecl *>(this)->getMostRecentDecl();
     return cast<VarTemplateSpecializationDecl>(Recent);
   }
 
@@ -2547,7 +2549,8 @@ public:
 
   VarTemplatePartialSpecializationDecl *getMostRecentDecl() {
     return cast<VarTemplatePartialSpecializationDecl>(
-        VarTemplateSpecializationDecl::getMostRecentDecl());
+             static_cast<VarTemplateSpecializationDecl *>(
+               this)->getMostRecentDecl());
   }
 
   /// Get the list of template parameters
@@ -2703,8 +2706,8 @@ public:
   /// \brief Create a variable template node.
   static VarTemplateDecl *Create(ASTContext &C, DeclContext *DC,
                                  SourceLocation L, DeclarationName Name,
-                                 TemplateParameterList *Params, NamedDecl *Decl,
-                                 VarTemplateDecl *PrevDecl);
+                                 TemplateParameterList *Params,
+                                 VarDecl *Decl);
 
   /// \brief Create an empty variable template node.
   static VarTemplateDecl *CreateDeserialized(ASTContext &C, unsigned ID);
@@ -2730,14 +2733,15 @@ public:
   /// NULL if no such declaration exists.
   VarTemplateDecl *getPreviousDecl() {
     return cast_or_null<VarTemplateDecl>(
-        RedeclarableTemplateDecl::getPreviousDecl());
+        static_cast<RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
   /// \brief Retrieve the previous declaration of this variable template, or
   /// NULL if no such declaration exists.
   const VarTemplateDecl *getPreviousDecl() const {
     return cast_or_null<VarTemplateDecl>(
-        RedeclarableTemplateDecl::getPreviousDecl());
+            static_cast<const RedeclarableTemplateDecl *>(
+              this)->getPreviousDecl());
   }
 
   VarTemplateDecl *getInstantiatedFromMemberTemplate() {

@@ -76,8 +76,18 @@ Sema::getTemplateInstantiationArgs(NamedDecl *D,
       // If this variable template specialization was instantiated from a
       // specialized member that is a variable template, we're done.
       assert(Spec->getSpecializedTemplate() && "No variable template?");
-      if (Spec->getSpecializedTemplate()->isMemberSpecialization())
-        return Result;
+      llvm::PointerUnion<VarTemplateDecl*,
+                         VarTemplatePartialSpecializationDecl*> Specialized
+                             = Spec->getSpecializedTemplateOrPartial();
+      if (VarTemplatePartialSpecializationDecl *Partial =
+              Specialized.dyn_cast<VarTemplatePartialSpecializationDecl *>()) {
+        if (Partial->isMemberSpecialization())
+          return Result;
+      } else {
+        VarTemplateDecl *Tmpl = Specialized.get<VarTemplateDecl *>();
+        if (Tmpl->isMemberSpecialization())
+          return Result;
+      }
     }
 
     // If we have a template template parameter with translation unit context,
@@ -789,7 +799,7 @@ namespace {
         MultiLevelTemplateArgumentList &TemplateArgs
           = const_cast<MultiLevelTemplateArgumentList &>(this->TemplateArgs);
         unsigned Depth, Index;
-        llvm::tie(Depth, Index) = getDepthAndIndex(PartialPack);
+        std::tie(Depth, Index) = getDepthAndIndex(PartialPack);
         if (TemplateArgs.hasTemplateArgument(Depth, Index)) {
           Result = TemplateArgs(Depth, Index);
           TemplateArgs.setArgument(Depth, Index, TemplateArgument());
@@ -808,7 +818,7 @@ namespace {
         MultiLevelTemplateArgumentList &TemplateArgs
         = const_cast<MultiLevelTemplateArgumentList &>(this->TemplateArgs);
         unsigned Depth, Index;
-        llvm::tie(Depth, Index) = getDepthAndIndex(PartialPack);
+        std::tie(Depth, Index) = getDepthAndIndex(PartialPack);
         TemplateArgs.setArgument(Depth, Index, Arg);
       }
     }
@@ -917,7 +927,8 @@ namespace {
     }
 
     ExprResult TransformLambdaScope(LambdaExpr *E,
-                                    CXXMethodDecl *NewCallOperator) {
+        CXXMethodDecl *NewCallOperator, 
+        ArrayRef<InitCaptureInfoTy> InitCaptureExprsAndTypes) {
       CXXMethodDecl *const OldCallOperator = E->getCallOperator();   
       // In the generic lambda case, we set the NewTemplate to be considered
       // an "instantiation" of the OldTemplate.
@@ -936,7 +947,8 @@ namespace {
         NewCallOperator->setInstantiationOfMemberFunction(OldCallOperator,
                                                     TSK_ImplicitInstantiation);
       
-      return inherited::TransformLambdaScope(E, NewCallOperator);
+      return inherited::TransformLambdaScope(E, NewCallOperator, 
+          InitCaptureExprsAndTypes);
     }
     TemplateParameterList *TransformTemplateParameterList(
                               TemplateParameterList *OrigTPL)  {
@@ -1626,8 +1638,8 @@ static bool NeedsInstantiationAsFunctionType(TypeSourceInfo *T) {
     return false;
 
   FunctionProtoTypeLoc FP = TL.castAs<FunctionProtoTypeLoc>();
-  for (unsigned I = 0, E = FP.getNumArgs(); I != E; ++I) {
-    ParmVarDecl *P = FP.getArg(I);
+  for (unsigned I = 0, E = FP.getNumParams(); I != E; ++I) {
+    ParmVarDecl *P = FP.getParam(I);
 
     // This must be synthesized from a typedef.
     if (!P) continue;
@@ -2006,7 +2018,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
     Spec->setTemplateSpecializationKind(TSK);
     Spec->setPointOfInstantiation(PointOfInstantiation);
   }
-  
+
   InstantiatingTemplate Inst(*this, PointOfInstantiation, Instantiation);
   if (Inst.isInvalid())
     return true;
@@ -2028,7 +2040,12 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
 
   // Start the definition of this instantiation.
   Instantiation->startDefinition();
-  
+
+  // The instantiation is visible here, even if it was first declared in an
+  // unimported module.
+  Instantiation->setHidden(false);
+
+  // FIXME: This loses the as-written tag kind for an explicit instantiation.
   Instantiation->setTagKind(Pattern->getTagKind());
 
   // Do substitution on the base class specifiers.
@@ -2043,9 +2060,7 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
   LateInstantiatedAttrVec LateAttrs;
   Instantiator.enableLateAttributeInstantiation(&LateAttrs);
 
-  for (RecordDecl::decl_iterator Member = Pattern->decls_begin(),
-         MemberEnd = Pattern->decls_end();
-       Member != MemberEnd; ++Member) {
+  for (auto *Member : Pattern->decls()) {
     // Don't instantiate members not belonging in this semantic context.
     // e.g. for:
     // @code
@@ -2055,19 +2070,19 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
     // @endcode
     // 'class B' has the template as lexical context but semantically it is
     // introduced in namespace scope.
-    if ((*Member)->getDeclContext() != Pattern)
+    if (Member->getDeclContext() != Pattern)
       continue;
 
-    if ((*Member)->isInvalidDecl()) {
+    if (Member->isInvalidDecl()) {
       Instantiation->setInvalidDecl();
       continue;
     }
 
-    Decl *NewMember = Instantiator.Visit(*Member);
+    Decl *NewMember = Instantiator.Visit(Member);
     if (NewMember) {
       if (FieldDecl *Field = dyn_cast<FieldDecl>(NewMember)) {
         Fields.push_back(Field);
-        FieldDecl *OldField = cast<FieldDecl>(*Member);
+        FieldDecl *OldField = cast<FieldDecl>(Member);
         if (OldField->getInClassInitializer())
           FieldsWithMemberInitializers.push_back(std::make_pair(OldField,
                                                                 Field));
@@ -2122,16 +2137,14 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
       FieldDecl *NewField = FieldsWithMemberInitializers[I].second;
       Expr *OldInit = OldField->getInClassInitializer();
 
+      ActOnStartCXXInClassMemberInitializer();
       ExprResult NewInit = SubstInitializer(OldInit, TemplateArgs,
                                             /*CXXDirectInit=*/false);
-      if (NewInit.isInvalid())
-        NewField->setInvalidDecl();
-      else {
-        Expr *Init = NewInit.take();
-        assert(Init && "no-argument initializer in class");
-        assert(!isa<ParenListExpr>(Init) && "call-style init in class");
-        ActOnCXXInClassMemberInitializer(NewField, Init->getLocStart(), Init);
-      }
+      Expr *Init = NewInit.take();
+      assert((!Init || !isa<ParenListExpr>(Init)) &&
+             "call-style init in class");
+      ActOnFinishCXXInClassMemberInitializer(NewField, Init->getLocStart(),
+                                             Init);
     }
   }
   // Instantiate late parsed attributes, and attach them to their decls.
@@ -2159,6 +2172,8 @@ Sema::InstantiateClass(SourceLocation PointOfInstantiation,
 
   ActOnFinishDelayedMemberInitializers(Instantiation);
 
+  // FIXME: We should do something similar for explicit instantiations so they
+  // end up in the right module.
   if (TSK == TSK_ImplicitInstantiation) {
     Instantiation->setLocation(Pattern->getLocation());
     Instantiation->setLocStart(Pattern->getInnerLocStart());
@@ -2247,6 +2262,10 @@ bool Sema::InstantiateEnum(SourceLocation PointOfInstantiation,
   InstantiatingTemplate Inst(*this, PointOfInstantiation, Instantiation);
   if (Inst.isInvalid())
     return true;
+
+  // The instantiation is visible here, even if it was first declared in an
+  // unimported module.
+  Instantiation->setHidden(false);
 
   // Enter the scope of this instantiation. We don't use
   // PushDeclContext because we don't have a scope.
@@ -2352,8 +2371,7 @@ bool Sema::InstantiateClassTemplateSpecialization(
   // If we're dealing with a member template where the template parameters
   // have been instantiated, this provides the original template parameters
   // from which the member template's parameters were instantiated.
-  SmallVector<const NamedDecl *, 4> InstantiatedTemplateParameters;
-  
+
   if (Matched.size() >= 1) {
     SmallVectorImpl<MatchResult>::iterator Best = Matched.begin();
     if (Matched.size() == 1) {
@@ -2457,11 +2475,14 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
                               CXXRecordDecl *Instantiation,
                         const MultiLevelTemplateArgumentList &TemplateArgs,
                               TemplateSpecializationKind TSK) {
-  for (DeclContext::decl_iterator D = Instantiation->decls_begin(),
-                               DEnd = Instantiation->decls_end();
-       D != DEnd; ++D) {
+  assert(
+      (TSK == TSK_ExplicitInstantiationDefinition ||
+       TSK == TSK_ExplicitInstantiationDeclaration ||
+       (TSK == TSK_ImplicitInstantiation && Instantiation->isLocalClass())) &&
+      "Unexpected template specialization kind!");
+  for (auto *D : Instantiation->decls()) {
     bool SuppressNew = false;
-    if (FunctionDecl *Function = dyn_cast<FunctionDecl>(*D)) {
+    if (auto *Function = dyn_cast<FunctionDecl>(D)) {
       if (FunctionDecl *Pattern
             = Function->getInstantiatedFromMemberFunction()) {
         MemberSpecializationInfo *MSInfo 
@@ -2497,9 +2518,12 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
           InstantiateFunctionDefinition(PointOfInstantiation, Function);
         } else {
           Function->setTemplateSpecializationKind(TSK, PointOfInstantiation);
+          if (TSK == TSK_ImplicitInstantiation)
+            PendingLocalImplicitInstantiations.push_back(
+                std::make_pair(Function, PointOfInstantiation));
         }
       }
-    } else if (VarDecl *Var = dyn_cast<VarDecl>(*D)) {
+    } else if (auto *Var = dyn_cast<VarDecl>(D)) {
       if (isa<VarTemplateSpecializationDecl>(Var))
         continue;
 
@@ -2535,7 +2559,7 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
           Var->setTemplateSpecializationKind(TSK, PointOfInstantiation);
         }
       }      
-    } else if (CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(*D)) {
+    } else if (auto *Record = dyn_cast<CXXRecordDecl>(D)) {
       // Always skip the injected-class-name, along with any
       // redeclarations of nested classes, since both would cause us
       // to try to instantiate the members of a class twice.
@@ -2592,7 +2616,7 @@ Sema::InstantiateClassMembers(SourceLocation PointOfInstantiation,
       if (Pattern)
         InstantiateClassMembers(PointOfInstantiation, Pattern, TemplateArgs, 
                                 TSK);
-    } else if (EnumDecl *Enum = dyn_cast<EnumDecl>(*D)) {
+    } else if (auto *Enum = dyn_cast<EnumDecl>(D)) {
       MemberSpecializationInfo *MSInfo = Enum->getMemberSpecializationInfo();
       assert(MSInfo && "No member specialization information?");
 

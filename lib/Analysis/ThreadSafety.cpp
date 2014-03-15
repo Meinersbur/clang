@@ -172,12 +172,9 @@ private:
     const Expr* const* FunArgs;    // Function arguments
     CallingContext*    PrevCtx;    // The previous context; or 0 if none.
 
-    CallingContext(const NamedDecl *D = 0, const Expr *S = 0,
-                   unsigned N = 0, const Expr* const *A = 0,
-                   CallingContext *P = 0)
-      : AttrDecl(D), SelfArg(S), SelfArrow(false),
-        NumArgs(N), FunArgs(A), PrevCtx(P)
-    { }
+    CallingContext(const NamedDecl *D)
+        : AttrDecl(D), SelfArg(0), SelfArrow(false), NumArgs(0), FunArgs(0),
+          PrevCtx(0) {}
   };
 
   typedef SmallVector<SExprNode, 4> NodeVector;
@@ -188,44 +185,41 @@ private:
   NodeVector NodeVec;
 
 private:
+  unsigned make(ExprOp O, unsigned F = 0, const void *D = 0) {
+    NodeVec.push_back(SExprNode(O, F, D));
+    return NodeVec.size() - 1;
+  }
+
   unsigned makeNop() {
-    NodeVec.push_back(SExprNode(EOP_Nop, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Nop);
   }
 
   unsigned makeWildcard() {
-    NodeVec.push_back(SExprNode(EOP_Wildcard, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Wildcard);
   }
 
   unsigned makeUniversal() {
-    NodeVec.push_back(SExprNode(EOP_Universal, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Universal);
   }
 
   unsigned makeNamedVar(const NamedDecl *D) {
-    NodeVec.push_back(SExprNode(EOP_NVar, 0, D));
-    return NodeVec.size()-1;
+    return make(EOP_NVar, 0, D);
   }
 
   unsigned makeLocalVar(const NamedDecl *D) {
-    NodeVec.push_back(SExprNode(EOP_LVar, 0, D));
-    return NodeVec.size()-1;
+    return make(EOP_LVar, 0, D);
   }
 
   unsigned makeThis() {
-    NodeVec.push_back(SExprNode(EOP_This, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_This);
   }
 
   unsigned makeDot(const NamedDecl *D, bool Arrow) {
-    NodeVec.push_back(SExprNode(EOP_Dot, Arrow ? 1 : 0, D));
-    return NodeVec.size()-1;
+    return make(EOP_Dot, Arrow ? 1 : 0, D);
   }
 
   unsigned makeCall(unsigned NumArgs, const NamedDecl *D) {
-    NodeVec.push_back(SExprNode(EOP_Call, NumArgs, D));
-    return NodeVec.size()-1;
+    return make(EOP_Call, NumArgs, D);
   }
 
   // Grab the very first declaration of virtual method D
@@ -242,28 +236,28 @@ private:
   }
 
   unsigned makeMCall(unsigned NumArgs, const CXXMethodDecl *D) {
-    NodeVec.push_back(SExprNode(EOP_MCall, NumArgs, getFirstVirtualDecl(D)));
-    return NodeVec.size()-1;
+    return make(EOP_MCall, NumArgs, getFirstVirtualDecl(D));
   }
 
   unsigned makeIndex() {
-    NodeVec.push_back(SExprNode(EOP_Index, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Index);
   }
 
   unsigned makeUnary() {
-    NodeVec.push_back(SExprNode(EOP_Unary, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Unary);
   }
 
   unsigned makeBinary() {
-    NodeVec.push_back(SExprNode(EOP_Binary, 0, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Binary);
   }
 
   unsigned makeUnknown(unsigned Arity) {
-    NodeVec.push_back(SExprNode(EOP_Unknown, Arity, 0));
-    return NodeVec.size()-1;
+    return make(EOP_Unknown, Arity);
+  }
+
+  inline bool isCalleeArrow(const Expr *E) {
+    const MemberExpr *ME = dyn_cast<MemberExpr>(E->IgnoreParenCasts());
+    return ME ? ME->isArrow() : false;
   }
 
   /// Build an SExpr from the given C++ expression.
@@ -272,7 +266,7 @@ private:
   /// ensure that the original expression is a valid mutex expression.
   ///
   /// NDeref returns the number of Derefence and AddressOf operations
-  /// preceeding the Expr; this is used to decide whether to pretty-print
+  /// preceding the Expr; this is used to decide whether to pretty-print
   /// SExprs with . or ->.
   unsigned buildSExpr(const Expr *Exp, CallingContext* CallCtx,
                       int* NDeref = 0) {
@@ -327,8 +321,7 @@ private:
       if (LockReturnedAttr* At = MD->getAttr<LockReturnedAttr>()) {
         CallingContext LRCallCtx(CMCE->getMethodDecl());
         LRCallCtx.SelfArg = CMCE->getImplicitObjectArgument();
-        LRCallCtx.SelfArrow =
-          dyn_cast<MemberExpr>(CMCE->getCallee())->isArrow();
+        LRCallCtx.SelfArrow = isCalleeArrow(CMCE->getCallee());
         LRCallCtx.NumArgs = CMCE->getNumArgs();
         LRCallCtx.FunArgs = CMCE->getArgs();
         LRCallCtx.PrevCtx = CallCtx;
@@ -338,7 +331,7 @@ private:
       // ignore any method named get().
       if (CMCE->getMethodDecl()->getNameAsString() == "get" &&
           CMCE->getNumArgs() == 0) {
-        if (NDeref && dyn_cast<MemberExpr>(CMCE->getCallee())->isArrow())
+        if (NDeref && isCalleeArrow(CMCE->getCallee()))
           ++(*NDeref);
         return buildSExpr(CMCE->getImplicitObjectArgument(), CallCtx, NDeref);
       }
@@ -496,11 +489,10 @@ private:
     } else if (const CXXMemberCallExpr *CE =
                dyn_cast<CXXMemberCallExpr>(DeclExp)) {
       CallCtx.SelfArg   = CE->getImplicitObjectArgument();
-      CallCtx.SelfArrow = dyn_cast<MemberExpr>(CE->getCallee())->isArrow();
+      CallCtx.SelfArrow = isCalleeArrow(CE->getCallee());
       CallCtx.NumArgs   = CE->getNumArgs();
       CallCtx.FunArgs   = CE->getArgs();
-    } else if (const CallExpr *CE =
-               dyn_cast<CallExpr>(DeclExp)) {
+    } else if (const CallExpr *CE = dyn_cast<CallExpr>(DeclExp)) {
       CallCtx.NumArgs = CE->getNumArgs();
       CallCtx.FunArgs = CE->getArgs();
     } else if (const CXXConstructExpr *CE =
@@ -713,26 +705,15 @@ public:
   }
 };
 
-
-
 /// \brief A short list of SExprs
 class MutexIDList : public SmallVector<SExpr, 3> {
 public:
-  /// \brief Return true if the list contains the specified SExpr
-  /// Performs a linear search, because these lists are almost always very small.
-  bool contains(const SExpr& M) {
-    for (iterator I=begin(),E=end(); I != E; ++I)
-      if ((*I) == M) return true;
-    return false;
-  }
-
-  /// \brief Push M onto list, bud discard duplicates
+  /// \brief Push M onto list, but discard duplicates.
   void push_back_nodup(const SExpr& M) {
-    if (!contains(M)) push_back(M);
+    if (end() == std::find(begin(), end(), M))
+      push_back(M);
   }
 };
-
-
 
 /// \brief This is a helper class that stores info about the most recent
 /// accquire of a Lock.
@@ -1875,6 +1856,13 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
     return;
   }
 
+  if (const ArraySubscriptExpr *AE = dyn_cast<ArraySubscriptExpr>(Exp)) {
+    if (Analyzer->Handler.issueBetaWarnings()) {
+      checkPtAccess(AE->getLHS(), AK);
+      return;
+    }
+  }
+
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(Exp)) {
     if (ME->isArrow())
       checkPtAccess(ME->getBase(), AK);
@@ -1886,32 +1874,52 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
   if (!D || !D->hasAttrs())
     return;
 
-  if (D->getAttr<GuardedVarAttr>() && FSet.isEmpty())
+  if (D->hasAttr<GuardedVarAttr>() && FSet.isEmpty())
     Analyzer->Handler.handleNoMutexHeld(D, POK_VarAccess, AK,
                                         Exp->getExprLoc());
 
-  const AttrVec &ArgAttrs = D->getAttrs();
-  for (unsigned i = 0, Size = ArgAttrs.size(); i < Size; ++i)
-    if (GuardedByAttr *GBAttr = dyn_cast<GuardedByAttr>(ArgAttrs[i]))
-      warnIfMutexNotHeld(D, Exp, AK, GBAttr->getArg(), POK_VarAccess);
+  for (specific_attr_iterator<GuardedByAttr>
+         I = D->specific_attr_begin<GuardedByAttr>(),
+         E = D->specific_attr_end<GuardedByAttr>(); I != E; ++I)
+    warnIfMutexNotHeld(D, Exp, AK, (*I)->getArg(), POK_VarAccess);
 }
 
 /// \brief Checks pt_guarded_by and pt_guarded_var attributes.
 void BuildLockset::checkPtAccess(const Expr *Exp, AccessKind AK) {
-  Exp = Exp->IgnoreParenCasts();
+  if (Analyzer->Handler.issueBetaWarnings()) {
+    while (true) {
+      if (const ParenExpr *PE = dyn_cast<ParenExpr>(Exp)) {
+        Exp = PE->getSubExpr();
+        continue;
+      }
+      if (const CastExpr *CE = dyn_cast<CastExpr>(Exp)) {
+        if (CE->getCastKind() == CK_ArrayToPointerDecay) {
+          // If it's an actual array, and not a pointer, then it's elements
+          // are protected by GUARDED_BY, not PT_GUARDED_BY;
+          checkAccess(CE->getSubExpr(), AK);
+          return;
+        }
+        Exp = CE->getSubExpr();
+        continue;
+      }
+      break;
+    }
+  }
+  else
+    Exp = Exp->IgnoreParenCasts();
 
   const ValueDecl *D = getValueDecl(Exp);
   if (!D || !D->hasAttrs())
     return;
 
-  if (D->getAttr<PtGuardedVarAttr>() && FSet.isEmpty())
+  if (D->hasAttr<PtGuardedVarAttr>() && FSet.isEmpty())
     Analyzer->Handler.handleNoMutexHeld(D, POK_VarDereference, AK,
                                         Exp->getExprLoc());
 
-  const AttrVec &ArgAttrs = D->getAttrs();
-  for (unsigned i = 0, Size = ArgAttrs.size(); i < Size; ++i)
-    if (PtGuardedByAttr *GBAttr = dyn_cast<PtGuardedByAttr>(ArgAttrs[i]))
-      warnIfMutexNotHeld(D, Exp, AK, GBAttr->getArg(), POK_VarDereference);
+  for (specific_attr_iterator<PtGuardedByAttr>
+          I = D->specific_attr_begin<PtGuardedByAttr>(),
+          E = D->specific_attr_end<PtGuardedByAttr>(); I != E; ++I)
+    warnIfMutexNotHeld(D, Exp, AK, (*I)->getArg(), POK_VarDereference);
 }
 
 
@@ -1985,21 +1993,13 @@ void BuildLockset::handleCall(Expr *Exp, const NamedDecl *D, VarDecl *VD) {
         break;
       }
 
-      case attr::ExclusiveLocksRequired: {
-        ExclusiveLocksRequiredAttr *A = cast<ExclusiveLocksRequiredAttr>(At);
+      case attr::RequiresCapability: {
+        RequiresCapabilityAttr *A = cast<RequiresCapabilityAttr>(At);
 
-        for (ExclusiveLocksRequiredAttr::args_iterator
-             I = A->args_begin(), E = A->args_end(); I != E; ++I)
-          warnIfMutexNotHeld(D, Exp, AK_Written, *I, POK_FunctionCall);
-        break;
-      }
-
-      case attr::SharedLocksRequired: {
-        SharedLocksRequiredAttr *A = cast<SharedLocksRequiredAttr>(At);
-
-        for (SharedLocksRequiredAttr::args_iterator I = A->args_begin(),
+        for (RequiresCapabilityAttr::args_iterator I = A->args_begin(),
              E = A->args_end(); I != E; ++I)
-          warnIfMutexNotHeld(D, Exp, AK_Read, *I, POK_FunctionCall);
+          warnIfMutexNotHeld(D, Exp, A->isShared() ? AK_Read : AK_Written, *I,
+                             POK_FunctionCall);
         break;
       }
 
@@ -2013,7 +2013,7 @@ void BuildLockset::handleCall(Expr *Exp, const NamedDecl *D, VarDecl *VD) {
         break;
       }
 
-      // Ignore other (non thread-safety) attributes
+      // Ignore attributes unrelated to thread-safety
       default:
         break;
     }
@@ -2024,7 +2024,7 @@ void BuildLockset::handleCall(Expr *Exp, const NamedDecl *D, VarDecl *VD) {
   if (VD) {
     if (const CXXConstructorDecl *CD = dyn_cast<const CXXConstructorDecl>(D)) {
       const CXXRecordDecl* PD = CD->getParent();
-      if (PD && PD->getAttr<ScopedLockableAttr>())
+      if (PD && PD->hasAttr<ScopedLockableAttr>())
         isScopedVar = true;
     }
   }
@@ -2095,6 +2095,7 @@ void BuildLockset::VisitBinaryOperator(BinaryOperator *BO) {
   checkAccess(BO->getLHS(), AK_Written);
 }
 
+
 /// Whenever we do an LValue to Rvalue cast, we are reading a variable and
 /// need to ensure we hold any required mutexes.
 /// FIXME: Deal with non-primitive types.
@@ -2134,9 +2135,19 @@ void BuildLockset::VisitCallExpr(CallExpr *Exp) {
         checkAccess(Source, AK_Read);
         break;
       }
+      case OO_Star:
+      case OO_Arrow:
+      case OO_Subscript: {
+        if (Analyzer->Handler.issueBetaWarnings()) {
+          const Expr *Obj = OE->getArg(0);
+          checkAccess(Obj, AK_Read);
+          checkPtAccess(Obj, AK_Read);
+        }
+        break;
+      }
       default: {
-        const Expr *Source = OE->getArg(0);
-        checkAccess(Source, AK_Read);
+        const Expr *Obj = OE->getArg(0);
+        checkAccess(Obj, AK_Read);
         break;
       }
     }
@@ -2301,7 +2312,7 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
 
   if (!D)
     return;  // Ignore anonymous functions for now.
-  if (D->getAttr<NoThreadSafetyAnalysisAttr>())
+  if (D->hasAttr<NoThreadSafetyAnalysisAttr>())
     return;
   // FIXME: Do something a bit more intelligent inside constructor and
   // destructor code.  Constructors and destructors must assume unique access
@@ -2349,12 +2360,9 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
     for (unsigned i = 0; i < ArgAttrs.size(); ++i) {
       Attr *Attr = ArgAttrs[i];
       Loc = Attr->getLocation();
-      if (ExclusiveLocksRequiredAttr *A
-            = dyn_cast<ExclusiveLocksRequiredAttr>(Attr)) {
-        getMutexIDs(ExclusiveLocksToAdd, A, (Expr*) 0, D);
-      } else if (SharedLocksRequiredAttr *A
-                   = dyn_cast<SharedLocksRequiredAttr>(Attr)) {
-        getMutexIDs(SharedLocksToAdd, A, (Expr*) 0, D);
+      if (RequiresCapabilityAttr *A = dyn_cast<RequiresCapabilityAttr>(Attr)) {
+        getMutexIDs(A->isShared() ? SharedLocksToAdd : ExclusiveLocksToAdd, A,
+                    0, D);
       } else if (UnlockFunctionAttr *A = dyn_cast<UnlockFunctionAttr>(Attr)) {
         // UNLOCK_FUNCTION() is used to hide the underlying lock implementation.
         // We must ignore such methods.

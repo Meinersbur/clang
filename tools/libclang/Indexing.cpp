@@ -219,7 +219,7 @@ private:
     assert(RegionLoc.isFileID());
     FileID RegionFID;
     unsigned RegionOffset;
-    llvm::tie(RegionFID, RegionOffset) = SM.getDecomposedLoc(RegionLoc);
+    std::tie(RegionFID, RegionOffset) = SM.getDecomposedLoc(RegionLoc);
 
     if (RegionFID != FID) {
       if (isParsedOnceInclude(FE)) {
@@ -375,7 +375,7 @@ public:
 
     FileID FID;
     unsigned Offset;
-    llvm::tie(FID, Offset) = SM.getDecomposedLoc(Loc);
+    std::tie(FID, Offset) = SM.getDecomposedLoc(Loc);
     // Don't skip bodies from main files; this may be revisited.
     if (SM.getMainFileID() == FID)
       return false;
@@ -411,7 +411,7 @@ class IndexingFrontendAction : public ASTFrontendAction {
   CXTranslationUnit CXTU;
 
   SessionSkipBodyData *SKData;
-  OwningPtr<TUSkipBodyControl> SKCtrl;
+  std::unique_ptr<TUSkipBodyControl> SKCtrl;
 
 public:
   IndexingFrontendAction(CXClientData clientData,
@@ -465,7 +465,7 @@ public:
 
 struct IndexSessionData {
   CXIndex CIdx;
-  OwningPtr<SessionSkipBodyData> SkipBodyData;
+  std::unique_ptr<SessionSkipBodyData> SkipBodyData;
 
   explicit IndexSessionData(CXIndex cIdx)
     : CIdx(cIdx), SkipBodyData(new SessionSkipBodyData) {}
@@ -514,16 +514,22 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   unsigned num_unsaved_files = ITUI->num_unsaved_files;
   CXTranslationUnit *out_TU  = ITUI->out_TU;
   unsigned TU_options = ITUI->TU_options;
-  ITUI->result = 1; // init as error.
-  
+
+  // Set up the initial return value.
+  ITUI->result = CXError_Failure;
+
   if (out_TU)
     *out_TU = 0;
-  bool requestedToGetTU = (out_TU != 0); 
+  bool requestedToGetTU = (out_TU != 0);
 
-  if (!cxIdxAction)
+  if (!cxIdxAction) {
+    ITUI->result = CXError_InvalidArguments;
     return;
-  if (!client_index_callbacks || index_callbacks_size == 0)
+  }
+  if (!client_index_callbacks || index_callbacks_size == 0) {
+    ITUI->result = CXError_InvalidArguments;
     return;
+  }
 
   IndexerCallbacks CB;
   memset(&CB, 0, sizeof(CB));
@@ -553,9 +559,9 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,
     llvm::CrashRecoveryContextReleaseRefCleanup<DiagnosticsEngine> >
     DiagCleanup(Diags.getPtr());
-  
-  OwningPtr<std::vector<const char *> >
-    Args(new std::vector<const char*>());
+
+  std::unique_ptr<std::vector<const char *>> Args(
+      new std::vector<const char *>());
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<std::vector<const char*> >
@@ -586,7 +592,7 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   if (CInvok->getFrontendOpts().Inputs.empty())
     return;
 
-  OwningPtr<MemBufferOwner> BufOwner(new MemBufferOwner());
+  std::unique_ptr<MemBufferOwner> BufOwner(new MemBufferOwner());
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<MemBufferOwner>
@@ -612,7 +618,8 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   ASTUnit *Unit = ASTUnit::create(CInvok.getPtr(), Diags,
                                   CaptureDiagnostics,
                                   /*UserFilesAreVolatile=*/true);
-  OwningPtr<CXTUOwner> CXTU(new CXTUOwner(MakeCXTranslationUnit(CXXIdx, Unit)));
+  std::unique_ptr<CXTUOwner> CXTU(
+      new CXTUOwner(MakeCXTranslationUnit(CXXIdx, Unit)));
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<CXTUOwner>
@@ -625,7 +632,7 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   if (SkipBodies)
     CInvok->getFrontendOpts().SkipFunctionBodies = true;
 
-  OwningPtr<IndexingFrontendAction> IndexAction;
+  std::unique_ptr<IndexingFrontendAction> IndexAction;
   IndexAction.reset(new IndexingFrontendAction(client_data, CB,
                                                index_options, CXTU->getTU(),
                               SkipBodies ? IdxSession->SkipBodyData.get() : 0));
@@ -671,13 +678,18 @@ static void clang_indexSourceFile_Impl(void *UserData) {
   if (DiagTrap.hasErrorOccurred() && CXXIdx->getDisplayDiagnostics())
     printDiagsToStderr(Unit);
 
+  if (isASTReadError(Unit)) {
+    ITUI->result = CXError_ASTReadError;
+    return;
+  }
+
   if (!Success)
     return;
 
   if (out_TU)
     *out_TU = CXTU->takeTU();
 
-  ITUI->result = 0; // success.
+  ITUI->result = CXError_Success;
 }
 
 //===----------------------------------------------------------------------===//
@@ -706,7 +718,7 @@ static void indexPreprocessingRecord(ASTUnit &Unit, IndexingContext &IdxCtx) {
   // FIXME: Only deserialize inclusion directives.
 
   PreprocessingRecord::iterator I, E;
-  llvm::tie(I, E) = Unit.getLocalPreprocessingEntities();
+  std::tie(I, E) = Unit.getLocalPreprocessingEntities();
 
   bool isModuleFile = Unit.isModuleFile();
   for (; I != E; ++I) {
@@ -754,12 +766,20 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
   IndexerCallbacks *client_index_callbacks = ITUI->index_callbacks;
   unsigned index_callbacks_size = ITUI->index_callbacks_size;
   unsigned index_options = ITUI->index_options;
-  ITUI->result = 1; // init as error.
 
-  if (!TU)
+  // Set up the initial return value.
+  ITUI->result = CXError_Failure;
+
+  // Check arguments.
+  if (isNotUsableTU(TU)) {
+    LOG_BAD_TU(TU);
+    ITUI->result = CXError_InvalidArguments;
     return;
-  if (!client_index_callbacks || index_callbacks_size == 0)
+  }
+  if (!client_index_callbacks || index_callbacks_size == 0) {
+    ITUI->result = CXError_InvalidArguments;
     return;
+  }
 
   CIndexer *CXXIdx = TU->CIdx;
   if (CXXIdx->isOptEnabled(CXGlobalOpt_ThreadBackgroundPriorityForIndexing))
@@ -771,14 +791,14 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
                                   ? index_callbacks_size : sizeof(CB);
   memcpy(&CB, client_index_callbacks, ClientCBSize);
 
-  OwningPtr<IndexingContext> IndexCtx;
+  std::unique_ptr<IndexingContext> IndexCtx;
   IndexCtx.reset(new IndexingContext(client_data, CB, index_options, TU));
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<IndexingContext>
     IndexCtxCleanup(IndexCtx.get());
 
-  OwningPtr<IndexingConsumer> IndexConsumer;
+  std::unique_ptr<IndexingConsumer> IndexConsumer;
   IndexConsumer.reset(new IndexingConsumer(*IndexCtx, 0));
 
   // Recover resources if we crash before exiting this method.
@@ -807,7 +827,7 @@ static void clang_indexTranslationUnit_Impl(void *UserData) {
   indexTranslationUnit(*Unit, *IndexCtx);
   indexDiagnostics(TU, *IndexCtx);
 
-  ITUI->result = 0;
+  ITUI->result = CXError_Success;
 }
 
 //===----------------------------------------------------------------------===//
@@ -979,7 +999,8 @@ int clang_indexSourceFile(CXIndexAction idxAction,
                                index_callbacks_size, index_options,
                                source_filename, command_line_args,
                                num_command_line_args, unsaved_files,
-                               num_unsaved_files, out_TU, TU_options, 0 };
+                               num_unsaved_files, out_TU, TU_options,
+                               CXError_Failure };
 
   if (getenv("LIBCLANG_NOTHREADS")) {
     clang_indexSourceFile_Impl(&ITUI);

@@ -80,6 +80,7 @@ private:
 
   llvm::DenseMap<const BlockDecl*, unsigned> GlobalBlockIds;
   llvm::DenseMap<const BlockDecl*, unsigned> LocalBlockIds;
+  llvm::DenseMap<const TagDecl*, uint64_t> AnonStructIds;
 
 public:
   ManglerKind getKind() const { return Kind; }
@@ -104,7 +105,13 @@ public:
       Result = BlockIds.insert(std::make_pair(BD, BlockIds.size()));
     return Result.first->second;
   }
-  
+
+  uint64_t getAnonymousStructId(const TagDecl *TD) {
+    std::pair<llvm::DenseMap<const TagDecl *, uint64_t>::iterator, bool>
+        Result = AnonStructIds.insert(std::make_pair(TD, AnonStructIds.size()));
+    return Result.first->second;
+  }
+
   /// @name Mangler Entry Points
   /// @{
 
@@ -147,6 +154,12 @@ public:
 
   virtual void mangleDynamicAtExitDestructor(const VarDecl *D,
                                              raw_ostream &) = 0;
+
+  /// Generates a unique string for an externally visible type for use with TBAA
+  /// or type uniquing.
+  /// TODO: Extend this to internal types by generating names that are unique
+  /// across translation units so it can be used with LTO.
+  virtual void mangleTypeName(QualType T, raw_ostream &) = 0;
 
   /// @}
 };
@@ -192,6 +205,9 @@ public:
   virtual void mangleCXXVBTable(const CXXRecordDecl *Derived,
                                 ArrayRef<const CXXRecordDecl *> BasePath,
                                 raw_ostream &Out) = 0;
+
+  virtual void mangleVirtualMemPtrThunk(const CXXMethodDecl *MD,
+                                        raw_ostream &) = 0;
 
   static bool classof(const MangleContext *C) {
     return C->getKind() == MK_Microsoft;

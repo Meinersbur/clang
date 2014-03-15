@@ -114,7 +114,7 @@ static QualType GetBaseType(QualType T) {
     else if (const ArrayType* ATy = dyn_cast<ArrayType>(BaseType))
       BaseType = ATy->getElementType();
     else if (const FunctionType* FTy = BaseType->getAs<FunctionType>())
-      BaseType = FTy->getResultType();
+      BaseType = FTy->getReturnType();
     else if (const VectorType *VTy = BaseType->getAs<VectorType>())
       BaseType = VTy->getElementType();
     else if (const ReferenceType *RTy = BaseType->getAs<ReferenceType>())
@@ -167,7 +167,7 @@ void Decl::printGroup(Decl** Begin, unsigned NumDecls,
   }
 }
 
-void DeclContext::dumpDeclContext() const {
+LLVM_DUMP_METHOD void DeclContext::dumpDeclContext() const {
   // Get the translation unit
   const DeclContext *DC = this;
   while (!DC->isTranslationUnit())
@@ -237,17 +237,6 @@ void DeclPrinter::VisitDeclContext(DeclContext *DC, bool Indent) {
     // Skip over implicit declarations in pretty-printing mode.
     if (D->isImplicit())
       continue;
-
-    // FIXME: Ugly hack so we don't pretty-print the builtin declaration
-    // of __builtin_va_list or __[u]int128_t.  There should be some other way
-    // to check that.
-    if (NamedDecl *ND = dyn_cast<NamedDecl>(*D)) {
-      if (IdentifierInfo *II = ND->getIdentifier()) {
-        if (II->isStr("__builtin_va_list") ||
-            II->isStr("__int128_t") || II->isStr("__uint128_t"))
-          continue;
-      }
-    }
 
     // The next bits of code handles stuff like "struct {int x;} a,b"; we're
     // forced to merge the declarations because there's no other way to
@@ -396,6 +385,7 @@ void DeclPrinter::VisitEnumConstantDecl(EnumConstantDecl *D) {
 
 void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
   CXXConstructorDecl *CDecl = dyn_cast<CXXConstructorDecl>(D);
+  CXXConversionDecl *ConversionDecl = dyn_cast<CXXConversionDecl>(D);
   if (!Policy.SuppressSpecifiers) {
     switch (D->getStorageClass()) {
     case SC_None: break;
@@ -409,7 +399,9 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
     if (D->isInlineSpecified())  Out << "inline ";
     if (D->isVirtualAsWritten()) Out << "virtual ";
     if (D->isModulePrivate())    Out << "__module_private__ ";
-    if (CDecl && CDecl->isExplicitSpecified())
+    if (D->isConstexpr() && !D->isExplicitlyDefaulted()) Out << "constexpr ";
+    if ((CDecl && CDecl->isExplicitSpecified()) ||
+        (ConversionDecl && ConversionDecl->isExplicit()))
       Out << "explicit ";
   }
 
@@ -423,8 +415,7 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
     Ty = PT->getInnerType();
   }
 
-  if (isa<FunctionType>(Ty)) {
-    const FunctionType *AFT = Ty->getAs<FunctionType>();
+  if (const FunctionType *AFT = Ty->getAs<FunctionType>()) {
     const FunctionProtoType *FT = 0;
     if (D->hasWrittenPrototype())
       FT = dyn_cast<FunctionProtoType>(AFT);
@@ -459,6 +450,17 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
         Proto += " volatile";
       if (FT->isRestrict())
         Proto += " restrict";
+
+      switch (FT->getRefQualifier()) {
+      case RQ_None:
+        break;
+      case RQ_LValue:
+        Proto += " &";
+        break;
+      case RQ_RValue:
+        Proto += " &&";
+        break;
+      }
     }
 
     if (FT && FT->hasDynamicExceptionSpec()) {
@@ -547,16 +549,18 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
           }
         }
         Out << ")";
+        if (BMInitializer->isPackExpansion())
+          Out << "...";
       }
-      if (!Proto.empty())
-        Out << Proto;
-    } else {
+    } else if (!ConversionDecl && !isa<CXXDestructorDecl>(D)) {
       if (FT && FT->hasTrailingReturn()) {
         Out << "auto " << Proto << " -> ";
         Proto.clear();
       }
-      AFT->getResultType().print(Out, Policy, Proto);
+      AFT->getReturnType().print(Out, Policy, Proto);
+      Proto.clear();
     }
+    Out << Proto;
   } else {
     Ty.print(Out, Policy, Proto);
   }
@@ -917,19 +921,19 @@ void DeclPrinter::VisitObjCMethodDecl(ObjCMethodDecl *OMD) {
     Out << "- ";
   else
     Out << "+ ";
-  if (!OMD->getResultType().isNull())
-    Out << '(' << OMD->getASTContext().getUnqualifiedObjCPointerType(OMD->getResultType()).
-                    getAsString(Policy) << ")";
+  if (!OMD->getReturnType().isNull())
+    Out << '(' << OMD->getASTContext()
+                      .getUnqualifiedObjCPointerType(OMD->getReturnType())
+                      .getAsString(Policy) << ")";
 
   std::string name = OMD->getSelector().getAsString();
   std::string::size_type pos, lastPos = 0;
-  for (ObjCMethodDecl::param_iterator PI = OMD->param_begin(),
-       E = OMD->param_end(); PI != E; ++PI) {
+  for (const auto *PI : OMD->params()) {
     // FIXME: selector is missing here!
     pos = name.find_first_of(':', lastPos);
     Out << " " << name.substr(lastPos, pos - lastPos);
-    Out << ":(" << (*PI)->getASTContext().getUnqualifiedObjCPointerType((*PI)->getType()).
-                      getAsString(Policy) << ')' << **PI;
+    Out << ":(" << PI->getASTContext().getUnqualifiedObjCPointerType(PI->getType()).
+                      getAsString(Policy) << ')' << *PI;
     lastPos = pos + 1;
   }
 
@@ -1090,13 +1094,13 @@ void DeclPrinter::VisitObjCPropertyDecl(ObjCPropertyDecl *PDecl) {
     }
 
     if (PDecl->getPropertyAttributes() & ObjCPropertyDecl::OBJC_PR_getter) {
-      Out << (first ? ' ' : ',') << "getter = "
-          << PDecl->getGetterName().getAsString();
+      Out << (first ? ' ' : ',') << "getter = ";
+      PDecl->getGetterName().print(Out);
       first = false;
     }
     if (PDecl->getPropertyAttributes() & ObjCPropertyDecl::OBJC_PR_setter) {
-      Out << (first ? ' ' : ',') << "setter = "
-          << PDecl->getSetterName().getAsString();
+      Out << (first ? ' ' : ',') << "setter = ";
+      PDecl->getSetterName().print(Out);
       first = false;
     }
 
@@ -1189,8 +1193,9 @@ void DeclPrinter::VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D) {
     for (OMPThreadPrivateDecl::varlist_iterator I = D->varlist_begin(),
                                                 E = D->varlist_end();
                                                 I != E; ++I) {
-      Out << (I == D->varlist_begin() ? '(' : ',')
-          << *cast<NamedDecl>(cast<DeclRefExpr>(*I)->getDecl());
+      Out << (I == D->varlist_begin() ? '(' : ',');
+      NamedDecl *ND = cast<NamedDecl>(cast<DeclRefExpr>(*I)->getDecl());
+      ND->printQualifiedName(Out);
     }
     Out << ")";
   }
