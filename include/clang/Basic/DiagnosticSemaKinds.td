@@ -6835,51 +6835,134 @@ def err_omp_expected_var_arg_suggest : Error<
 def err_omp_global_var_arg : Error<
   "arguments of '#pragma omp %0' must have %select{global storage|static storage duration}1">;
 def err_omp_ref_type_arg : Error<
-  "arguments of '#pragma omp %0' cannot be of reference type %1">;
+  "arguments of '#pragma omp %0' cannot be of reference type">;
 def err_omp_var_scope : Error<
   "'#pragma omp %0' must appear in the scope of the %q1 variable declaration">;
 def err_omp_var_used : Error<
   "'#pragma omp %0' must precede all references to variable %q1">;
 def err_omp_var_thread_local : Error<
   "variable %0 cannot be threadprivate because it is thread-local">;
+def err_omp_threadprivate_incomplete_type : Error<
+  "threadprivate variable with incomplete type %0">;
 def err_omp_private_incomplete_type : Error<
-  "a private variable with incomplete type %0">;
+  "private variable with incomplete type %0">;
 def err_omp_firstprivate_incomplete_type : Error<
-  "a firstprivate variable with incomplete type %0">;
-def err_omp_unexpected_clause_value : Error<
+  "firstprivate variable with incomplete type %0">;
+def err_omp_reduction_incomplete_type : Error<
+  "reduction variable with incomplete type %0">;
+def err_omp_lastprivate_incomplete_type : Error<
+  "lastprivate variable with incomplete type %0">;
+def err_omp_directive_nonblock : Error<
+  "directive '#pragma omp %0' bound to nonblock statement">;
+def err_incomplete_class_type : Error<
+  "expression has incomplete type %0">;
+def err_multiple_conversions : Error<
+  "multiple conversions from expression type %0 to an integral "
+  "or enumeration type">;
+def err_explicit_conversion : Error<
+  "expression type %0 requires explicit conversion to %1">;
+def note_conversion : Note<
+  "conversion to %select{integral|enumeration}0 type %1">;
+def err_negative_expression_in_clause : Error<
+  "expression is not a positive integer value">;
+def err_omp_unexpected_clause_value : Error <
   "expected %0 in OpenMP clause '%1'">;
 def err_omp_expected_var_name : Error<
   "expected variable name">;
 def err_omp_required_method : Error<
   "%0 variable must have an accessible, unambiguous %select{default constructor|copy constructor|copy assignment operator|'%2'|destructor}1">;
+def note_omp_marked_here : Note<
+  "marked as %0 here">;
 def err_omp_clause_ref_type_arg : Error<
-  "arguments of OpenMP clause '%0' cannot be of reference type %1">;
-def err_omp_threadprivate_incomplete_type : Error<
-  "threadprivate variable with incomplete type %0">;
-def err_omp_no_dsa_for_variable : Error<
-  "variable %0 must have explicitly specified data sharing attributes">;
+  "arguments of OpenMP clause '%0' cannot be of reference type">;
+def err_omp_expected_int_or_ptr : Error<
+  "argument of a linear clause should be of integral or pointer type">;
+def err_omp_expected_array_or_ptr : Error<
+  "argument of an aligned clause should be array, pointer, reference to array or reference to pointer">;
+def err_omp_required_access : Error<
+  "%0 variable must be %1">;
+def err_omp_clause_not_arithmetic_type_arg : Error<
+  "arguments of OpenMP clause '%0'%select{| for 'min' and 'max'}1 must be of %select{scalar|arithmetic}1 type">;
+def err_omp_clause_floating_type_arg : Error<
+  "arguments of OpenMP clause 'reduction' with bitwise operators cannot be of floating type">;
+def err_omp_clause_array_type_arg : Error<
+  "arguments of OpenMP clause '%0' cannot be of array type">;
+def err_omp_reduction_ref_type_arg : Error<
+  "argument of OpenMP clause 'reduction' must reference the same object in all threads">;
 def err_omp_wrong_dsa : Error<
   "%0 variable cannot be %1">;
-def note_omp_explicit_dsa : Note<
+def err_omp_reduction_in_task : Error<
+  "reduction variables may not be accessed in an explicit task">;
+def err_omp_once_referenced : Error<
+  "variable can appear only once in OpenMP '%0' clause">;
+def err_omp_const_variable : Error<
+  "const-qualified variable cannot be %0">;
+def note_omp_explicit_dsa : Note <
   "defined as %0">;
 def note_omp_predetermined_dsa : Note<
   "predetermined as %0">;
-def err_omp_not_for : Error<
-  "statement after '#pragma omp %0' must be a for loop">;
-def err_omp_negative_expression_in_clause : Error<
-  "argument to '%0' clause must be a positive integer value">;
-def err_omp_not_integral : Error<
-  "expression must have integral or unscoped enumeration "
-  "type, not %0">;
-def err_omp_incomplete_type : Error<
-  "expression has incomplete class type %0">;
-def err_omp_explicit_conversion : Error<
-  "expression requires explicit conversion from %0 to %1">;
-def note_omp_conversion_here : Note<
-  "conversion to %select{integral|enumeration}0 type %1 declared here">;
-def err_omp_ambiguous_conversion : Error<
-  "ambiguous conversion from type %0 to an integral or unscoped "
-  "enumeration type">;
+def note_omp_referenced : Note <
+  "previously referenced here">;
+def err_omp_dsa_with_directives : Error<
+  "%0 variable in '#pragma omp %1' cannot be %2 in '#pragma omp %3'">;
+def err_omp_not_for : Error <
+  "only for-loops are allowed for '#pragma omp %0'">;
+def err_omp_for_variable : Error <
+  "variable must be of integer or %select{pointer|random access iterator}0 type">;
+def err_omp_not_canonical_for : Error <
+  "%select{initialization|condition|increment}0 of for-loop does not have canonical form">;
+def err_omp_for_incr_not_integer : Error <
+  "increment expression of for-loop must be of an integer type">;
+def err_omp_for_incr_not_compatible : Error <
+  "increment expression must cause %q0 to %select{decrease|increase}1 on each iteration of the loop">;
+def err_omp_for_type_not_compatible : Error <
+  "expression of type %0 is not compatible with variable %1 of type %2">;
+def err_omp_for_wrong_count : Error <
+  "unable to calculate number of iterations of the for-loop">;
+def err_omp_type_not_rai : Error <
+  "iteration variable is not of a random access iterator type">;
+def err_omp_for_loop_var_dsa : Error <
+  "loop iteration variable may not be %0">;
+def err_omp_sections_not_section : Error <
+  "the statement for '#pragma omp %0' must be '#pragma omp section'">;
+def err_omp_section_orphaned : Error <
+  "orphaned '#pragma omp section' is prohibited">;
+def err_omp_sections_not_compound_stmt : Error <
+  "the statement for '#pragma omp %0' must be compound statement">;
+def err_omp_prohibited_region : Error <
+  "region cannot be%select{| closely}0 nested inside %1 region%select{| with name %3}2">;
+def err_omp_prohibited_ordered_region : Error <
+  "region must be closely nested inside loop or parallel loop region with 'ordered' clause">;
+def err_omp_atomic_more_one_clause : Error <
+  "directive '#pragma omp atomic' cannot contain more than one 'read', 'write', 'update' or 'capture' clause">;
+def err_omp_atomic_not_expression : Error <
+  "expected expression statement for '#pragma omp atomic %0'">;
+def err_omp_atomic_wrong_statement : Error <
+  "statement form is not allowed for '#pragma omp atomic %0'">;
+def err_omp_no_dsa_for_variable : Error <
+  "variable %q0 must have explicitly specified data sharing attributes">;
+def err_omp_for_cannot_break: Error<
+  "cannot break from a '#pragma omp %0' loop">;
+def err_omp_for_cannot_have_eh: Error<
+  "exception handling is not allowed in a '#pragma omp %0' loop">;
+def err_capture_vm_type : Error<
+  "variable %q0 with variably modified type cannot be captured">;
+def err_omp_wrong_var_in_combiner : Error<
+  "variable %q0 is not allowed in combiner expression for '#pragma omp declare reduction', only 'omp_in' or 'omp_out' are allowed">;
+def err_omp_wrong_var_in_initializer : Error<
+  "variable %q0 is not allowed in initializer expression for '#pragma omp declare reduction', only 'omp_priv' or 'omp_orig' are allowed">;
+def err_omp_reduction_qualified_type : Error<
+  "a type name cannot be qualified with 'const', 'volatile' or 'restrict'">;
+def err_omp_reduction_function_type : Error<
+  "a type name cannot be a function type">;
+def err_omp_reduction_reference_type : Error<
+  "a type name cannot be a reference type">;
+def err_omp_reduction_array_type : Error<
+  "a type name cannot be an array type">;
+def err_omp_reduction_redeclared : Error <
+  "previous declaration with type %0 is found">;
+def err_omp_reduction_non_function_init : Error <
+  "expected function call">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {
@@ -6937,3 +7020,4 @@ def warn_not_a_doxygen_trailing_member_comment : Warning<
 } // end of documentation issue category
 
 } // end of sema component.
+

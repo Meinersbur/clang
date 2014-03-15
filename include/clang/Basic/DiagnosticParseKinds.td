@@ -842,8 +842,11 @@ def err_seh___except_filter : Error<
 
 def err_seh___finally_block : Error<
   "%0 only allowed in __finally block">;
+} // end of Parse Issue category.
 
 // OpenMP support.
+let CategoryName = "OpenMP Parse Issue" in {
+
 def warn_pragma_omp_ignored : Warning <
   "unexpected '#pragma omp ...' in program">, InGroup<SourceUsesOpenMP>, DefaultIgnore;
 def warn_omp_extra_tokens_at_eol : Warning <
@@ -853,12 +856,24 @@ def err_omp_unknown_directive : Error <
   "expected an OpenMP directive">;
 def err_omp_unexpected_directive : Error <
   "unexpected OpenMP directive '#pragma omp %0'">;
+def err_omp_expected_var : Error <
+  "expected '#pragma omp %0' argument to be a variable name">;
 def err_omp_expected_punc : Error <
-  "expected ',' or ')' in '%0' clause">;
+  "expected ',' or ')' in '#pragma omp %0'">;
+def err_omp_unknown_clause : Error <
+  "expected OpenMP clause for directive '#pragma omp %0' or end of directive">;
 def err_omp_unexpected_clause : Error <
   "unexpected OpenMP clause '%0' in directive '#pragma omp %1'">;
 def err_omp_more_one_clause : Error <
   "directive '#pragma omp %0' cannot contain more than one '%1' clause">;
+def err_omp_expected_colon : Error <
+  "expected ':' in '%0' clause">;
+def err_omp_unknown_reduction_op : Error <
+  "expected reduction identifier">;
+def err_omp_immediate_directive : Error <
+  "'#pragma omp %0' cannot be immediate substatement">;
+def err_omp_expected_reduction_identifier : Error <
+  "expected identifier or one of the following operators: '+', '-', '*', '&', '|', '^', '&&' and '||'">;
 } // end of Parse Issue category.
 
 let CategoryName = "Modules Issue" in {

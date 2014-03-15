@@ -140,6 +140,7 @@ namespace clang {
   class ObjCMethodDecl;
   class ObjCPropertyDecl;
   class ObjCProtocolDecl;
+  class OMPDeclareReductionDecl;
   class OMPThreadPrivateDecl;
   class OMPClause;
   class OverloadCandidateSet;
@@ -1004,8 +1005,7 @@ public:
   void RecordParsingTemplateParameterDepth(unsigned Depth);
   
   void PushCapturedRegionScope(Scope *RegionScope, CapturedDecl *CD,
-                               RecordDecl *RD,
-                               CapturedRegionKind K);
+                               RecordDecl *RD, CapturedRegionKind K);
   void PopFunctionScopeInfo(const sema::AnalysisBasedWarnings::Policy *WP =0,
                             const Decl *D = 0, const BlockExpr *blkExpr = 0);
 
@@ -2421,6 +2421,8 @@ public:
     LookupObjCProtocolName,
     /// Look up implicit 'self' parameter of an objective-c method.
     LookupObjCImplicitSelfParam,
+    // Look up OpenMP declare reduction constructs only.
+    LookupOMPDeclareReduction,
     /// \brief Look up any declaration with any name.
     LookupAnyName
   };
@@ -7071,23 +7073,44 @@ public:
                       unsigned SpellingListIndex, bool IsPackExpansion);
   void AddAlignedAttr(SourceRange AttrRange, Decl *D, TypeSourceInfo *T,
                       unsigned SpellingListIndex, bool IsPackExpansion);
-
+  
   // OpenMP directives and clauses.
 private:
+  llvm::SmallVector<Stmt *, 64> AdditionalOpenMPStmt;
   void *VarDataSharingAttributesStack;
-  /// \brief Initialization of data-sharing attributes stack.
   void InitDataSharingAttributesStack();
   void DestroyDataSharingAttributesStack();
-  ExprResult PerformImplicitIntegerConversion(SourceLocation OpLoc, Expr *Op);
-public:
-  /// \brief Called on start of new data sharing attribute block.
-  void StartOpenMPDSABlock(OpenMPDirectiveKind K,
-                           const DeclarationNameInfo &DirName,
-                           Scope *CurScope);
-  /// \brief Called on end of data sharing attribute block.
-  void EndOpenMPDSABlock(Stmt *CurDirective);
+  /// \brief Check if \a S ia for-loop in canonical form for OpenMP.
+  ///
+  /// \param S A statement to check.
+  /// \param Kind A directive for which the verification is performed.
+  ///
+  /// \return true if not canonical form, false otherwise.
+  ///
+  bool isNotOpenMPCanonicalLoopForm(Stmt *S, OpenMPDirectiveKind Kind,
+                                    Expr *&NewEnd, Expr *&NewIncr, Expr *&InitVal,
+                                    Expr *&VarCnt, BinaryOperatorKind &OpKind);
 
-  // OpenMP directives and clauses.
+  /// \brief A helper routine for OpenMP loops collapsing.
+  bool CollapseOpenMPLoop(OpenMPDirectiveKind Kind,
+                          ArrayRef<OMPClause *> Clauses,
+                          Stmt *AStmt,
+                          SourceLocation StartLoc,
+                          SourceLocation EndLoc,
+                          Expr *&NewEnd,
+                          Expr *&NewVar,
+                          Expr *&NewVarCntExpr,
+                          Expr *&NewFinal,
+                          SmallVector<Expr *, 8> &VarCnts);
+
+  /// \brief A helper to rebuild a constant positive integer expression.
+  Expr *ActOnConstantPositiveSubExpressionInClause(Expr *E);
+
+  /// \brief A helper to add two simd-specific arguments into captured stmt.
+  CapturedStmt *AddSimdArgsIntoCapturedStmt(CapturedStmt *Cap, Expr *NewVar);
+
+public:
+
   /// \brief Called on correct id-expression from the '#pragma omp
   /// threadprivate'.
   ExprResult ActOnOpenMPIdExpression(Scope *CurScope,
@@ -7102,7 +7125,122 @@ public:
                                      SourceLocation Loc,
                                      ArrayRef<Expr *> VarList);
 
+  /// \brief A RAII object to enter scope of a declare reduction.
+  class OMPDeclareReductionRAII {
+  public:
+    OMPDeclareReductionRAII(Sema &S, Scope *CS, DeclContext *DC,
+                            SourceLocation Loc, DeclarationName DN,
+                            unsigned NumTypes, AccessSpecifier AS);
+
+    Decl *getDecl();
+  private:
+    /// \brief Called on well-formed '#pragma omp declare reduction'.
+    OMPDeclareReductionDecl *InitDeclareReduction(Scope *CS,
+                                                  DeclContext *DC,
+                                                  SourceLocation Loc,
+                                                  DeclarationName Name,
+                                                  unsigned NumTypes,
+                                                  AccessSpecifier AS);
+    Sema &S;
+    OMPDeclareReductionDecl *D;
+    ContextRAII SavedContext;
+  };
+
+  class OMPDeclareReductionFunctionScope {
+  public:
+    OMPDeclareReductionFunctionScope(Sema &S, SourceLocation Loc,
+                                     DeclarationName Name, QualType QTy)
+      : S(S), FD(ActOnOMPDeclareReductionFunction(S, Loc, Name, QTy)) { }
+
+    ~OMPDeclareReductionFunctionScope() {
+      if (S.CurContext) {
+        S.DiscardCleanupsInEvaluationContext();
+        S.PopExpressionEvaluationContext();
+        S.PopFunctionScopeInfo();
+        S.PopDeclContext();
+      }
+    }
+
+    void setBody(Expr *E);
+    Expr *getCombiner();
+
+  private:
+    FunctionDecl *ActOnOMPDeclareReductionFunction(Sema &S,
+                                                   SourceLocation Loc,
+                                                   DeclarationName Name,
+                                                   QualType QTy);
+
+    Sema &S;
+    FunctionDecl *FD;
+    ParmVarDecl *ParLHS, *ParRHS;
+    VarDecl *OmpOut, *OmpIn;
+  };
+
+  void CreateDefaultDeclareReductionInitFunctionBody(FunctionDecl *FD,
+                                                     VarDecl *OmpPriv,
+                                                     ParmVarDecl *ParLHS);
+  class OMPDeclareReductionInitFunctionScope {
+  public:
+    OMPDeclareReductionInitFunctionScope(Sema &S, SourceLocation Loc,
+                                         DeclarationName Name, QualType QTy,
+                                         SourceLocation OmpPrivLoc,
+                                         bool IsInit)
+      : S(S), OmpPrivLoc(OmpPrivLoc), IsInit(IsInit),
+        FD(ActOnOMPDeclareReductionInitFunction(S, Loc, Name, QTy)) { }
+
+    ~OMPDeclareReductionInitFunctionScope() {
+      if (S.CurContext) {
+        S.DiscardCleanupsInEvaluationContext();
+        S.PopExpressionEvaluationContext();
+        S.PopFunctionScopeInfo();
+        S.PopDeclContext();
+      }
+    }
+
+    void setInit(Expr *E = 0);
+    Expr *getInitializer();
+
+  private:
+    FunctionDecl *ActOnOMPDeclareReductionInitFunction(Sema &S,
+                                                       SourceLocation Loc,
+                                                       DeclarationName Name,
+                                                       QualType QTy);
+
+    Sema &S;
+    SourceLocation OmpPrivLoc;
+    bool IsInit;
+    FunctionDecl *FD;
+    ParmVarDecl *ParLHS, *ParRHS;
+    VarDecl *OmpPriv, *OmpOrig;
+  };
+
+  llvm::SmallDenseMap<Decl *, Decl *> OMPInstantiatedDecls;
+
+  bool IsOMPDeclareReductionTypeAllowed(SourceRange Range, QualType QTy,
+                                        ArrayRef<QualType> Types,
+                                        ArrayRef<SourceRange> TyRanges);
+
+  DeclGroupPtrTy ActOnOpenMPDeclareReductionDirective(
+                                                   Decl *D,
+                                                   ArrayRef<QualType> Types,
+                                                   ArrayRef<SourceRange> TyRanges,
+                                                   ArrayRef<Expr *> Combiners,
+                                                   ArrayRef<Expr *> Inits);
+  // \brief Builds a new OpenMPThreadPrivateDecl and checks its correctness.
+  void CompleteOMPDeclareReductionDecl(OMPDeclareReductionDecl *D,
+                                       ArrayRef<QualType> Types,
+                                       ArrayRef<SourceRange> TyRanges,
+                                       ArrayRef<Expr *> Combiners,
+                                       ArrayRef<Expr *> Inits);
+
+  /// \brief Called on start of new data sharing attribute block.
+  void StartOpenMPDSABlock(OpenMPDirectiveKind K,
+                           const DeclarationNameInfo &DirName,
+                           Scope *CurScope);
+  /// \brief Called on end of data sharing attribute block.
+  void EndOpenMPDSABlock(Stmt *CurDirective);
   StmtResult ActOnOpenMPExecutableDirective(OpenMPDirectiveKind Kind,
+                                            const DeclarationNameInfo &DirName,
                                             ArrayRef<OMPClause *> Clauses,
                                             Stmt *AStmt,
                                             SourceLocation StartLoc,
@@ -7113,13 +7251,111 @@ public:
                                           Stmt *AStmt,
                                           SourceLocation StartLoc,
                                           SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp for' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPForDirective(OpenMPDirectiveKind Kind,
+                                     ArrayRef<OMPClause *> Clauses,
+                                     Stmt *AStmt,
+                                     SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
   /// \brief Called on well-formed '\#pragma omp simd' after parsing
   /// of the associated statement.
-  StmtResult ActOnOpenMPSimdDirective(ArrayRef<OMPClause *> Clauses,
+  StmtResult ActOnOpenMPSimdDirective(OpenMPDirectiveKind Kind,
+                                      ArrayRef<OMPClause *> Clauses,
                                       Stmt *AStmt,
                                       SourceLocation StartLoc,
                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp for simd' after parsing
+  /// of the associated statement.
+  StmtResult ActOnOpenMPForSimdDirective(OpenMPDirectiveKind Kind,
+                                         ArrayRef<OMPClause *> Clauses,
+                                         Stmt *AStmt,
+                                         SourceLocation StartLoc,
+                                         SourceLocation EndLoc);
 
+  /// \brief Called on well-formed '\#pragma omp sections' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPSectionsDirective(OpenMPDirectiveKind Kind,
+                                          ArrayRef<OMPClause *> Clauses,
+                                          Stmt *AStmt,
+                                          SourceLocation StartLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp section' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPSectionDirective(Stmt *AStmt,
+                                         SourceLocation StartLoc,
+                                         SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp single' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPSingleDirective(ArrayRef<OMPClause *> Clauses,
+                                        Stmt *AStmt,
+                                        SourceLocation StartLoc,
+                                        SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp task' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPTaskDirective(ArrayRef<OMPClause *> Clauses,
+                                      Stmt *AStmt,
+                                      SourceLocation StartLoc,
+                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp taskyield' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPTaskyieldDirective(SourceLocation StartLoc,
+                                           SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp master' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPMasterDirective(Stmt *AStmt,
+                                        SourceLocation StartLoc,
+                                        SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp critical' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPCriticalDirective(const DeclarationNameInfo &DirName,
+                                          Stmt *AStmt,
+                                          SourceLocation StartLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp barrier' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPBarrierDirective(SourceLocation StartLoc,
+                                         SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp taskwait' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPTaskwaitDirective(SourceLocation StartLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp taskgroup' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPTaskgroupDirective(Stmt *AStmt,
+                                           SourceLocation StartLoc,
+                                           SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp atomic' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPAtomicDirective(ArrayRef<OMPClause *> Clauses,
+                                        Stmt *AStmt,
+                                        SourceLocation StartLoc,
+                                        SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp flush' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPFlushDirective(ArrayRef<OMPClause *> Clauses,
+                                       SourceLocation StartLoc,
+                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp ordered' after parsing
+  /// of the  associated statement.
+  StmtResult ActOnOpenMPOrderedDirective(Stmt *AStmt,
+                                         SourceLocation StartLoc,
+                                         SourceLocation EndLoc);
+
+  /// \brief Called on well-formed 'final' clause.
+  OMPClause *ActOnOpenMPFinalClause(Expr *Condition, SourceLocation StartLoc,
+                                    SourceLocation LParenLoc,
+                                    SourceLocation EndLoc);
+  /// \brief Called on well-formed 'num_threads' clause.
+  OMPClause *ActOnOpenMPNumThreadsClause(Expr *NumThreads,
+                                         SourceLocation StartLoc,
+                                         SourceLocation LParenLoc,
+                                         SourceLocation EndLoc);
+  /// \brief Called on well-formed 'collapse' clause.
+  OMPClause *ActOnOpenMPCollapseClause(Expr *NumLoops,
+                                       SourceLocation StartLoc,
+                                       SourceLocation LParenLoc,
+                                       SourceLocation EndLoc);
   OMPClause *ActOnOpenMPSingleExprClause(OpenMPClauseKind Kind,
                                          Expr *Expr,
                                          SourceLocation StartLoc,
@@ -7129,11 +7365,6 @@ public:
   OMPClause *ActOnOpenMPIfClause(Expr *Condition, SourceLocation StartLoc,
                                  SourceLocation LParenLoc,
                                  SourceLocation EndLoc);
-  /// \brief Called on well-formed 'num_threads' clause.
-  OMPClause *ActOnOpenMPNumThreadsClause(Expr *NumThreads,
-                                         SourceLocation StartLoc,
-                                         SourceLocation LParenLoc,
-                                         SourceLocation EndLoc);
 
   OMPClause *ActOnOpenMPSimpleClause(OpenMPClauseKind Kind,
                                      unsigned Argument,
@@ -7147,27 +7378,167 @@ public:
                                       SourceLocation StartLoc,
                                       SourceLocation LParenLoc,
                                       SourceLocation EndLoc);
-
+  /// \brief Called on well-formed 'proc_bind' clause.
+  OMPClause *ActOnOpenMPProcBindClause(OpenMPProcBindClauseKind Kind,
+                                       SourceLocation KindLoc,
+                                       SourceLocation StartLoc,
+                                       SourceLocation LParenLoc,
+                                       SourceLocation EndLoc);
+  /// \brief Helper for all clauses with varlists.
   OMPClause *ActOnOpenMPVarListClause(OpenMPClauseKind Kind,
                                       ArrayRef<Expr *> Vars,
                                       SourceLocation StartLoc,
                                       SourceLocation LParenLoc,
-                                      SourceLocation EndLoc);
+                                      SourceLocation EndLoc,
+                                      unsigned Op,
+                                      Expr *TailExpr,
+                                      CXXScopeSpec &SS,
+                                      const UnqualifiedId &OpName,
+                                      SourceLocation OpLoc);
+
   /// \brief Called on well-formed 'private' clause.
   OMPClause *ActOnOpenMPPrivateClause(ArrayRef<Expr *> VarList,
                                       SourceLocation StartLoc,
                                       SourceLocation LParenLoc,
                                       SourceLocation EndLoc);
   /// \brief Called on well-formed 'firstprivate' clause.
-  OMPClause *ActOnOpenMPFirstprivateClause(ArrayRef<Expr *> VarList,
+  OMPClause *ActOnOpenMPFirstPrivateClause(ArrayRef<Expr *> VarList,
                                            SourceLocation StartLoc,
                                            SourceLocation LParenLoc,
                                            SourceLocation EndLoc);
+  /// \brief Called on well-formed 'lastprivate' clause.
+  OMPClause *ActOnOpenMPLastPrivateClause(ArrayRef<Expr *> VarList,
+                                          SourceLocation StartLoc,
+                                          SourceLocation LParenLoc,
+                                          SourceLocation EndLoc);
   /// \brief Called on well-formed 'shared' clause.
   OMPClause *ActOnOpenMPSharedClause(ArrayRef<Expr *> VarList,
                                      SourceLocation StartLoc,
                                      SourceLocation LParenLoc,
                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'copyin' clause.
+  OMPClause *ActOnOpenMPCopyinClause(ArrayRef<Expr *> VarList,
+                                     SourceLocation StartLoc,
+                                     SourceLocation LParenLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'copyprivate' clause.
+  OMPClause *ActOnOpenMPCopyPrivateClause(ArrayRef<Expr *> VarList,
+                                          SourceLocation StartLoc,
+                                          SourceLocation LParenLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed 'reduction' clause.
+  OMPClause *ActOnOpenMPReductionClause(ArrayRef<Expr *> VarList,
+                                        SourceLocation StartLoc,
+                                        SourceLocation LParenLoc,
+                                        SourceLocation EndLoc,
+                                        OpenMPReductionClauseOperator Op,
+                                        CXXScopeSpec &SS,
+                                        DeclarationNameInfo OpName);
+  /// \brief Called on well-formed 'flush' clause.
+  OMPClause *ActOnOpenMPFlushClause(ArrayRef<Expr *> VarList,
+                                    SourceLocation StartLoc,
+                                    SourceLocation LParenLoc,
+                                    SourceLocation EndLoc);
+  /// \brief Called on well-formed 'uniform' clause.
+  OMPClause *ActOnOpenMPUniformClause(ArrayRef<Expr *> VarList,
+                                      SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc);
+  OMPClause *ActOnOpenMPClause(OpenMPClauseKind Kind,
+                               SourceLocation StartLoc,
+                               SourceLocation EndLoc);
+  /// \brief Called on well-formed 'ordered' clause.
+  OMPClause *ActOnOpenMPOrderedClause(SourceLocation StartLoc,
+                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'nowait' clause.
+  OMPClause *ActOnOpenMPNowaitClause(SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'untied' clause.
+  OMPClause *ActOnOpenMPUntiedClause(SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'mergeable' clause.
+  OMPClause *ActOnOpenMPMergeableClause(SourceLocation StartLoc,
+                                        SourceLocation EndLoc);
+  /// \brief Called on well-formed 'read' clause.
+  OMPClause *ActOnOpenMPReadClause(SourceLocation StartLoc,
+                                   SourceLocation EndLoc);
+  /// \brief Called on well-formed 'write' clause.
+  OMPClause *ActOnOpenMPWriteClause(SourceLocation StartLoc,
+                                    SourceLocation EndLoc);
+  /// \brief Called on well-formed 'update' clause.
+  OMPClause *ActOnOpenMPUpdateClause(SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'capture' clause.
+  OMPClause *ActOnOpenMPCaptureClause(SourceLocation StartLoc,
+                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'seq_cst' clause.
+  OMPClause *ActOnOpenMPSeqCstClause(SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'inbranch' clause.
+  OMPClause *ActOnOpenMPInBranchClause(SourceLocation StartLoc,
+                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed 'notinbranch' clause.
+  OMPClause *ActOnOpenMPNotInBranchClause(SourceLocation StartLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed 'safelen' clause.
+  OMPClause *ActOnOpenMPSafelenClause(Expr *Length,
+                                      SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'simdlen' clause.
+  OMPClause *ActOnOpenMPSimdlenClause(Expr *Length,
+                                      SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'num_teams' clause.
+  OMPClause *ActOnOpenMPNumTeamsClause(Expr *NumTeams,
+                                       SourceLocation StartLoc,
+                                       SourceLocation LParenLoc,
+                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed 'thread_limit' clause.
+  OMPClause *ActOnOpenMPThreadLimitClause(Expr *ThreadLimit,
+                                          SourceLocation StartLoc,
+                                          SourceLocation LParenLoc,
+                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed 'linear' clause.
+  OMPClause *ActOnOpenMPLinearClause(ArrayRef<Expr *> VarList,
+                                     SourceLocation StartLoc,
+                                     SourceLocation LParenLoc,
+                                     SourceLocation EndLoc,
+                                     Expr *Step,
+                                     SourceLocation StepLoc);
+  /// \brief Called on well-formed 'aligned' clause.
+  OMPClause *ActOnOpenMPAlignedClause(ArrayRef<Expr *> VarList,
+                                      SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc,
+                                      Expr *Alignment,
+                                      SourceLocation AlignmentLoc);
+
+  OMPClause *ActOnOpenMPSingleExprWithTypeClause(OpenMPClauseKind Kind,
+                                                 unsigned Argument,
+                                                 SourceLocation ArgumentLoc,
+                                                 Expr *Expr,
+                                                 SourceLocation StartLoc,
+                                                 SourceLocation LParenLoc,
+                                                 SourceLocation EndLoc);
+  /// \brief Called on well-formed 'schedule' clause.
+  OMPClause *ActOnOpenMPScheduleClause(OpenMPScheduleClauseKind Argument,
+                                       SourceLocation ArgumentLoc,
+                                       Expr *ChunkSize,
+                                       SourceLocation StartLoc,
+                                       SourceLocation LParenLoc,
+                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed 'dist_schedule' clause.
+  OMPClause *ActOnOpenMPDistScheduleClause(OpenMPScheduleClauseKind Argument,
+                                           SourceLocation ArgumentLoc,
+                                           Expr *ChunkSize,
+                                           SourceLocation StartLoc,
+                                           SourceLocation LParenLoc,
+                                           SourceLocation EndLoc);
+
+  /// \brief Marks all decls as used in associated captured statement.
+  void MarkOpenMPClauses(ArrayRef<OMPClause *> Clauses);
 
   /// \brief The kind of conversion being performed.
   enum CheckedConversionKind {

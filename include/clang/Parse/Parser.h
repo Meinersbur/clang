@@ -991,6 +991,21 @@ private:
     CachedTokens *ExceptionSpecTokens;
   };
 
+  /// LateParsedOpenMPDeclaration - An OpenMP declaration inside a class.
+  struct LateParsedOpenMPDeclaration : public LateParsedDeclaration {
+    explicit LateParsedOpenMPDeclaration(Parser *P, AccessSpecifier AS)
+      : Self(P), AS(AS) { }
+
+    virtual void ParseLexedMethodDeclarations();
+
+    Parser* Self;
+    AccessSpecifier AS;
+
+    /// \brief The set of tokens that make up an exception-specification that
+    /// has not yet been parsed.
+    CachedTokens Tokens;
+  };
+
   /// LateParsedMemberInitializer - An initializer for a non-static class data
   /// member whose parsing must to be delayed until the class is completely
   /// defined (C++11 [class.mem]p2).
@@ -2279,7 +2294,10 @@ private:
   //===--------------------------------------------------------------------===//
   // OpenMP: Directives and clauses.
   /// \brief Parses declarative OpenMP directives.
-  DeclGroupPtrTy ParseOpenMPDeclarativeDirective();
+  DeclGroupPtrTy ParseOpenMPDeclarativeDirective(AccessSpecifier AS);
+  /// \brief Late parsing of declarative OpenMP directives.
+  void LateParseOpenMPDeclarativeDirective(AccessSpecifier AS);
+
   /// \brief Parses simple list of variables.
   ///
   /// \param Kind Kind of the directive.
@@ -2290,8 +2308,23 @@ private:
   bool ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
                                 SmallVectorImpl<Expr *> &VarList,
                                 bool AllowScopeSpecifier);
+
+  /// \param [out] Inits List of inits.
+  ///
+  Decl *ParseOpenMPDeclareReduction(SmallVectorImpl<QualType> &Types,
+                                    SmallVectorImpl<SourceRange> &TyRanges,
+                                    SmallVectorImpl<Expr *> &Combiners,
+                                    SmallVectorImpl<Expr *> &Inits,
+                                    AccessSpecifier AS);
+
   /// \brief Parses declarative or executable directive.
-  StmtResult ParseOpenMPDeclarativeOrExecutableDirective();
+  ///
+  /// \param StandAloneAllowed true if allowed stand-alone directives,
+  /// false - otherwise
+  ///
+  StmtResult ParseOpenMPDeclarativeOrExecutableDirective(
+                                                bool StandAloneAllowed);
+
   /// \brief Parses clause of kind \a CKind for directive of a kind \a Kind.
   ///
   /// \param DKind Kind of current directive.
@@ -2316,6 +2349,17 @@ private:
   /// \param Kind Kind of current clause.
   ///
   OMPClause *ParseOpenMPVarListClause(OpenMPClauseKind Kind);
+  /// \brief Parses clause with a single expression and a type of a kind
+  /// \a Kind.
+  ///
+  /// \param Kind Kind of current clause.
+  ///
+  OMPClause *ParseOpenMPSingleExprWithTypeClause(OpenMPClauseKind Kind);
+  /// \brief Parses clause with type of a kind \a Kind.
+  ///
+  /// \param Kind Kind of current clause.
+  ///
+  OMPClause *ParseOpenMPClause(OpenMPClauseKind Kind);
 public:
   bool ParseUnqualifiedId(CXXScopeSpec &SS, bool EnteringContext,
                           bool AllowDestructorName,
