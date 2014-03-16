@@ -2137,14 +2137,28 @@ enum CXCursorKind {
    */
   CXCursor_DeclStmt                      = 231,
 
-  /** \brief OpenMP parallel directive.
+  /** \brief OpenMP directives.
    */
   CXCursor_OMPParallelDirective          = 232,
-  /** \brief OpenMP simd directive.
-   */
+  CXCursor_OMPForDirective               = 233,
+  CXCursor_OMPSectionsDirective          = 234,
+  CXCursor_OMPSectionDirective           = 235,
+  CXCursor_OMPSingleDirective            = 236,
+  CXCursor_OMPTaskDirective              = 237,
+  CXCursor_OMPTaskyieldDirective         = 238,
+  CXCursor_OMPMasterDirective            = 239,
+  CXCursor_OMPCriticalDirective          = 240,
+  CXCursor_OMPBarrierDirective           = 241,
+  CXCursor_OMPTaskwaitDirective          = 242,
+  CXCursor_OMPTaskgroupDirective         = 243,
+  CXCursor_OMPAtomicDirective            = 244,
+  CXCursor_OMPFlushDirective             = 245,
+  CXCursor_OMPOrderedDirective           = 246,
   CXCursor_OMPSimdDirective              = 247,
+  CXCursor_OMPForSimdDirective           = 248,
 
-  CXCursor_LastStmt                      = CXCursor_OMPSimdDirective,
+
+  CXCursor_LastStmt                      = CXCursor_OMPForSimdDirective,
 
   /**
    * \brief Cursor that represents the translation unit itself.

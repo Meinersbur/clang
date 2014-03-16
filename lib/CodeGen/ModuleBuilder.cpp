@@ -17,6 +17,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/DeclOpenMP.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
@@ -95,11 +96,13 @@ namespace {
       // point.
       if (Ctx->getLangOpts().CPlusPlus && !D->isDependentContext()) {
         for (auto *M : D->decls())
-          if (auto *Method = dyn_cast<CXXMethodDecl>(M))
+          if (auto *Method = dyn_cast<CXXMethodDecl>(M)) {
             if (Method->doesThisDeclarationHaveABody() &&
                 (Method->hasAttr<UsedAttr>() || 
                  Method->hasAttr<ConstructorAttr>()))
               Builder->EmitTopLevelDecl(Method);
+          } else if (OMPThreadPrivateDecl *TD = dyn_cast<OMPThreadPrivateDecl>(M))
+            Builder->EmitTopLevelDecl(TD);
       }
     }
 
