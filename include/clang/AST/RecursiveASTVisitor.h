@@ -2479,6 +2479,12 @@ DEF_TRAVERSE_STMT(OMPOrderedDirective, {
 //    http://clang.llvm.org/doxygen/classclang_1_1TypesCompatibleExpr.html
 //    Every class that has getQualifier.
 
+#ifdef MOLLY 
+DEF_TRAVERSE_STMT(MollyWhereDirective, {
+  TRY_TO(TraverseStmt(S->getAssociatedStmt()));
+})
+#endif /* MOLLY */
+
 #undef DEF_TRAVERSE_STMT
 
 #undef TRY_TO

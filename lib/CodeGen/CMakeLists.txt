@@ -62,6 +62,7 @@ add_clang_library(clangCodeGen
   ModuleBuilder.cpp
   TargetInfo.cpp
   CGDeclOpenMP.cpp
+  CGLoopInfo.cpp
   CGMolly.cpp
   )
 
