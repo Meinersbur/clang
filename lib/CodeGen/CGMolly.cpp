@@ -443,6 +443,23 @@ void CodeGenMolly::annotateFunction(const clang::FunctionDecl *clangFunc, llvm::
     ab.addAttribute("molly_pure");
   }
 
+  if (clangFunc->hasAttr<MollyIgnoreAttr>()) {
+    ab.addAttribute("molly_ignore");
+  }
+
+  if (clangFunc->hasAttr<MollyProcessAttr>()) {
+    ab.addAttribute("molly_process");
+    ab.addAttribute("polly_process"); // Anything processed by Molly must have been processed by Polly
+  }
+
+  if (clangFunc->hasAttr<PollyIgnoreAttr>()) {
+    ab.addAttribute("polly_ignore");
+  }
+
+  if (clangFunc->hasAttr<PollyProcessAttr>()) {
+    ab.addAttribute("polly_process");
+  }
+
   auto clangFieldDecl = dyn_cast<CXXRecordDecl>(clangFunc->getParent());
   if (clangFieldDecl) {
 

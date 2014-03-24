@@ -15,7 +15,6 @@ def MollyDimensions : InheritableAttr {
 }
 
 
-
 def MollyFieldLengths : InheritableAttr {
   let Spellings = [GNU<"molly_lengths">, CXX11<"molly","lengths">]; // [CXX11<"molly","lengths">]
   //  let Subjects = [CXXRecord];
@@ -170,5 +169,33 @@ def MollyTransform : InheritableAttr {
   let Args = [StringArgument<"islstr">, UnsignedArgument<"nodedims">];
   bit SemaHandler = 0;
 //  let Subjects = [Var];
+  let Documentation = [Undocumented];
+}
+
+
+// Never optimize using Molly
+def MollyIgnore : InheritableAttr {
+  let Spellings = [GNU<"molly_ignore">,  CXX11<"molly","ignore">];
+  let Documentation = [Undocumented];
+}
+
+
+// Always optimize using Molly; Use with -molly-only-marked is used
+def MollyProcess : InheritableAttr {
+  let Spellings = [GNU<"molly_process">,  CXX11<"molly","process">];
+  let Documentation = [Undocumented];
+}
+
+
+// Never analyze using Polly
+def PollyIgnore : InheritableAttr {
+  let Spellings = [GNU<"polly_ignore">,  CXX11<"polly","ignore">];
+  let Documentation = [Undocumented];
+}
+
+
+// Always try to find SCoPs, even if -polly-only-marked is set
+def PollyProcess : InheritableAttr {
+  let Spellings = [GNU<"polly_process">,  CXX11<"polly","process">];
   let Documentation = [Undocumented];
 }

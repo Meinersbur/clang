@@ -4628,6 +4628,18 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
  case AttributeList::AT_MollyPure:
    handleSimpleAttr<MollyPureAttr>(S, D, Attr);
    break;
+ case AttributeList::AT_MollyIgnore:
+   handleSimpleAttr<MollyIgnoreAttr>(S, D, Attr);
+   break;
+ case AttributeList::AT_MollyProcess:
+   handleSimpleAttr<MollyProcessAttr>(S, D, Attr);
+   break;
+ case AttributeList::AT_PollyIgnore:
+   handleSimpleAttr<PollyIgnoreAttr>(S, D, Attr);
+   break;
+ case AttributeList::AT_PollyProcess:
+   handleSimpleAttr<PollyProcessAttr>(S, D, Attr);
+   break;
 #endif /* MOLLY */
   }
 }
