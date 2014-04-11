@@ -428,7 +428,7 @@ class CastExpressionIdValidator : public CorrectionCandidateCallback {
     WantTypeSpecifiers = AllowTypes;
   }
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     NamedDecl *ND = candidate.getCorrectionDecl();
     if (!ND)
       return candidate.isKeyword();
@@ -835,6 +835,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
   case tok::kw___func__:       // primary-expression: __func__ [C99 6.4.2.2]
   case tok::kw___FUNCTION__:   // primary-expression: __FUNCTION__ [GNU]
   case tok::kw___FUNCDNAME__:   // primary-expression: __FUNCDNAME__ [MS]
+  case tok::kw___FUNCSIG__:     // primary-expression: __FUNCSIG__ [MS]
   case tok::kw_L__FUNCTION__:   // primary-expression: L__FUNCTION__ [MS]
   case tok::kw___PRETTY_FUNCTION__:  // primary-expression: __P..Y_F..N__ [GNU]
     Res = Actions.ActOnPredefinedExpr(Tok.getLocation(), SavedKind);
@@ -1248,11 +1249,39 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       T.consumeOpen();
       Loc = T.getOpenLocation();
       ExprResult Idx;
+
+      ExprResult CEANLength;
+      bool IsCEAN = false;
+      SourceLocation ColonLoc;
       if (getLangOpts().CPlusPlus11 && Tok.is(tok::l_brace)) {
         Diag(Tok, diag::warn_cxx98_compat_generalized_initializer_lists);
         Idx = ParseBraceInitializer();
+      } else if (IsCEANAllowed && Tok.is(tok::colon)) {
+        // '[' ':'
+        IsCEAN = true;
+        ColonLoc = ConsumeToken();
+        ColonProtectionRAIIObject CPRAII(*this);
+        if (Tok.isNot(tok::r_square)) {
+          CEANLength = ParseExpression();
+        }
+      } else if (IsCEANAllowed) {
+        ColonProtectionRAIIObject CPRAII(*this);
+        Idx = ParseExpression();
+        if (IsCEANAllowed && Tok.is(tok::colon)) {
+          // '[' <expr> ':'
+          IsCEAN = true;
+          ColonLoc = ConsumeToken();
+          // <length>
+          if (Tok.isNot(tok::colon) && Tok.isNot(tok::r_square)) {
+            CEANLength = ParseExpression();
+          }
+        }
       } else
         Idx = ParseExpression();
+      if (IsCEAN && !Idx.isInvalid() && !CEANLength.isInvalid()) {
+          Idx = Actions.ActOnCEANIndexExpr(getCurScope(), LHS.get(), Idx.take(),
+                                           ColonLoc, CEANLength.take());
+      }
 
       SourceLocation RLoc = Tok.getLocation();
 

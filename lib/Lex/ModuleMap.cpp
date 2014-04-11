@@ -396,30 +396,41 @@ ModuleMap::findModuleForHeader(const FileEntry *File,
 }
 
 bool ModuleMap::isHeaderInUnavailableModule(const FileEntry *Header) const {
+  return isHeaderUnavailableInModule(Header, 0);
+}
+
+bool ModuleMap::isHeaderUnavailableInModule(const FileEntry *Header,
+                                            Module *RequestingModule) const {
   HeadersMap::const_iterator Known = Headers.find(Header);
   if (Known != Headers.end()) {
     for (SmallVectorImpl<KnownHeader>::const_iterator
              I = Known->second.begin(),
              E = Known->second.end();
          I != E; ++I) {
-      if (I->isAvailable())
+      if (I->isAvailable() && (!RequestingModule ||
+                               I->getModule()->isSubModuleOf(RequestingModule)))
         return false;
     }
     return true;
   }
-  
+
   const DirectoryEntry *Dir = Header->getDir();
   SmallVector<const DirectoryEntry *, 2> SkippedDirs;
   StringRef DirName = Dir->getName();
 
+  auto IsUnavailable = [&](const Module *M) {
+    return !M->isAvailable() && (!RequestingModule ||
+                                 M->isSubModuleOf(RequestingModule));
+  };
+
   // Keep walking up the directory hierarchy, looking for a directory with
   // an umbrella header.
-  do {    
+  do {
     llvm::DenseMap<const DirectoryEntry *, Module *>::const_iterator KnownDir
       = UmbrellaDirs.find(Dir);
     if (KnownDir != UmbrellaDirs.end()) {
       Module *Found = KnownDir->second;
-      if (!Found->isAvailable())
+      if (IsUnavailable(Found))
         return true;
 
       // Search up the module stack until we find a module with an umbrella
@@ -438,7 +449,7 @@ bool ModuleMap::isHeaderInUnavailableModule(const FileEntry *Header) const {
           Found = lookupModuleQualified(Name, Found);
           if (!Found)
             return false;
-          if (!Found->isAvailable())
+          if (IsUnavailable(Found))
             return true;
         }
         
@@ -452,7 +463,7 @@ bool ModuleMap::isHeaderInUnavailableModule(const FileEntry *Header) const {
           return false;
       }
 
-      return !Found->isAvailable();
+      return IsUnavailable(Found);
     }
     
     SkippedDirs.push_back(Dir);
@@ -594,9 +605,9 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
         if (inferred == InferredDirectories.end()) {
           // We haven't looked here before. Load a module map, if there is
           // one.
-          SmallString<128> ModMapPath = Parent;
-          llvm::sys::path::append(ModMapPath, "module.map");
-          if (const FileEntry *ModMapFile = FileMgr.getFile(ModMapPath)) {
+          bool IsFrameworkDir = Parent.endswith(".framework");
+          if (const FileEntry *ModMapFile =
+                HeaderInfo.lookupModuleMapFile(ParentDir, IsFrameworkDir)) {
             parseModuleMapFile(ModMapFile, IsSystem);
             inferred = InferredDirectories.find(ParentDir);
           }
@@ -1282,7 +1293,8 @@ void ModuleMapParser::parseModuleDecl() {
       
       if (ActiveModule) {
         Diags.Report(Id[I].second, diag::err_mmap_missing_module_qualified)
-          << Id[I].first << ActiveModule->getTopLevelModule();
+          << Id[I].first
+          << ActiveModule->getTopLevelModule()->getFullModuleName();
       } else {
         Diags.Report(Id[I].second, diag::err_mmap_expected_module_name);
       }
@@ -2218,10 +2230,21 @@ bool ModuleMap::parseModuleMapFile(const FileEntry *File, bool IsSystem) {
   const llvm::MemoryBuffer *Buffer = SourceMgr.getBuffer(ID);
   if (!Buffer)
     return ParsedModuleMap[File] = true;
+
+  // Find the directory for the module. For frameworks, that may require going
+  // up from the 'Modules' directory.
+  const DirectoryEntry *Dir = File->getDir();
+  StringRef DirName(Dir->getName());
+  if (llvm::sys::path::filename(DirName) == "Modules") {
+    DirName = llvm::sys::path::parent_path(DirName);
+    if (DirName.endswith(".framework"))
+      Dir = SourceMgr.getFileManager().getDirectory(DirName);
+    assert(Dir && "parent must exist");
+  }
   
   // Parse this module map file.
   Lexer L(ID, SourceMgr.getBuffer(ID), SourceMgr, MMapLangOpts);
-  ModuleMapParser Parser(L, SourceMgr, Target, Diags, *this, File->getDir(),
+  ModuleMapParser Parser(L, SourceMgr, Target, Diags, *this, Dir,
                          BuiltinIncludeDir, IsSystem);
   bool Result = Parser.parseModuleMapFile();
   ParsedModuleMap[File] = Result;
