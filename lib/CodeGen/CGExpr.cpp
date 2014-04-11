@@ -1691,11 +1691,16 @@ EmitBitCastOfLValueToProperType(CodeGenFunction &CGF,
 
 static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
                                       const Expr *E, const VarDecl *VD) {
+  QualType T = E->getType();
+
+  // If it's thread_local, emit a call to its wrapper function instead.
+  if (VD->getTLSKind() == VarDecl::TLS_Dynamic)
+    return CGF.CGM.getCXXABI().EmitThreadLocalVarDeclLValue(CGF, VD, T);
+
   llvm::Value *V = CGF.CGM.GetAddrOfGlobalVar(VD);
   llvm::Type *RealVarTy = CGF.getTypes().ConvertTypeForMem(VD->getType());
   V = EmitBitCastOfLValueToProperType(CGF, V, RealVarTy);
   CharUnits Alignment = CGF.getContext().getDeclAlign(VD);
-  QualType T = E->getType();
   LValue LV;
   if (VD->getType()->isReferenceType()) {
     llvm::LoadInst *LI = CGF.Builder.CreateLoad(V);
@@ -1703,7 +1708,7 @@ static LValue EmitGlobalVarDeclLValue(CodeGenFunction &CGF,
     V = LI;
     LV = CGF.MakeNaturalAlignAddrLValue(V, T);
   } else {
-    LV = CGF.MakeAddrLValue(V, E->getType(), Alignment);
+    LV = CGF.MakeAddrLValue(V, T, Alignment);
   }
   setObjCGCLValueClass(CGF.getContext(), E, LV);
   return LV;
@@ -1752,6 +1757,9 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
       // CodeGen for OpenMP private variables - works only in CapturedStmt.
       else if (llvm::Value *Val = CGM.OpenMPSupport.getOpenMPPrivateVar(VD))
         return MakeAddrLValue(Val, T, Alignment);
+      else if (CapturedStmtInfo)
+        if (llvm::Value *Val = CapturedStmtInfo->getCachedVar(VD))
+          return MakeAddrLValue(Val, T, Alignment);
     }
 
     const Expr *Init = VD->getAnyInitializer(VD);
@@ -1781,12 +1789,8 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
     // Check if this is a global variable.
-    if (VD->hasLinkage() || VD->isStaticDataMember()) {
-      // If it's thread_local, emit a call to its wrapper function instead.
-      if (VD->getTLSKind() == VarDecl::TLS_Dynamic)
-        return CGM.getCXXABI().EmitThreadLocalDeclRefExpr(*this, E);
+    if (VD->hasLinkage() || VD->isStaticDataMember())
       return EmitGlobalVarDeclLValue(*this, E, VD);
-    }
 
     bool isBlockVariable = VD->hasAttr<BlocksAttr>();
 
@@ -1963,33 +1967,27 @@ LValue CodeGenFunction::EmitPredefinedLValue(const PredefinedExpr *E) {
   case PredefinedExpr::Function:
   case PredefinedExpr::LFunction:
   case PredefinedExpr::FuncDName:
+  case PredefinedExpr::FuncSig:
   case PredefinedExpr::PrettyFunction: {
     PredefinedExpr::IdentType IdentType = E->getIdentType();
-    std::string GlobalVarName;
+    std::string GVName;
 
+    // FIXME: We should use the string literal mangling for the Microsoft C++
+    // ABI so that strings get merged.
     switch (IdentType) {
     default: llvm_unreachable("Invalid type");
-    case PredefinedExpr::Func:
-      GlobalVarName = "__func__.";
-      break;
-    case PredefinedExpr::Function:
-      GlobalVarName = "__FUNCTION__.";
-      break;
-    case PredefinedExpr::FuncDName:
-      GlobalVarName = "__FUNCDNAME__.";
-      break;
-    case PredefinedExpr::LFunction:
-      GlobalVarName = "L__FUNCTION__.";
-      break;
-    case PredefinedExpr::PrettyFunction:
-      GlobalVarName = "__PRETTY_FUNCTION__.";
-      break;
+    case PredefinedExpr::Func:           GVName = "__func__."; break;
+    case PredefinedExpr::Function:       GVName = "__FUNCTION__."; break;
+    case PredefinedExpr::FuncDName:      GVName = "__FUNCDNAME__."; break;
+    case PredefinedExpr::FuncSig:        GVName = "__FUNCSIG__."; break;
+    case PredefinedExpr::LFunction:      GVName = "L__FUNCTION__."; break;
+    case PredefinedExpr::PrettyFunction: GVName = "__PRETTY_FUNCTION__."; break;
     }
 
     StringRef FnName = CurFn->getName();
     if (FnName.startswith("\01"))
       FnName = FnName.substr(1);
-    GlobalVarName += FnName;
+    GVName += FnName;
 
     // If this is outside of a function use the top level decl.
     const Decl *CurDecl =
@@ -2021,15 +2019,13 @@ LValue CodeGenFunction::EmitPredefinedLValue(const PredefinedExpr *E) {
           getContext().getTypeSizeInChars(ElemType).getQuantity(),
           FunctionName, RawChars);
       C = GetAddrOfConstantWideString(RawChars,
-                                      GlobalVarName.c_str(),
+                                      GVName.c_str(),
                                       getContext(),
                                       E->getType(),
                                       E->getLocation(),
                                       CGM);
     } else {
-      C = CGM.GetAddrOfConstantCString(FunctionName,
-                                       GlobalVarName.c_str(),
-                                       1);
+      C = CGM.GetAddrOfConstantCString(FunctionName, GVName.c_str(), 1);
     }
     return MakeAddrLValue(C, E->getType());
   }

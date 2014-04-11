@@ -508,18 +508,10 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   }
 
   if (LangOpts.MicrosoftExt) {
-    // Both __PRETTY_FUNCTION__ and __FUNCTION__ are GCC extensions, however
-    // VC++ appears to only like __FUNCTION__.
-    Builder.defineMacro("__PRETTY_FUNCTION__", "__FUNCTION__");
-    // Work around some issues with Visual C++ headers.
     if (LangOpts.WChar) {
       // wchar_t supported as a keyword.
       Builder.defineMacro("_WCHAR_T_DEFINED");
       Builder.defineMacro("_NATIVE_WCHAR_T_DEFINED");
-    }
-    if (LangOpts.CPlusPlus) {
-      // FIXME: Support Microsoft's __identifier extension in the lexer.
-      Builder.append("#define __identifier(x) x");
     }
   }
 
@@ -541,11 +533,13 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   Builder.defineMacro("__ORDER_LITTLE_ENDIAN__", "1234");
   Builder.defineMacro("__ORDER_BIG_ENDIAN__",    "4321");
   Builder.defineMacro("__ORDER_PDP_ENDIAN__",    "3412");
-  if (TI.isBigEndian())
+  if (TI.isBigEndian()) {
     Builder.defineMacro("__BYTE_ORDER__", "__ORDER_BIG_ENDIAN__");
-  else
+    Builder.defineMacro("__BIG_ENDIAN__");
+  } else {
     Builder.defineMacro("__BYTE_ORDER__", "__ORDER_LITTLE_ENDIAN__");
-
+    Builder.defineMacro("__LITTLE_ENDIAN__");
+  }
 
   if (TI.getPointerWidth(0) == 64 && TI.getLongWidth() == 64
       && TI.getIntWidth() == 32) {

@@ -2156,9 +2156,13 @@ enum CXCursorKind {
   CXCursor_OMPOrderedDirective           = 246,
   CXCursor_OMPSimdDirective              = 247,
   CXCursor_OMPForSimdDirective           = 248,
+  CXCursor_OMPParallelForDirective       = 249,
+  CXCursor_OMPParallelForSimdDirective   = 250,
+  CXCursor_OMPParallelSectionsDirective  = 251,
+  CXCursor_OMPCancelDirective            = 252,
+  CXCursor_OMPCancellationPointDirective = 253,
 
-
-  CXCursor_LastStmt                      = CXCursor_OMPForSimdDirective,
+  CXCursor_LastStmt                      = CXCursor_OMPCancellationPointDirective,
 
   /**
    * \brief Cursor that represents the translation unit itself.
@@ -4204,6 +4208,12 @@ CINDEX_LINKAGE unsigned clang_CXXMethod_isStatic(CXCursor C);
  * one of the base classes.
  */
 CINDEX_LINKAGE unsigned clang_CXXMethod_isVirtual(CXCursor C);
+
+/**
+ * \brief Determine if a C++ member function or member function template is
+ * declared 'const'.
+ */
+CINDEX_LINKAGE unsigned clang_CXXMethod_isConst(CXCursor C);
 
 /**
  * \brief Given a cursor that represents a template, determine
