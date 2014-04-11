@@ -274,6 +274,15 @@ public:
     PVDK_Reset          ///< #pragma vtordisp()
   };
 
+  enum PragmaMsStackAction {
+    PSK_Reset,    // #pragma ()
+    PSK_Set,      // #pragma ("name")
+    PSK_Push,     // #pragma (push[, id])
+    PSK_Push_Set, // #pragma (push[, id], "name")
+    PSK_Pop,      // #pragma (pop[, id])
+    PSK_Pop_Set,  // #pragma (pop[, id], "name")
+  };
+
   /// \brief Whether to insert vtordisps prior to virtual bases in the Microsoft
   /// C++ ABI.  Possible values are 0, 1, and 2, which mean:
   ///
@@ -288,6 +297,35 @@ public:
 
   /// \brief Source location for newly created implicit MSInheritanceAttrs
   SourceLocation ImplicitMSInheritanceAttrLoc;
+
+  template<typename ValueType>
+  struct PragmaStack {
+    struct Slot {
+      llvm::StringRef StackSlotLabel;
+      ValueType Value;
+      SourceLocation PragmaLocation;
+      Slot(llvm::StringRef StackSlotLabel,
+           ValueType Value,
+           SourceLocation PragmaLocation)
+        : StackSlotLabel(StackSlotLabel), Value(Value),
+          PragmaLocation(PragmaLocation) {}
+    };
+    void Act(SourceLocation PragmaLocation,
+             PragmaMsStackAction Action,
+             llvm::StringRef StackSlotLabel,
+             ValueType Value);
+    explicit PragmaStack(const ValueType &Value)
+      : CurrentValue(Value) {}
+    SmallVector<Slot, 2> Stack;
+    ValueType CurrentValue;
+    SourceLocation CurrentPragmaLocation;
+  };
+  // FIXME: We should serialize / deserialize these if they occur in a PCH (but
+  // we shouldn't do so if they're in a module).
+  PragmaStack<StringLiteral *> DataSegStack;
+  PragmaStack<StringLiteral *> BSSSegStack;
+  PragmaStack<StringLiteral *> ConstSegStack;
+  PragmaStack<StringLiteral *> CodeSegStack;
 
   /// VisContext - Manages the stack for \#pragma GCC visibility.
   void *VisContext; // Really a "PragmaVisStack*"
@@ -1013,6 +1051,18 @@ public:
     return FunctionScopes.back();
   }
   
+  sema::FunctionScopeInfo *getEnclosingFunction() const {
+    if (FunctionScopes.empty())
+      return 0;
+    
+    for (int e = FunctionScopes.size()-1; e >= 0; --e) {
+      if (isa<sema::BlockScopeInfo>(FunctionScopes[e]))
+        continue;
+      return FunctionScopes[e];
+    }
+    return 0;
+  }
+  
   template <typename ExprT>
   void recordUseOfEvaluatedWeak(const ExprT *E, bool IsRead=true) {
     if (!isUnevaluatedContext())
@@ -1116,6 +1166,8 @@ public:
   CanThrowResult canThrow(const Expr *E);
   const FunctionProtoType *ResolveExceptionSpec(SourceLocation Loc,
                                                 const FunctionProtoType *FPT);
+  void UpdateExceptionSpec(FunctionDecl *FD,
+                           const FunctionProtoType::ExtProtoInfo &EPI);
   bool CheckSpecifiedExceptionType(QualType &T, const SourceRange &Range);
   bool CheckDistantExceptionSpec(QualType T);
   bool CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New);
@@ -1178,7 +1230,7 @@ public:
   public:
     BoundTypeDiagnoser1(unsigned DiagID, const T1 &Arg1)
       : TypeDiagnoser(DiagID == 0), DiagID(DiagID), Arg1(Arg1) { }
-    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       if (Suppressed) return;
       S.Diag(Loc, DiagID) << getPrintable(Arg1) << T;
     }
@@ -1198,7 +1250,7 @@ public:
       : TypeDiagnoser(DiagID == 0), DiagID(DiagID), Arg1(Arg1),
         Arg2(Arg2) { }
 
-    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       if (Suppressed) return;
       S.Diag(Loc, DiagID) << getPrintable(Arg1) << getPrintable(Arg2) << T;
     }
@@ -1219,7 +1271,7 @@ public:
     : TypeDiagnoser(DiagID == 0), DiagID(DiagID), Arg1(Arg1),
       Arg2(Arg2), Arg3(Arg3) { }
 
-    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       if (Suppressed) return;
       S.Diag(Loc, DiagID)
         << getPrintable(Arg1) << getPrintable(Arg2) << getPrintable(Arg3) << T;
@@ -1577,6 +1629,16 @@ public:
   bool isObjCMethodDecl(Decl *D) {
     return D && isa<ObjCMethodDecl>(D);
   }
+
+  /// \brief Determine whether we can delay parsing the body of a function or
+  /// function template until it is used, assuming we don't care about emitting
+  /// code for that function.
+  ///
+  /// This will be \c false if we may need the body of the function in the
+  /// middle of parsing an expression (where it's impractical to switch to
+  /// parsing a different function), for instance, if it's constexpr in C++11
+  /// or has an 'auto' return type in C++14. These cases are essentially bugs.
+  bool canDelayFunctionBody(const Declarator &D);
 
   /// \brief Determine whether we can skip parsing the body of a function
   /// definition, assuming we don't care about analyzing its body or emitting
@@ -2096,10 +2158,10 @@ public:
           AllowScopedEnumerations(AllowScopedEnumerations) {}
 
     /// Match an integral or (possibly scoped) enumeration type.
-    bool match(QualType T);
+    bool match(QualType T) override;
 
     SemaDiagnosticBuilder
-    diagnoseNoMatch(Sema &S, SourceLocation Loc, QualType T) {
+    diagnoseNoMatch(Sema &S, SourceLocation Loc, QualType T) override {
       return diagnoseNotInt(S, Loc, T);
     }
 
@@ -3710,6 +3772,7 @@ public:
                                    const LookupResult &Previous);
   bool CheckUsingDeclQualifier(SourceLocation UsingLoc,
                                const CXXScopeSpec &SS,
+                               const DeclarationNameInfo &NameInfo,
                                SourceLocation NameLoc);
 
   NamedDecl *BuildUsingDeclaration(Scope *S, AccessSpecifier AS,
@@ -6248,13 +6311,15 @@ public:
                           SourceRange InstantiationRange = SourceRange());
 
     /// \brief Note that we are substituting prior template arguments into a
-    /// non-type or template template parameter.
+    /// non-type parameter.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           NonTypeTemplateParmDecl *Param,
                           ArrayRef<TemplateArgument> TemplateArgs,
                           SourceRange InstantiationRange);
 
+    /// \brief Note that we are substituting prior template arguments into a
+    /// template template parameter.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           NamedDecl *Template,
                           TemplateTemplateParmDecl *Param,
@@ -6285,6 +6350,15 @@ public:
     bool SavedInNonInstantiationSFINAEContext;
     bool CheckInstantiationDepth(SourceLocation PointOfInstantiation,
                                  SourceRange InstantiationRange);
+
+    // FIXME: Replace this with a constructor once we can use delegating
+    // constructors in llvm.
+    void Initialize(
+        ActiveTemplateInstantiation::InstantiationKind Kind,
+        SourceLocation PointOfInstantiation, SourceRange InstantiationRange,
+        Decl *Entity, NamedDecl *Template = nullptr,
+        ArrayRef<TemplateArgument> TemplateArgs = ArrayRef<TemplateArgument>(),
+        sema::TemplateDeductionInfo *DeductionInfo = nullptr);
 
     InstantiatingTemplate(const InstantiatingTemplate&) LLVM_DELETED_FUNCTION;
 
@@ -6995,6 +7069,54 @@ public:
   void ActOnPragmaMSVtorDisp(PragmaVtorDispKind Kind, SourceLocation PragmaLoc,
                              MSVtorDispAttr::Mode Value);
 
+  enum PragmaSectionKind {
+    PSK_DataSeg,
+    PSK_BSSSeg,
+    PSK_ConstSeg,
+    PSK_CodeSeg,
+  };
+
+  enum PragmaSectionFlag {
+    PSF_None = 0,
+    PSF_Read = 0x1,
+    PSF_Write = 0x2,
+    PSF_Execute = 0x4,
+    PSF_Implicit = 0x8,
+    PSF_Invalid = 0x80000000,
+  };
+
+  struct SectionInfo {
+    DeclaratorDecl *Decl;
+    SourceLocation PragmaSectionLocation;
+    int SectionFlags;
+    SectionInfo() {}
+    SectionInfo(DeclaratorDecl *Decl,
+                SourceLocation PragmaSectionLocation,
+                int SectionFlags)
+      : Decl(Decl),
+        PragmaSectionLocation(PragmaSectionLocation),
+        SectionFlags(SectionFlags) {}
+  };
+
+  llvm::StringMap<SectionInfo> SectionInfos;
+  bool UnifySection(const StringRef &SectionName, 
+                    int SectionFlags,
+                    DeclaratorDecl *TheDecl);
+  bool UnifySection(const StringRef &SectionName,
+                    int SectionFlags,
+                    SourceLocation PragmaSectionLocation);
+
+  /// \brief Called on well formed \#pragma bss_seg/data_seg/const_seg/code_seg.
+  void ActOnPragmaMSSeg(SourceLocation PragmaLocation,
+                        PragmaMsStackAction Action,
+                        llvm::StringRef StackSlotLabel,
+                        StringLiteral *SegmentName,
+                        llvm::StringRef PragmaName);
+
+  /// \brief Called on well formed \#pragma section().
+  void ActOnPragmaMSSection(SourceLocation PragmaLocation,
+                            int SectionFlags, StringLiteral *SegmentName);
+
   /// ActOnPragmaDetectMismatch - Call on well-formed \#pragma detect_mismatch
   void ActOnPragmaDetectMismatch(StringRef Name, StringRef Value);
 
@@ -7079,6 +7201,8 @@ private:
   void InitDataSharingAttributesStack();
   void DestroyDataSharingAttributesStack();
   ExprResult PerformImplicitIntegerConversion(SourceLocation OpLoc, Expr *Op);
+  ExprResult VerifyPositiveIntegerConstantInClause(Expr *Op,
+                                                   OpenMPClauseKind CKind);
 public:
   /// \brief Called on start of new data sharing attribute block.
   void StartOpenMPDSABlock(OpenMPDirectiveKind K,
@@ -7134,6 +7258,11 @@ public:
                                          SourceLocation StartLoc,
                                          SourceLocation LParenLoc,
                                          SourceLocation EndLoc);
+  /// \brief Called on well-formed 'safelen' clause.
+  OMPClause *ActOnOpenMPSafelenClause(Expr *Length,
+                                      SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc);
 
   OMPClause *ActOnOpenMPSimpleClause(OpenMPClauseKind Kind,
                                      unsigned Argument,
@@ -7165,6 +7294,11 @@ public:
                                            SourceLocation EndLoc);
   /// \brief Called on well-formed 'shared' clause.
   OMPClause *ActOnOpenMPSharedClause(ArrayRef<Expr *> VarList,
+                                     SourceLocation StartLoc,
+                                     SourceLocation LParenLoc,
+                                     SourceLocation EndLoc);
+  /// \brief Called on well-formed 'copyin' clause.
+  OMPClause *ActOnOpenMPCopyinClause(ArrayRef<Expr *> VarList,
                                      SourceLocation StartLoc,
                                      SourceLocation LParenLoc,
                                      SourceLocation EndLoc);
@@ -7899,9 +8033,12 @@ private:
 
   ExprResult CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
 
+  bool CheckARMBuiltinExclusiveCall(unsigned BuiltinID, CallExpr *TheCall,
+                                    unsigned MaxWidth);
   bool CheckNeonBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
-  bool CheckARMBuiltinExclusiveCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
+
+  bool CheckARM64BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckAArch64BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);

@@ -154,6 +154,12 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> MSDetectMismatchHandler;
   std::unique_ptr<PragmaHandler> MSPointersToMembers;
   std::unique_ptr<PragmaHandler> MSVtorDisp;
+  std::unique_ptr<PragmaHandler> MSInitSeg;
+  std::unique_ptr<PragmaHandler> MSDataSeg;
+  std::unique_ptr<PragmaHandler> MSBSSSeg;
+  std::unique_ptr<PragmaHandler> MSConstSeg;
+  std::unique_ptr<PragmaHandler> MSCodeSeg;
+  std::unique_ptr<PragmaHandler> MSSection;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -474,6 +480,14 @@ private:
   void HandlePragmaMSPointersToMembers();
 
   void HandlePragmaMSVtorDisp();
+
+  void HandlePragmaMSPragma();
+  unsigned HandlePragmaMSSection(llvm::StringRef PragmaName,
+                                 SourceLocation PragmaLocation);
+  unsigned HandlePragmaMSSegment(llvm::StringRef PragmaName,
+                                 SourceLocation PragmaLocation);
+  unsigned HandlePragmaMSInitSeg(llvm::StringRef PragmaName,
+                                 SourceLocation PragmaLocation);
 
   /// \brief Handle the annotation token produced for
   /// #pragma align...
@@ -878,10 +892,10 @@ private:
     LateParsedClass(Parser *P, ParsingClass *C);
     virtual ~LateParsedClass();
 
-    virtual void ParseLexedMethodDeclarations();
-    virtual void ParseLexedMemberInitializers();
-    virtual void ParseLexedMethodDefs();
-    virtual void ParseLexedAttributes();
+    void ParseLexedMethodDeclarations() override;
+    void ParseLexedMemberInitializers() override;
+    void ParseLexedMethodDefs() override;
+    void ParseLexedAttributes() override;
 
   private:
     Parser *Self;
@@ -905,7 +919,7 @@ private:
                                  SourceLocation Loc)
       : Self(P), AttrName(Name), AttrNameLoc(Loc) {}
 
-    virtual void ParseLexedAttributes();
+    void ParseLexedAttributes() override;
 
     void addDecl(Decl *D) { Decls.push_back(D); }
   };
@@ -937,7 +951,7 @@ private:
     explicit LexedMethod(Parser* P, Decl *MD)
       : Self(P), D(MD), TemplateScope(false) {}
 
-    virtual void ParseLexedMethodDefs();
+    void ParseLexedMethodDefs() override;
   };
 
   /// LateParsedDefaultArgument - Keeps track of a parameter that may
@@ -967,7 +981,7 @@ private:
     explicit LateParsedMethodDeclaration(Parser *P, Decl *M)
       : Self(P), Method(M), TemplateScope(false), ExceptionSpecTokens(0) { }
 
-    virtual void ParseLexedMethodDeclarations();
+    void ParseLexedMethodDeclarations() override;
 
     Parser* Self;
 
@@ -998,7 +1012,7 @@ private:
     LateParsedMemberInitializer(Parser *P, Decl *FD)
       : Self(P), Field(FD) { }
 
-    virtual void ParseLexedMemberInitializers();
+    void ParseLexedMemberInitializers() override;
 
     Parser *Self;
 
@@ -1996,6 +2010,16 @@ private:
   /// locations where attributes are not allowed.
   void DiagnoseAndSkipCXX11Attributes();
 
+  /// \brief Parses syntax-generic attribute arguments for attributes which are
+  /// known to the implementation, and adds them to the given ParsedAttributes
+  /// list with the given attribute syntax.
+  void ParseAttributeArgsCommon(IdentifierInfo *AttrName,
+                                SourceLocation AttrNameLoc,
+                                ParsedAttributes &Attrs, SourceLocation *EndLoc,
+                                IdentifierInfo *ScopeName,
+                                SourceLocation ScopeLoc,
+                                AttributeList::Syntax Syntax);
+
   void MaybeParseGNUAttributes(Declarator &D,
                                LateParsedAttrList *LateAttrs = 0) {
     if (Tok.is(tok::kw___attribute)) {
@@ -2053,6 +2077,13 @@ private:
                                     SourceLocation *EndLoc = 0);
   void ParseCXX11Attributes(ParsedAttributesWithRange &attrs,
                             SourceLocation *EndLoc = 0);
+  /// \brief Parses a C++-style attribute argument list. Returns true if this
+  /// results in adding an attribute to the ParsedAttributes list.
+  bool ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
+                               SourceLocation AttrNameLoc,
+                               ParsedAttributes &Attrs, SourceLocation *EndLoc,
+                               IdentifierInfo *ScopeName,
+                               SourceLocation ScopeLoc);
 
   IdentifierInfo *TryParseCXX11AttributeIdentifier(SourceLocation &Loc);
 
@@ -2064,13 +2095,9 @@ private:
   void ParseMicrosoftAttributes(ParsedAttributes &attrs,
                                 SourceLocation *endLoc = 0);
   void ParseMicrosoftDeclSpec(ParsedAttributes &Attrs);
-  bool IsSimpleMicrosoftDeclSpec(IdentifierInfo *Ident);
-  void ParseComplexMicrosoftDeclSpec(IdentifierInfo *Ident, 
-                                     SourceLocation Loc,
-                                     ParsedAttributes &Attrs);
-  void ParseMicrosoftDeclSpecWithSingleArg(IdentifierInfo *AttrName, 
-                                           SourceLocation AttrNameLoc, 
-                                           ParsedAttributes &Attrs);
+  bool ParseMicrosoftDeclSpecArgs(IdentifierInfo *AttrName,
+                                  SourceLocation AttrNameLoc,
+                                  ParsedAttributes &Attrs);
   void ParseMicrosoftTypeAttributes(ParsedAttributes &attrs);
   void ParseMicrosoftInheritanceClassAttributes(ParsedAttributes &attrs);
   void ParseBorlandTypeAttributes(ParsedAttributes &attrs);
@@ -2399,14 +2426,13 @@ private:
 
   //===--------------------------------------------------------------------===//
   // Preprocessor code-completion pass-through
-  virtual void CodeCompleteDirective(bool InConditional);
-  virtual void CodeCompleteInConditionalExclusion();
-  virtual void CodeCompleteMacroName(bool IsDefinition);
-  virtual void CodeCompletePreprocessorExpression();
-  virtual void CodeCompleteMacroArgument(IdentifierInfo *Macro,
-                                         MacroInfo *MacroInfo,
-                                         unsigned ArgumentIndex);
-  virtual void CodeCompleteNaturalLanguage();
+  void CodeCompleteDirective(bool InConditional) override;
+  void CodeCompleteInConditionalExclusion() override;
+  void CodeCompleteMacroName(bool IsDefinition) override;
+  void CodeCompletePreprocessorExpression() override;
+  void CodeCompleteMacroArgument(IdentifierInfo *Macro, MacroInfo *MacroInfo,
+                                 unsigned ArgumentIndex) override;
+  void CodeCompleteNaturalLanguage() override;
 };
 
 }  // end namespace clang
