@@ -1,0 +1,4 @@
+#!/bin/sh
+
+#MPICH_CXX=${HOME}/bin/bgmollycc `dirname $0`/mpic++ $*
+MPICH_CXX=`dirname $0`/../../../bgmollycc `dirname $0`/mpic++ $*
