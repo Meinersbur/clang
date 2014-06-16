@@ -266,6 +266,11 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
   case Stmt::SEHTryStmtClass:
     EmitSEHTryStmt(cast<SEHTryStmt>(*S));
     break;
+#ifdef MOLLY
+  case Stmt::MollyWhereDirectiveClass:
+    llvm_unreachable("Not implemented");
+    break;
+#endif /* MOLLY */
   }
 }
 
