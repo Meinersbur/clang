@@ -3833,7 +3833,7 @@ void Sema::CodeCompleteCall(Scope *S, Expr *FnIn, ArrayRef<Expr *> Args) {
 
   // Build an overload candidate set based on the functions we find.
   SourceLocation Loc = Fn->getExprLoc();
-  OverloadCandidateSet CandidateSet(Loc);
+  OverloadCandidateSet CandidateSet(Loc, OverloadCandidateSet::CSK_Normal);
 
   // FIXME: What if we're calling something that isn't a function declaration?
   // FIXME: What if we're calling a pseudo-destructor?
@@ -4327,15 +4327,13 @@ void Sema::CodeCompleteLambdaIntroducer(Scope *S, LambdaIntroducer &Intro,
   // Note what has already been captured.
   llvm::SmallPtrSet<IdentifierInfo *, 4> Known;
   bool IncludedThis = false;
-  for (SmallVectorImpl<LambdaCapture>::iterator C = Intro.Captures.begin(),
-                                             CEnd = Intro.Captures.end();
-       C != CEnd; ++C) {
-    if (C->Kind == LCK_This) {
+  for (const auto &C : Intro.Captures) {
+    if (C.Kind == LCK_This) {
       IncludedThis = true;
       continue;
     }
     
-    Known.insert(C->Id);
+    Known.insert(C.Id);
   }
   
   // Look for other capturable variables.

@@ -69,7 +69,7 @@ def err_invalid_short_spec : Error<"'short %0' is invalid">;
 def err_invalid_long_spec : Error<"'long %0' is invalid">;
 def err_invalid_longlong_spec : Error<"'long long %0' is invalid">;
 def err_invalid_complex_spec : Error<"'_Complex %0' is invalid">;
-def err_friend_storage_spec : Error<"'%0' is invalid in friend declarations">;
+def err_friend_decl_spec : Error<"'%0' is invalid in friend declarations">;
 
 def ext_ident_list_in_param : Extension<
   "type-less parameter names in function declaration">;
@@ -204,6 +204,8 @@ def err_expected_semi_after_attribute_list : Error<
 def err_expected_semi_after_static_assert : Error<
   "expected ';' after static_assert">;
 def err_expected_semi_for : Error<"expected ';' in 'for' statement specifier">;
+def err_single_decl_assign_in_for_range : Error<
+  "range-based 'for' statement uses ':', not '='">;
 def warn_missing_selector_name : Warning<
   "%0 used as the name of the previous parameter rather than as part "
   "of the selector">,
@@ -225,7 +227,7 @@ def err_expected_property_name : Error<"expected property name">;
 
 def err_unexpected_at : Error<"unexpected '@' in program">;
 def err_atimport : Error<
-"use of '@import' when modules are disabled, add -fmodules">;
+"use of '@import' when modules are disabled">;
 
 def err_invalid_reference_qualifier_application : Error<
   "'%0' qualifier may not be applied to a reference">;
@@ -339,8 +341,10 @@ def err_templated_using_directive : Error<
   "cannot template a using directive">;
 def err_templated_using_declaration : Error<
   "cannot template a using declaration">;
-def err_unexected_colon_in_nested_name_spec : Error<
+def err_unexpected_colon_in_nested_name_spec : Error<
   "unexpected ':' in nested name specifier; did you mean '::'?">;
+def err_unexpected_token_in_nested_name_spec : Error<
+  "'%0' cannot be a part of nested name specifier; did you mean ':'?">;
 def err_bool_redeclaration : Error<
   "redeclaration of C++ built-in type 'bool'">;
 def ext_c11_static_assert : Extension<
@@ -524,7 +528,9 @@ def warn_cxx98_compat_attribute : Warning<
   "C++11 attribute syntax is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_cxx11_attribute_forbids_arguments : Error<
-  "attribute '%0' cannot have an argument list">;
+  "attribute %0 cannot have an argument list">;
+def err_attribute_requires_arguments : Error<
+  "parentheses must be omitted if %0 attribute's argument list is empty">;
 def err_cxx11_attribute_forbids_ellipsis : Error<
   "attribute '%0' cannot be used as an attribute pack">;
 def err_cxx11_attribute_repeated : Error<
@@ -837,6 +843,14 @@ def err_pragma_detect_mismatch_malformed : Error<
 def err_pragma_pointers_to_members_unknown_kind : Error<
   "unexpected %0, expected to see one of %select{|'best_case', 'full_generality', }1"
   "'single_inheritance', 'multiple_inheritance', or 'virtual_inheritance'">;
+// - #pragma clang optimize on/off
+def err_pragma_optimize_missing_argument : Error<
+  "missing argument to '#pragma clang optimize'; expected 'on' or 'off'">;
+def err_pragma_optimize_invalid_argument : Error<
+  "unexpected argument '%0' to '#pragma clang optimize'; "
+  "expected 'on' or 'off'">;
+def err_pragma_optimize_extra_argument : Error<
+  "unexpected extra argument '%0' to '#pragma clang optimize'">;
 
 // OpenCL Section 6.8.g
 def err_not_opencl_storage_class_specifier : Error<
