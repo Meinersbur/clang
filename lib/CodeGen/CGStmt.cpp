@@ -144,77 +144,97 @@ void CodeGenFunction::EmitStmt(const Stmt *S) {
     EmitCapturedStmt(*CS, CS->getCapturedRegionKind());
     }
     break;
-
-  // "One-call" OMP Directives
-  case Stmt::OMPBarrierDirectiveClass:
-    EmitOMPBarrierDirective(cast<OMPBarrierDirective>(*S));
-    break;
-  case Stmt::OMPTaskyieldDirectiveClass:
-    EmitOMPTaskyieldDirective(cast<OMPTaskyieldDirective>(*S));
-    break;
-  case Stmt::OMPTaskwaitDirectiveClass:
-    EmitOMPTaskwaitDirective(cast<OMPTaskwaitDirective>(*S));
-    break;
-  case Stmt::OMPFlushDirectiveClass:
-    EmitOMPFlushDirective(cast<OMPFlushDirective>(*S));
-    break;
-  // Atomic OMP Directive -- pattern match and emit one call
-  case Stmt::OMPAtomicDirectiveClass:
-    EmitOMPAtomicDirective(cast<OMPAtomicDirective>(*S));
-    break;
-  // "Two-calls" OMP Directives
-  case Stmt::OMPMasterDirectiveClass:
-    EmitOMPMasterDirective(cast<OMPMasterDirective>(*S));
-    break;
-  case Stmt::OMPSingleDirectiveClass:
-    EmitOMPSingleDirective(cast<OMPSingleDirective>(*S));
-    break;
-  case Stmt::OMPCriticalDirectiveClass:
-    EmitOMPCriticalDirective(cast<OMPCriticalDirective>(*S));
-    break;
-  case Stmt::OMPOrderedDirectiveClass:
-    EmitOMPOrderedDirective(cast<OMPOrderedDirective>(*S));
-    break;
-  // A more advanced stuff
-  case Stmt::OMPParallelDirectiveClass:
-    EmitOMPParallelDirective(cast<OMPParallelDirective>(*S));
-    break;
-  case Stmt::OMPParallelForDirectiveClass:
-    EmitOMPParallelForDirective(cast<OMPParallelForDirective>(*S));
-    break;
-  case Stmt::OMPParallelForSimdDirectiveClass:
-    EmitOMPParallelForSimdDirective(cast<OMPParallelForSimdDirective>(*S));
-    break;
-  case Stmt::OMPSimdDirectiveClass:
-    EmitOMPSimdDirective(cast<OMPSimdDirective>(*S));
-    break;
-  case Stmt::OMPForSimdDirectiveClass:
-    EmitOMPForSimdDirective(cast<OMPForSimdDirective>(*S));
-    break;
-  case Stmt::OMPTaskDirectiveClass:
-    EmitOMPTaskDirective(cast<OMPTaskDirective>(*S));
-    break;
-  case Stmt::OMPForDirectiveClass:
-    EmitOMPForDirective(cast<OMPForDirective>(*S));
-    break;
-  case Stmt::OMPSectionsDirectiveClass:
-    EmitOMPSectionsDirective(cast<OMPSectionsDirective>(*S));
-    break;
-  case Stmt::OMPParallelSectionsDirectiveClass:
-    EmitOMPParallelSectionsDirective(cast<OMPParallelSectionsDirective>(*S));
-    break;
-  case Stmt::OMPSectionDirectiveClass:
-    EmitOMPSectionDirective(cast<OMPSectionDirective>(*S));
-    break;
-  case Stmt::OMPTaskgroupDirectiveClass:
-    EmitOMPTaskgroupDirective(cast<OMPTaskgroupDirective>(*S));
-    break;
-  case Stmt::OMPCancelDirectiveClass:
-    EmitOMPCancelDirective(cast<OMPCancelDirective>(*S));
-    break;
-  case Stmt::OMPCancellationPointDirectiveClass:
-    EmitOMPCancellationPointDirective(cast<OMPCancellationPointDirective>(*S));
-    break;
+    // "One-call" OMP Directives
+    case Stmt::OMPBarrierDirectiveClass:
+      EmitOMPBarrierDirective(cast<OMPBarrierDirective>(*S));
+      break;
+    case Stmt::OMPTaskyieldDirectiveClass:
+      EmitOMPTaskyieldDirective(cast<OMPTaskyieldDirective>(*S));
+      break;
+    case Stmt::OMPTaskwaitDirectiveClass:
+      EmitOMPTaskwaitDirective(cast<OMPTaskwaitDirective>(*S));
+      break;
+    case Stmt::OMPFlushDirectiveClass:
+      EmitOMPFlushDirective(cast<OMPFlushDirective>(*S));
+      break;
+    // Atomic OMP Directive -- pattern match and emit one call
+    case Stmt::OMPAtomicDirectiveClass:
+      EmitOMPAtomicDirective(cast<OMPAtomicDirective>(*S));
+      break;
+    // "Two-calls" OMP Directives
+    case Stmt::OMPMasterDirectiveClass:
+      EmitOMPMasterDirective(cast<OMPMasterDirective>(*S));
+      break;
+    case Stmt::OMPSingleDirectiveClass:
+      EmitOMPSingleDirective(cast<OMPSingleDirective>(*S));
+      break;
+    case Stmt::OMPCriticalDirectiveClass:
+      EmitOMPCriticalDirective(cast<OMPCriticalDirective>(*S));
+      break;
+    case Stmt::OMPOrderedDirectiveClass:
+      EmitOMPOrderedDirective(cast<OMPOrderedDirective>(*S));
+      break;
+    // A more advanced stuff
+    case Stmt::OMPParallelDirectiveClass:
+      EmitOMPParallelDirective(cast<OMPParallelDirective>(*S));
+      break;
+    case Stmt::OMPParallelForDirectiveClass:
+      EmitOMPParallelForDirective(cast<OMPParallelForDirective>(*S));
+      break;
+    case Stmt::OMPSimdDirectiveClass:
+      EmitOMPSimdDirective(cast<OMPSimdDirective>(*S));
+      break;
+    case Stmt::OMPForSimdDirectiveClass:
+      EmitOMPForSimdDirective(cast<OMPForSimdDirective>(*S));
+      break;
+    case Stmt::OMPParallelForSimdDirectiveClass:
+      EmitOMPParallelForSimdDirective(cast<OMPParallelForSimdDirective>(*S));
+      break;
+    case Stmt::OMPDistributeSimdDirectiveClass:
+      EmitOMPDistributeSimdDirective(cast<OMPDistributeSimdDirective>(*S));
+      break;
+    case Stmt::OMPDistributeParallelForDirectiveClass:
+      EmitOMPDistributeParallelForDirective(
+          cast<OMPDistributeParallelForDirective>(*S));
+      break;
+    case Stmt::OMPDistributeParallelForSimdDirectiveClass:
+      EmitOMPDistributeParallelForSimdDirective(
+          cast<OMPDistributeParallelForSimdDirective>(*S));
+      break;
+    case Stmt::OMPTaskDirectiveClass:
+      EmitOMPTaskDirective(cast<OMPTaskDirective>(*S));
+      break;
+    case Stmt::OMPForDirectiveClass:
+      EmitOMPForDirective(cast<OMPForDirective>(*S));
+      break;
+    case Stmt::OMPSectionsDirectiveClass:
+      EmitOMPSectionsDirective(cast<OMPSectionsDirective>(*S));
+      break;
+    case Stmt::OMPParallelSectionsDirectiveClass:
+      EmitOMPParallelSectionsDirective(cast<OMPParallelSectionsDirective>(*S));
+      break;
+    case Stmt::OMPSectionDirectiveClass:
+      EmitOMPSectionDirective(cast<OMPSectionDirective>(*S));
+      break;
+    case Stmt::OMPTaskgroupDirectiveClass:
+      EmitOMPTaskgroupDirective(cast<OMPTaskgroupDirective>(*S));
+      break;
+    case Stmt::OMPTeamsDirectiveClass:
+      EmitOMPTeamsDirective(cast<OMPTeamsDirective>(*S));
+      break;
+    case Stmt::OMPDistributeDirectiveClass:
+      EmitOMPDistributeDirective(cast<OMPDistributeDirective>(*S));
+      break;
+    case Stmt::OMPCancelDirectiveClass:
+      EmitOMPCancelDirective(cast<OMPCancelDirective>(*S));
+      break;
+    case Stmt::OMPCancellationPointDirectiveClass:
+      EmitOMPCancellationPointDirective(
+          cast<OMPCancellationPointDirective>(*S));
+      break;
+    case Stmt::OMPTargetDirectiveClass:
+      EmitOMPTargetDirective(cast<OMPTargetDirective>(*S));
+      break;
   case Stmt::ObjCAtTryStmtClass:
     EmitObjCAtTryStmt(cast<ObjCAtTryStmt>(*S));
     break;
@@ -291,7 +311,7 @@ CodeGenFunction::EmitCompoundStmtWithoutScope(const CompoundStmt &S,
        E = S.body_end()-GetLast; I != E; ++I)
     EmitStmt(*I);
 
-  llvm::Value *RetAlloca = 0;
+  llvm::Value *RetAlloca = nullptr;
   if (GetLast) {
     // We have to special case labels here.  They are statements, but when put
     // at the end of a statement expression, they yield the value of their
@@ -666,6 +686,9 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S) {
 
   // Emit the body of the loop.
   llvm::BasicBlock *LoopBody = createBasicBlock("do.body");
+
+  LoopStack.Push(LoopBody);
+
   EmitBlockWithFallThrough(LoopBody, Cnt);
   {
     RunCleanupsScope BodyScope(*this);
@@ -695,6 +718,8 @@ void CodeGenFunction::EmitDoStmt(const DoStmt &S) {
   if (EmitBoolCondBranch)
     Builder.CreateCondBr(BoolCondVal, LoopBody, LoopExit.getBlock(),
                          PGO.createLoopWeights(S.getCond(), Cnt));
+
+  LoopStack.Pop();
 
   // Emit the exit block.
   EmitBlock(LoopExit.getBlock());
@@ -825,6 +850,8 @@ void CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S) {
   llvm::BasicBlock *CondBlock = createBasicBlock("for.cond");
   EmitBlock(CondBlock);
 
+  LoopStack.Push(CondBlock);
+
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
   llvm::BasicBlock *ExitBlock = LoopExit.getBlock();
@@ -873,6 +900,8 @@ void CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S) {
 
   if (DI)
     DI->EmitLexicalBlockEnd(Builder, S.getSourceRange().getEnd());
+
+  LoopStack.Pop();
 
   // Emit the fall-through block.
   EmitBlock(LoopExit.getBlock(), true);
@@ -926,7 +955,7 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
     // for side effects.
     if (RV)
       EmitAnyExpr(RV);
-  } else if (RV == 0) {
+  } else if (!RV) {
     // Do nothing (return value is left uninitialized)
   } else if (FnRetTy->isReferenceType()) {
     // If this function returns a reference, take the address of the expression
@@ -956,7 +985,7 @@ void CodeGenFunction::EmitReturnStmt(const ReturnStmt &S) {
   }
 
   ++NumReturnExprs;
-  if (RV == 0 || RV->isEvaluatable(getContext()))
+  if (!RV || RV->isEvaluatable(getContext()))
     ++NumSimpleReturnExprs;
 
   cleanupScope.ForceCleanup();
@@ -1060,7 +1089,7 @@ void CodeGenFunction::EmitCaseStmtRange(const CaseStmt &S) {
   llvm::Value *Cond =
     Builder.CreateICmpULE(Diff, Builder.getInt(Range), "inbounds");
 
-  llvm::MDNode *Weights = 0;
+  llvm::MDNode *Weights = nullptr;
   if (SwitchWeights) {
     uint64_t ThisCount = CaseCnt.getCount();
     uint64_t DefaultCount = (*SwitchWeights)[0];
@@ -1144,7 +1173,7 @@ void CodeGenFunction::EmitCaseStmt(const CaseStmt &S) {
   const CaseStmt *NextCase = dyn_cast<CaseStmt>(S.getSubStmt());
 
   // Otherwise, iteratively add consecutive cases to this switch stmt.
-  while (NextCase && NextCase->getRHS() == 0) {
+  while (NextCase && NextCase->getRHS() == nullptr) {
     CurCase = NextCase;
     llvm::ConstantInt *CaseVal =
       Builder.getInt(CurCase->getLHS()->EvaluateKnownConstInt(getContext()));
@@ -1205,7 +1234,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
                                             bool &FoundCase,
                               SmallVectorImpl<const Stmt*> &ResultStmts) {
   // If this is a null statement, just succeed.
-  if (S == 0)
+  if (!S)
     return Case ? CSFC_Success : CSFC_FallThrough;
 
   // If this is the switchcase (case 4: or default) that we're looking for, then
@@ -1213,7 +1242,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
   if (const SwitchCase *SC = dyn_cast<SwitchCase>(S)) {
     if (S == Case) {
       FoundCase = true;
-      return CollectStatementsForCase(SC->getSubStmt(), 0, FoundCase,
+      return CollectStatementsForCase(SC->getSubStmt(), nullptr, FoundCase,
                                       ResultStmts);
     }
 
@@ -1224,7 +1253,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
 
   // If we are in the live part of the code and we found our break statement,
   // return a success!
-  if (Case == 0 && isa<BreakStmt>(S))
+  if (!Case && isa<BreakStmt>(S))
     return CSFC_Success;
 
   // If this is a switch statement, then it might contain the SwitchCase, the
@@ -1269,7 +1298,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
           // statements in the compound statement as candidates for inclusion.
           assert(FoundCase && "Didn't find case but returned fallthrough?");
           // We recursively found Case, so we're not looking for it anymore.
-          Case = 0;
+          Case = nullptr;
 
           // If we found the case and skipped declarations, we can't do the
           // optimization.
@@ -1283,7 +1312,7 @@ static CSFC_Result CollectStatementsForCase(const Stmt *S,
     // If we have statements in our range, then we know that the statements are
     // live and need to be added to the set of statements we're tracking.
     for (; I != E; ++I) {
-      switch (CollectStatementsForCase(*I, 0, FoundCase, ResultStmts)) {
+      switch (CollectStatementsForCase(*I, nullptr, FoundCase, ResultStmts)) {
       case CSFC_Failure: return CSFC_Failure;
       case CSFC_FallThrough:
         // A fallthrough result means that the statement was simple and just
@@ -1334,7 +1363,7 @@ static bool FindCaseStatementsForValue(const SwitchStmt &S,
   // First step, find the switch case that is being branched to.  We can do this
   // efficiently by scanning the SwitchCase list.
   const SwitchCase *Case = S.getSwitchCaseList();
-  const DefaultStmt *DefaultCase = 0;
+  const DefaultStmt *DefaultCase = nullptr;
 
   for (; Case; Case = Case->getNextSwitchCase()) {
     // It's either a default or case.  Just remember the default statement in
@@ -1356,10 +1385,10 @@ static bool FindCaseStatementsForValue(const SwitchStmt &S,
 
   // If we didn't find a matching case, we use a default if it exists, or we
   // elide the whole switch body!
-  if (Case == 0) {
+  if (!Case) {
     // It is safe to elide the body of the switch if it doesn't contain labels
     // etc.  If it is safe, return successfully with an empty ResultStmts list.
-    if (DefaultCase == 0)
+    if (!DefaultCase)
       return !CodeGenFunction::ContainsLabel(&S);
     Case = DefaultCase;
   }
@@ -1380,13 +1409,6 @@ static bool FindCaseStatementsForValue(const SwitchStmt &S,
 }
 
 void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
-  JumpDest SwitchExit = getJumpDestInCurrentScope("sw.epilog");
-
-  RunCleanupsScope ConditionScope(*this);
-
-  if (S.getConditionVariable())
-    EmitAutoVarDecl(*S.getConditionVariable());
-
   // Handle nested switch statements.
   llvm::SwitchInst *SavedSwitchInsn = SwitchInsn;
   SmallVector<uint64_t, 16> *SavedSwitchWeights = SwitchWeights;
@@ -1397,7 +1419,7 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
   llvm::APSInt ConstantCondValue;
   if (ConstantFoldsToSimpleInteger(S.getCond(), ConstantCondValue)) {
     SmallVector<const Stmt*, 4> CaseStmts;
-    const SwitchCase *Case = 0;
+    const SwitchCase *Case = nullptr;
     if (FindCaseStatementsForValue(S, ConstantCondValue, CaseStmts,
                                    getContext(), Case)) {
       if (Case) {
@@ -1406,10 +1428,15 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
       }
       RunCleanupsScope ExecutedScope(*this);
 
+      // Emit the condition variable if needed inside the entire cleanup scope
+      // used by this special case for constant folded switches.
+      if (S.getConditionVariable())
+        EmitAutoVarDecl(*S.getConditionVariable());
+
       // At this point, we are no longer "within" a switch instance, so
       // we can temporarily enforce this to ensure that any embedded case
       // statements are not emitted.
-      SwitchInsn = 0;
+      SwitchInsn = nullptr;
 
       // Okay, we can dead code eliminate everything except this case.  Emit the
       // specified series of statements and we're good.
@@ -1426,6 +1453,11 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
     }
   }
 
+  JumpDest SwitchExit = getJumpDestInCurrentScope("sw.epilog");
+
+  RunCleanupsScope ConditionScope(*this);
+  if (S.getConditionVariable())
+    EmitAutoVarDecl(*S.getConditionVariable());
   llvm::Value *CondV = EmitScalarExpr(S.getCond());
 
   // Create basic block to hold stuff that comes after switch
@@ -1510,7 +1542,7 @@ void CodeGenFunction::EmitSwitchStmt(const SwitchStmt &S) {
 
 static std::string
 SimplifyConstraint(const char *Constraint, const TargetInfo &Target,
-                 SmallVectorImpl<TargetInfo::ConstraintInfo> *OutCons=0) {
+                 SmallVectorImpl<TargetInfo::ConstraintInfo> *OutCons=nullptr) {
   std::string Result;
 
   while (*Constraint) {
@@ -1978,19 +2010,6 @@ LValue CodeGenFunction::InitCapturedStruct(const CapturedStmt &S) {
   return SlotLV;
 }
 
-LValue CodeGenFunction::GetCapturedField(const VarDecl *VD) {
-  if (CapturedStmtInfo) {
-    if (const FieldDecl *FD = CapturedStmtInfo->lookup(VD)) {
-      const RecordDecl *RD = cast<RecordDecl>(FD->getDeclContext());
-      QualType RecordTy = getContext().getRecordType(RD);
-      LValue SlotLV = MakeNaturalAlignAddrLValue(
-                             CapturedStmtInfo->getContextValue(), RecordTy);
-      LValue LV = EmitLValueForFieldInitialization(SlotLV, FD);
-      return LV;
-    }
-  }
-  return LValue();
-}
 /// Generate an outlined function for the body of a CapturedStmt, store any
 /// captured variables into the captured struct, and call the outlined function.
 llvm::Function *
@@ -2018,6 +2037,8 @@ llvm::Function *
 CodeGenFunction::GenerateCapturedStmtFunction(const CapturedDecl *CD,
                                               const RecordDecl *RD,
                                               SourceLocation Loc) {
+  CGM.OpenMPSupport.startOpenMPRegion(true);
+
   assert(CapturedStmtInfo &&
     "CapturedStmtInfo should be set when generating the captured function");
 
@@ -2039,7 +2060,9 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedDecl *CD,
   CGM.SetInternalFunctionAttributes(CD, F, FuncInfo);
 
   // Generate the function.
-  StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args, CD->getBody()->getLocStart());
+  StartFunction(CD, Ctx.VoidTy, F, FuncInfo, Args,
+                CD->getLocation(),
+                CD->getBody()->getLocStart());
 
   // Set the context parameter in CapturedStmtInfo.
   llvm::Value *DeclPtr = LocalDeclMap[CD->getContextParam()];
@@ -2055,8 +2078,21 @@ CodeGenFunction::GenerateCapturedStmtFunction(const CapturedDecl *CD,
     CXXThisValue = EmitLoadOfLValue(ThisLValue, Loc).getScalarVal();
   }
 
+  for (RecordDecl::field_iterator I = RD->field_begin(),
+                                  E = RD->field_end();
+       I != E; ++I) {
+    if ((*I)->getType()->isVariablyModifiedType()) {
+      EmitVariablyModifiedType((*I)->getType());
+    }
+  }
+
+  PGO.assignRegionCounters(CD, F);
   CapturedStmtInfo->EmitBody(*this, CD->getBody());
   FinishFunction(CD->getBodyRBrace());
+  PGO.emitInstrumentationData();
+  PGO.destroyRegionCounters();
+
+  CGM.OpenMPSupport.endOpenMPRegion();
 
   return F;
 }
@@ -2128,6 +2164,7 @@ void CodeGenFunction::EmitPragmaSimd(CodeGenFunction::CGPragmaSimdWrapper &W) {
   // Emit the loop control variable and cache its initial value and the
   // stride value.
   // Also emit loop index and loop count, depending on stmt.
+
   W.emitInit(*this, LoopIndex, LoopCount);
 
   // Only run the SIMD loop if the loop condition is true

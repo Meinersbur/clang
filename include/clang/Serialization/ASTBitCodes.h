@@ -281,7 +281,14 @@ namespace clang {
       HEADER_SEARCH_OPTIONS = 11,
 
       /// \brief Record code for the preprocessor options table.
-      PREPROCESSOR_OPTIONS = 12
+      PREPROCESSOR_OPTIONS = 12,
+
+      /// \brief Record code for the module name.
+      MODULE_NAME = 13,
+
+      /// \brief Record code for the module map file that was used to build this
+      /// AST file.
+      MODULE_MAP_FILE = 14
     };
 
     /// \brief Record types that occur within the input-files block
@@ -535,7 +542,10 @@ namespace clang {
       UNDEFINED_BUT_USED = 49,
 
       /// \brief Record code for late parsed template functions.
-      LATE_PARSED_TEMPLATE = 50
+      LATE_PARSED_TEMPLATE = 50,
+
+      /// \brief Record code for \#pragma optimize options.
+      OPTIMIZE_PRAGMA_OPTIONS = 51
     };
 
     /// \brief Record types used within a source manager block.
@@ -1068,6 +1078,8 @@ namespace clang {
       DECL_OMP_DECLAREREDUCTION,
       /// \brief An OMPDeclareSimdDecl record.
       DECL_OMP_DECLARESIMD,
+      /// \brief An OMPDeclareTargetDecl record.
+      DECL_OMP_DECLARETARGET,
       /// \brief An EmptyDecl record.
       DECL_EMPTY
     };
@@ -1337,9 +1349,15 @@ namespace clang {
       // OpenMP directives
       STMT_OMP_PARALLEL_DIRECTIVE,
       STMT_OMP_FOR_DIRECTIVE,
+      STMT_OMP_PARALLEL_FOR_DIRECTIVE,
+      STMT_OMP_PARALLEL_FOR_SIMD_DIRECTIVE,
       STMT_OMP_SIMD_DIRECTIVE,
       STMT_OMP_FOR_SIMD_DIRECTIVE,
+      STMT_OMP_DISTRIBUTE_SIMD_DIRECTIVE,
+      STMT_OMP_DISTRIBUTE_PARALLEL_FOR_DIRECTIVE,
+      STMT_OMP_DISTRIBUTE_PARALLEL_FOR_SIMD_DIRECTIVE,
       STMT_OMP_SECTIONS_DIRECTIVE,
+      STMT_OMP_PARALLEL_SECTIONS_DIRECTIVE,
       STMT_OMP_SECTION_DIRECTIVE,
       STMT_OMP_SINGLE_DIRECTIVE,
       STMT_OMP_TASK_DIRECTIVE,
@@ -1352,11 +1370,11 @@ namespace clang {
       STMT_OMP_ATOMIC_DIRECTIVE,
       STMT_OMP_FLUSH_DIRECTIVE,
       STMT_OMP_ORDERED_DIRECTIVE,
-      STMT_OMP_PARALLEL_FOR_DIRECTIVE,
-      STMT_OMP_PARALLEL_FOR_SIMD_DIRECTIVE,
-      STMT_OMP_PARALLEL_SECTIONS_DIRECTIVE,
+      STMT_OMP_TEAMS_DIRECTIVE,
+      STMT_OMP_DISTRIBUTE_DIRECTIVE,
       STMT_OMP_CANCEL_DIRECTIVE,
       STMT_OMP_CANCELLATION_POINT_DIRECTIVE,
+      STMT_OMP_TARGET_DIRECTIVE,
 
       // ARC
       EXPR_OBJC_BRIDGED_CAST,     // ObjCBridgedCastExpr

@@ -35,7 +35,7 @@ def warn_unsigned_abs : Warning<
   "taking the absolute value of unsigned type %0 has no effect">,
   InGroup<AbsoluteValue>;
 def note_remove_abs : Note<
-  "remove the call to %0 since unsigned values cannot be negative">;
+  "remove the call to '%0' since unsigned values cannot be negative">;
 def warn_abs_too_small : Warning<
   "absolute value function %0 given an argument of type %1 but has parameter "
   "of type %2 which may cause truncation of value">, InGroup<AbsoluteValue>;
@@ -234,8 +234,8 @@ def ext_implicit_function_decl : ExtWarn<
   InGroup<ImplicitFunctionDeclare>;
 def note_function_suggestion : Note<"did you mean %0?">;
 
-def err_ellipsis_first_arg : Error<
-  "ISO C requires a named argument before '...'">;
+def err_ellipsis_first_param : Error<
+  "ISO C requires a named parameter before '...'">;
 def err_declarator_need_ident : Error<"declarator requires an identifier">;
 def err_language_linkage_spec_unknown : Error<"unknown linkage language">;
 def err_language_linkage_spec_not_ascii : Error<
@@ -433,9 +433,9 @@ def note_strlcpycat_wrong_size : Note<
 def warn_memsize_comparison : Warning<
   "size argument in %0 call is a comparison">,
   InGroup<DiagGroup<"memsize-comparison">>;
-def warn_memsize_comparison_paren_note : Note<
+def note_memsize_comparison_paren : Note<
   "did you mean to compare the result of %0 instead?">;
-def warn_memsize_comparison_cast_note : Note<
+def note_memsize_comparison_cast_silence : Note<
   "explicitly cast the argument to size_t to silence this warning">;
   
 def warn_strncat_large_size : Warning<
@@ -498,8 +498,8 @@ def err_opencl_half_load_store : Error<
 def err_opencl_cast_to_half : Error<"casting to type %0 is not allowed">;
 def err_opencl_half_declaration : Error<
   "declaring variable of type %0 is not allowed">;
-def err_opencl_half_argument : Error<
-  "declaring function argument of type %0 is not allowed; did you forget * ?">;
+def err_opencl_half_param : Error<
+  "declaring function parameter of type %0 is not allowed; did you forget * ?">;
 def err_opencl_half_return : Error<
   "declaring function return value of type %0 is not allowed; did you forget * ?">;
 def warn_enum_value_overflow : Warning<"overflow in enumeration value">;
@@ -732,7 +732,7 @@ def warn_objc_property_default_assign_on_object : Warning<
   InGroup<ObjCPropertyNoAttribute>;
 def warn_property_attr_mismatch : Warning<
   "property attribute in class extension does not match the primary class">;
-def warn_property_implicitly_mismatched : Warning <
+def warn_property_implicitly_mismatched : Warning<
   "primary property declaration is implicitly strong while redeclaration "
   "in class extension is weak">,
   InGroup<DiagGroup<"objc-property-implicit-mismatch">>;
@@ -762,7 +762,7 @@ def warn_auto_synthesizing_protocol_property :Warning<
   "auto property synthesis will not synthesize property %0"
   " declared in protocol %1">,
   InGroup<DiagGroup<"objc-protocol-property-synthesis">>;
-def warn_no_autosynthesis_shared_ivar_property : Warning <
+def warn_no_autosynthesis_shared_ivar_property : Warning<
   "auto property synthesis will not synthesize property "
   "%0 because it cannot share an ivar with another synthesized property">,
   InGroup<ObjCNoPropertyAutoSynthesis>;
@@ -775,7 +775,7 @@ def warn_autosynthesis_property_ivar_match :Warning<
   "autosynthesized property %0 will use %select{|synthesized}1 instance variable "
   "%2, not existing instance variable %3">,
   InGroup<DiagGroup<"objc-autosynthesis-property-ivar-name-match">>;
-def warn_missing_explicit_synthesis : Warning <
+def warn_missing_explicit_synthesis : Warning<
   "auto property synthesis is synthesizing property not explicitly synthesized">,
   InGroup<DiagGroup<"objc-missing-property-synthesis">>, DefaultIgnore;
 def warn_property_getter_owning_mismatch : Warning<
@@ -841,23 +841,23 @@ def warn_dealloc_in_category : Warning<
 InGroup<DeallocInCategory>;
 def err_gc_weak_property_strong_type : Error<
   "weak attribute declared on a __strong type property in GC mode">;
-def warn_receiver_is_weak : Warning <
+def warn_receiver_is_weak : Warning<
   "weak %select{receiver|property|implicit property}0 may be "
   "unpredictably set to nil">,
   InGroup<DiagGroup<"receiver-is-weak">>, DefaultIgnore;
 def note_arc_assign_to_strong : Note<
   "assign the value to a strong variable to keep the object alive during use">;
-def warn_arc_repeated_use_of_weak : Warning <
+def warn_arc_repeated_use_of_weak : Warning<
   "weak %select{variable|property|implicit property|instance variable}0 %1 is "
   "accessed multiple times in this %select{function|method|block|lambda}2 "
   "but may be unpredictably set to nil; assign to a strong variable to keep "
   "the object alive">,
   InGroup<ARCRepeatedUseOfWeak>, DefaultIgnore;
-def warn_implicitly_retains_self : Warning <
+def warn_implicitly_retains_self : Warning<
   "block implicitly retains 'self'; explicitly mention 'self' to indicate "
   "this is intended behavior">,
   InGroup<DiagGroup<"implicit-retain-self">>, DefaultIgnore;
-def warn_arc_possible_repeated_use_of_weak : Warning <
+def warn_arc_possible_repeated_use_of_weak : Warning<
   "weak %select{variable|property|implicit property|instance variable}0 %1 may "
   "be accessed multiple times in this %select{function|method|block|lambda}2 "
   "and may be unpredictably set to nil; assign to a strong variable to keep "
@@ -1169,7 +1169,10 @@ def err_incomplete_type : Error<
 def warn_cxx98_compat_enum_nested_name_spec : Warning<
   "enumeration type in nested name specifier is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
-  
+def err_nested_name_spec_is_not_class : Error<
+  "%0 cannot appear before '::' because it is not a class"
+  "%select{ or namespace|, namespace, or scoped enumeration}1; did you mean ':'?">;
+
 // C++ class members
 def err_storageclass_invalid_for_member : Error<
   "storage class specified for a member declaration">;
@@ -1712,7 +1715,7 @@ def err_range_on_array_parameter : Error<
 def err_for_range_dereference : Error<
   "invalid range expression of type %0; did you mean to dereference it "
   "with '*'?">;
-def note_for_range_invalid_iterator : Note <
+def note_for_range_invalid_iterator : Note<
   "in implicit call to 'operator%select{!=|*|++}0' for iterator of type %1">;
 def note_for_range_begin_end : Note<
   "selected '%select{begin|end}0' %select{function|template }1%2 with iterator type %3">;
@@ -1859,8 +1862,6 @@ def warn_auto_var_is_id : Warning<
 // Attributes
 def err_nsobject_attribute : Error<
   "'NSObject' attribute is for pointer types only">;
-def err_attribute_can_be_applied_only_to_symbol_declaration : Error<
-  "%0 attribute can be applied only to symbol declaration">;
 def err_attributes_are_not_compatible : Error<
   "%0 and %1 attributes are not compatible">;
 def err_attribute_wrong_number_arguments : Error<
@@ -2001,6 +2002,8 @@ def warn_concatenated_nsarray_literal : Warning<
   InGroup<ObjCStringConcatenation>;
 def note_objc_literal_comparison_isequal : Note<
   "use 'isEqual:' instead">;
+def err_attribute_argument_is_zero : Error<
+  "%0 attribute must be greater than 0">;
 
 let CategoryName = "Cocoa API Issue" in {
 def warn_objc_redundant_literal_use : Warning<
@@ -2078,6 +2081,9 @@ def err_attribute_weak_static : Error<
   "weak declaration cannot have internal linkage">;
 def err_attribute_selectany_non_extern_data : Error<
   "'selectany' can only be applied to data items with external linkage">;
+def err_declspec_thread_on_thread_variable : Error<
+  "'__declspec(thread)' applied to variable that already has a "
+  "thread-local storage specifier">;
 def err_attribute_dll_not_extern : Error<
   "%q0 must have external linkage when declared %q1">;
 def warn_attribute_invalid_on_definition : Warning<
@@ -2085,6 +2091,8 @@ def warn_attribute_invalid_on_definition : Warning<
   InGroup<IgnoredAttributes>;
 def err_attribute_dll_redeclaration : Error<
   "redeclaration of %q0 cannot add %q1 attribute">;
+def err_attribute_dllimport_function_definition : Error<
+  "dllimport cannot be applied to non-inline function definition">;
 def err_attribute_dllimport_data_definition : Error<
   "definition of dllimport data">;
 def err_attribute_weakref_not_static : Error<
@@ -2099,6 +2107,9 @@ def err_alias_to_undefined : Error<
   "alias must point to a defined variable or function">;
 def warn_alias_to_weak_alias : Warning<
   "alias will always resolve to %0 even if weak definition of alias %1 is overridden">,
+  InGroup<IgnoredAttributes>;
+def warn_alias_with_section : Warning<
+  "alias will not be in section '%0' but in the same section as the aliasee">,
   InGroup<IgnoredAttributes>;
 def err_duplicate_mangled_name : Error<
   "definition with same mangled name as another definition">;
@@ -2316,7 +2327,7 @@ def warn_impcast_float_precision : Warning<
   InGroup<Conversion>, DefaultIgnore;
 def warn_impcast_float_integer : Warning<
   "implicit conversion turns floating-point number into integer: %0 to %1">,
-  InGroup<Conversion>, DefaultIgnore;
+  InGroup<FloatConversion>, DefaultIgnore;
 def warn_impcast_integer_sign : Warning<
   "implicit conversion changes signedness: %0 to %1">,
   InGroup<SignConversion>, DefaultIgnore;
@@ -2528,10 +2539,10 @@ def warn_objc_designated_init_non_designated_init_call : Warning<
   "designated initializer invoked a non-designated initializer">,
   InGroup<ObjCDesignatedInit>;
 def warn_objc_secondary_init_super_init_call : Warning<
-  "secondary initializer should not invoke an initializer on 'super'">,
+  "convenience initializer should not invoke an initializer on 'super'">,
   InGroup<ObjCDesignatedInit>;
 def warn_objc_secondary_init_missing_init_call : Warning<
-  "secondary initializer missing a 'self' call to another initializer">,
+  "convenience initializer missing a 'self' call to another initializer">,
   InGroup<ObjCDesignatedInit>;
 def warn_objc_implementation_missing_designated_init_override : Warning<
   "method override for the designated initializer of the superclass %objcinstance0 not found">,
@@ -3264,8 +3275,8 @@ def err_template_qualified_declarator_no_match : Error<
   "nested name specifier '%0' for declaration does not refer into a class, "
   "class template or class template partial specialization">;
 def err_specialize_member_of_template : Error<
-  "cannot specialize (with 'template<>') a member of an unspecialized "
-  "template">;
+  "cannot specialize %select{|(with 'template<>') }0a member of an "
+  "unspecialized template">;
 
 // C++ Class Template Partial Specialization
 def err_default_arg_in_partial_spec : Error<
@@ -3305,6 +3316,9 @@ def note_var_prev_partial_spec_here : Note<
   "previous declaration of variable template partial specialization is here">;
 def err_var_spec_no_template : Error<
   "no variable template matches%select{| partial}0 specialization">;
+def err_var_spec_no_template_but_method : Error<
+  "no variable template matches specialization; "
+  "did you mean to use %0 as function template instead?">;
   
 // C++ Function template specializations
 def err_function_template_spec_no_match : Error<
@@ -3384,6 +3398,9 @@ def err_nested_name_spec_non_tag : Error<
 // C++ Explicit Instantiation
 def err_explicit_instantiation_duplicate : Error<
     "duplicate explicit instantiation of %0">;
+def warn_explicit_instantiation_duplicate : ExtWarn<
+    "duplicate explicit instantiation of %0 ignored as a Microsoft extension">,
+    InGroup<Microsoft>;
 def note_previous_explicit_instantiation : Note<
     "previous explicit instantiation is here">;
 def ext_explicit_instantiation_after_specialization : Extension<
@@ -3630,7 +3647,7 @@ def note_cannot_inherit : Note<
 def warn_not_enough_argument : Warning<
   "not enough variable arguments in %0 declaration to fit a sentinel">,
   InGroup<Sentinel>;
-def warn_missing_sentinel : Warning <
+def warn_missing_sentinel : Warning<
   "missing sentinel in %select{function call|method dispatch|block call}0">,
   InGroup<Sentinel>;
 def note_sentinel_here : Note<
@@ -3734,7 +3751,7 @@ def err_extern_c_global_conflict : Error<
   "conflicts with declaration %select{in global scope|with C language linkage}0">;
 def note_extern_c_global_conflict : Note<
   "declared %select{in global scope|with C language linkage}0 here">;
-def warn_weak_import : Warning <
+def warn_weak_import : Warning<
   "an already-declared variable is made a weak_import declaration %0">;
 def warn_static_non_static : ExtWarn<
   "static declaration of %0 follows non-static declaration">;
@@ -3936,8 +3953,8 @@ def warn_init_list_constant_narrowing : Warning<
   "constant expression evaluates to %0 which cannot be narrowed to type %1 in "
   "C++11">,
   InGroup<CXX11Narrowing>, DefaultIgnore;
-def note_init_list_narrowing_override : Note<
-  "override this message by inserting an explicit cast">;
+def note_init_list_narrowing_silence : Note<
+  "insert an explicit cast to silence this issue">;
 def err_init_objc_class : Error<
   "cannot initialize Objective-C class type %0">;
 def err_implicit_empty_initializer : Error<
@@ -4635,12 +4652,10 @@ def warn_deprecated_string_literal_conversion : Warning<
   InGroup<CXX11CompatDeprecatedWritableStr>;
 def ext_deprecated_string_literal_conversion : ExtWarn<
   "ISO C++11 does not allow conversion from string literal to %0">,
-  InGroup<CXX11CompatDeprecatedWritableStr>, SFINAEFailure;
+  InGroup<WritableStrings>, SFINAEFailure;
 def err_realimag_invalid_type : Error<"invalid type %0 to %1 operator">;
 def err_typecheck_sclass_fscope : Error<
   "illegal storage class on file-scoped variable">;
-def err_unsupported_global_register : Error<
-  "global register variables are not supported">;
 def warn_standalone_specifier : Warning<"'%0' ignored on this declaration">,
   InGroup<MissingDeclarations>;
 def ext_standalone_specifier : ExtWarn<"'%0' is not permitted on a declaration "
@@ -4676,6 +4691,9 @@ def err_typecheck_unary_expr : Error<
   "invalid argument type %0 to unary expression">;
 def err_typecheck_indirection_requires_pointer : Error<
   "indirection requires pointer operand (%0 invalid)">;
+def ext_typecheck_indirection_through_void_pointer : Extension<
+  "ISO C++ does not allow indirection on operand of type %0">,
+  InGroup<DiagGroup<"void-ptr-dereference">>;
 def warn_indirection_through_null : Warning<
   "indirection of non-volatile null pointer will be deleted, not trap">, InGroup<NullDereference>;
 def note_indirection_through_null : Note<
@@ -4711,7 +4729,7 @@ def ext_typecheck_comparison_of_distinct_pointers : ExtWarn<
   InGroup<CompareDistinctPointerType>;
 def ext_typecheck_cond_incompatible_operands : ExtWarn<
   "incompatible operand types (%0 and %1)">;
-def err_cond_voidptr_arc : Error <
+def err_cond_voidptr_arc : Error<
   "operands to conditional of types%diff{ $ and $|}0,1 are incompatible "
   "in ARC mode">;
 def err_typecheck_comparison_of_distinct_pointers : Error<
@@ -5933,11 +5951,11 @@ def err_invalid_conversion_between_vector_and_scalar : Error<
 def err_only_constructors_take_base_inits : Error<
   "only constructors take base initializers">;
 
-def err_multiple_mem_initialization : Error <
+def err_multiple_mem_initialization : Error<
   "multiple initializations given for non-static member %0">;
-def err_multiple_mem_union_initialization : Error <
+def err_multiple_mem_union_initialization : Error<
   "initializing multiple members of union">;
-def err_multiple_base_initialization : Error <
+def err_multiple_base_initialization : Error<
   "multiple initializations given for base %0">;
 
 def err_mem_init_not_member_or_class : Error<
@@ -6276,7 +6294,7 @@ def warn_format_argument_needs_cast : Warning<
   "values of type '%0' should not be used as format arguments; add an explicit "
   "cast to %1 instead">,
   InGroup<Format>;
-def warn_printf_positional_arg_exceeds_data_args : Warning <
+def warn_printf_positional_arg_exceeds_data_args : Warning<
   "data argument position '%0' exceeds the number of data arguments (%1)">,
   InGroup<Format>;
 def warn_format_zero_positional_specifier : Warning<
@@ -6383,6 +6401,9 @@ def note_ref_subobject_of_member_declared_here : Note<
 // Array comparisons have similar warnings
 def warn_comparison_always : Warning<
   "%select{self-|array }0comparison always evaluates to %select{false|true|a constant}1">,
+  InGroup<TautologicalCompare>;
+def warn_comparison_bitwise_always : Warning<
+  "bitwise comparison always evaluates to %select{false|true}0">,
   InGroup<TautologicalCompare>;
 def warn_tautological_overlap_comparison : Warning<
   "overlapping comparisons always evaluate to %select{false|true}0">,
@@ -6956,47 +6977,70 @@ def note_omp_explicit_dsa : Note <
   "defined as %0">;
 def note_omp_predetermined_dsa : Note<
   "predetermined as %0">;
-def note_omp_referenced : Note <
+def note_omp_referenced : Note<
   "previously referenced here">;
-def note_omp_specified : Note <
+def note_omp_specified : Note<
   "previously specified here">;
 def err_omp_dsa_with_directives : Error<
   "%0 variable in '#pragma omp %1' cannot be %2 in '#pragma omp %3'">;
-def err_omp_not_for : Error <
-  "only for-loops are allowed for '#pragma omp %0'">;
-def err_omp_for_variable : Error <
+def err_omp_not_for : Error<
+  "statement after '#pragma omp %0' must be a for loop">;
+def err_omp_negative_expression_in_clause : Error<
+  "argument to '%0' clause must be a positive integer value">;
+def err_omp_for_variable : Error<
   "variable must be of integer or %select{pointer|random access iterator}0 type">;
-def err_omp_not_canonical_for : Error <
+def err_omp_not_canonical_for : Error<
   "%select{initialization|condition|increment}0 of for-loop does not have canonical form">;
-def err_omp_for_incr_not_integer : Error <
+def err_omp_for_incr_not_integer : Error<
   "increment expression of for-loop must be of an integer type">;
-def err_omp_for_incr_not_compatible : Error <
+def err_omp_for_incr_not_compatible : Error<
   "increment expression must cause %q0 to %select{decrease|increase}1 on each iteration of the loop">;
-def err_omp_for_type_not_compatible : Error <
+def err_omp_for_type_not_compatible : Error<
   "expression of type %0 is not compatible with variable %1 of type %2">;
-def err_omp_for_wrong_count : Error <
+def err_omp_for_wrong_count : Error<
   "unable to calculate number of iterations of the for-loop">;
-def err_omp_type_not_rai : Error <
+def err_omp_type_not_rai : Error<
   "iteration variable is not of a random access iterator type">;
-def err_omp_for_loop_var_dsa : Error <
+def err_omp_for_loop_var_dsa : Error<
   "loop iteration variable may not be %0">;
-def err_omp_sections_not_section : Error <
+def err_omp_sections_not_section : Error<
   "the statement for '#pragma omp %0' must be '#pragma omp section'">;
-def err_omp_section_orphaned : Error <
+def err_omp_section_orphaned : Error<
   "orphaned '#pragma omp section' is prohibited">;
-def err_omp_sections_not_compound_stmt : Error <
+def err_omp_sections_not_compound_stmt : Error<
   "the statement for '#pragma omp %0' must be compound statement">;
-def err_omp_prohibited_region : Error <
+def err_omp_prohibited_region : Error<
   "region cannot be%select{| closely}0 nested inside %1 region%select{| with name %3}2">;
-def err_omp_prohibited_ordered_region : Error <
+def err_omp_prohibited_ordered_region : Error<
   "region must be closely nested inside loop or parallel loop region with 'ordered' clause">;
-def err_omp_atomic_more_one_clause : Error <
+def err_omp_teams_not_single_in_target : Error<
+  "the teams construct must be the only construct inside of target region">;
+def err_omp_region_not_file_context : Error<
+  "directive must be at file or namespace scope">;
+def warn_omp_not_in_target_context : Warning<
+  "declaration is not declared in any declare target region">,
+  InGroup<SourceUsesOpenMP>, DefaultWarn;
+def err_omp_threadprivate_in_target : Error<
+  "threadprivate variables cannot be used in target constructs">;
+def err_omp_map_shared_storage : Error<
+  "variable already marked as mapped in current construct">;
+def err_omp_not_mappable_type : Error<
+  "type %0 is not mappable to target">;
+def note_omp_polymorphic_in_target : Note<
+  "mappable type cannot be polymorphic">;
+def note_omp_static_member_in_target : Note<
+  "mappable type cannot contain static members">;
+def err_omp_prohibited_distribute_region : Error<
+  "region must be closely nested inside a teams region">;
+def err_omp_prohibited_teams_region : Error<
+  "region must be closely nested inside a target region">;
+def err_omp_atomic_more_one_clause : Error<
   "directive '#pragma omp atomic' cannot contain more than one 'read', 'write', 'update' or 'capture' clause">;
-def err_omp_atomic_not_expression : Error <
+def err_omp_atomic_not_expression : Error<
   "expected expression statement for '#pragma omp atomic %0'">;
-def err_omp_atomic_wrong_statement : Error <
+def err_omp_atomic_wrong_statement : Error<
   "statement form is not allowed for '#pragma omp atomic %0'">;
-def err_omp_no_dsa_for_variable : Error <
+def err_omp_no_dsa_for_variable : Error<
   "variable %q0 must have explicitly specified data sharing attributes">;
 def err_omp_for_cannot_break: Error<
   "cannot break from a '#pragma omp %0' loop">;
@@ -7036,12 +7080,30 @@ def err_omp_expected_var_name_or_array_item : Error<
   "expected variable name or an array item">;
 def err_omp_depend_arg_not_lvalue : Error<
   "argument expression must be an l-value">;
-def err_omp_prohibited_cancel_region : Error <
+def err_omp_prohibited_cancel_region : Error<
   "region must be nested inside a taskgroup region">;
-def err_omp_prohibited_cancel_region_nowait : Error <
+def err_omp_prohibited_cancel_region_nowait : Error<
   "region cannot be nested inside region with 'nowait' clause">;
-def err_omp_prohibited_cancel_region_ordered : Error <
+def err_omp_prohibited_cancel_region_ordered : Error<
   "region cannot be nested inside region with 'ordered' clause">;
+def err_omp_not_integral : Error<
+  "expression must have integral or unscoped enumeration "
+  "type, not %0">;
+def err_omp_incomplete_type : Error<
+  "expression has incomplete class type %0">;
+def err_omp_explicit_conversion : Error<
+  "expression requires explicit conversion from %0 to %1">;
+def note_omp_conversion_here : Note<
+  "conversion to %select{integral|enumeration}0 type %1 declared here">;
+def err_omp_ambiguous_conversion : Error<
+  "ambiguous conversion from type %0 to an integral or unscoped "
+  "enumeration type">;
+def err_omp_linear_expected_int_or_ptr : Error<
+  "argument of a linear clause should be of integral or pointer "
+  "type, not %0">;
+def warn_omp_linear_step_zero : Warning<
+  "zero linear step (%0 %select{|and other variables in clause }1should probably be const)">,
+  InGroup<OpenMPClauses>;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {
@@ -7091,12 +7153,21 @@ def note_module_import_in_extern_c : Note<
 def err_module_import_not_at_top_level : Error<
   "import of module '%0' appears within %1">;
 def note_module_import_not_at_top_level : Note<"%0 begins here">;
+def err_module_self_import : Error<
+  "import of module '%0' appears within same top-level module '%1'">;
 }
 
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;
 } // end of documentation issue category
+
+let CategoryName = "Instrumentation Issue" in {
+def warn_profile_data_out_of_date : Warning<
+  "profile data may be out of date: of %0 function%s0, %1 %plural{1:has|:have}1"
+  " no data and %2 %plural{1:has|:have}2 mismatched data that will be ignored">,
+  InGroup<ProfileInstrOutOfDate>;
+} // end of instrumentation issue category
 
 } // end of sema component.
 
