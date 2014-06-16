@@ -19,7 +19,6 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/TypeLoc.h"
-#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Template.h"
@@ -417,6 +416,13 @@ Decl *TemplateDeclInstantiator::VisitVarDecl(VarDecl *D,
 
   SemaRef.BuildVariableInstantiation(Var, D, TemplateArgs, LateAttrs, Owner,
                                      StartingScope, InstantiatingVarTemplate);
+
+  if (D->isNRVOVariable()) {
+    QualType ReturnType = cast<FunctionDecl>(DC)->getReturnType();
+    if (SemaRef.isCopyElisionCandidate(ReturnType, Var, false))
+      Var->setNRVOVariable(true);
+  }
+
   return Var;
 }
 
@@ -2203,8 +2209,7 @@ Decl *TemplateDeclInstantiator::VisitUsingDecl(UsingDecl *D) {
     return NewUD;
 
   if (NameInfo.getName().getNameKind() == DeclarationName::CXXConstructorName) {
-    if (SemaRef.CheckInheritingConstructorUsingDecl(NewUD))
-      NewUD->setInvalidDecl();
+    SemaRef.CheckInheritingConstructorUsingDecl(NewUD);
     return NewUD;
   }
 
@@ -2340,6 +2345,11 @@ Decl *TemplateDeclInstantiator::VisitOMPThreadPrivateDecl(
   Owner->addDecl(TD);
 
   return TD;
+}
+
+Decl *
+TemplateDeclInstantiator::VisitOMPDeclareTargetDecl(OMPDeclareTargetDecl *D) {
+  llvm_unreachable("OpenMP declare target cannot be instantiated");
 }
 
 Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D) {
@@ -2653,7 +2663,7 @@ Decl *TemplateDeclInstantiator::TouchOMPDeclareSimdDecl(
           C->getLocStart(),
           C->getLocEnd(),
           Step,
-          C->getStepLoc());
+          C->getColonLoc());
       CL.push_back(NC);
     }
     else if (OMPAlignedClause *C = dyn_cast_or_null<OMPAlignedClause>(*J)) {

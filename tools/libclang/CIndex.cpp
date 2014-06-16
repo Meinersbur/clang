@@ -15,7 +15,6 @@
 #include "CIndexer.h"
 #include "CIndexDiagnostic.h"
 #include "CLog.h"
-#include "CXComment.h"
 #include "CXCursor.h"
 #include "CXSourceLocation.h"
 #include "CXString.h"
@@ -1856,6 +1855,9 @@ public:
   void VisitOMPParallelForSimdDirective(const OMPParallelForSimdDirective *D);
   void VisitOMPSimdDirective(const OMPSimdDirective *D);
   void VisitOMPForSimdDirective(const OMPForSimdDirective *D);
+  void VisitOMPDistributeSimdDirective(const OMPDistributeSimdDirective *D);
+  void VisitOMPDistributeParallelForDirective(const OMPDistributeParallelForDirective *D);
+  void VisitOMPDistributeParallelForSimdDirective(const OMPDistributeParallelForSimdDirective *D);
   void VisitOMPSectionsDirective(const OMPSectionsDirective *D);
   void VisitOMPParallelSectionsDirective(const OMPParallelSectionsDirective *D);
   void VisitOMPSectionDirective(const OMPSectionDirective *D);
@@ -1870,9 +1872,12 @@ public:
   void VisitOMPAtomicDirective(const OMPAtomicDirective *D);
   void VisitOMPFlushDirective(const OMPFlushDirective *D);
   void VisitOMPOrderedDirective(const OMPOrderedDirective *D);
+  void VisitOMPTeamsDirective(const OMPTeamsDirective *D);
+  void VisitOMPDistributeDirective(const OMPDistributeDirective *D);
   void VisitOMPCancelDirective(const OMPCancelDirective *D);
   void VisitOMPCancellationPointDirective(
                        const OMPCancellationPointDirective *D);
+  void VisitOMPTargetDirective(const OMPTargetDirective *D);
 
 private:
   void AddDeclarationNameInfo(const Stmt *S);
@@ -1937,48 +1942,51 @@ namespace {
 class OMPClauseEnqueue : public ConstOMPClauseVisitor<OMPClauseEnqueue> {
   EnqueueVisitor *Visitor;
   /// \brief Process clauses with list of variables.
-  template <typename T>
-  void VisitOMPClauseList(const T *Node);
+  template <typename T> void VisitOMPClauseList(const T *Node);
+
 public:
-  OMPClauseEnqueue(EnqueueVisitor *Visitor) : Visitor(Visitor) { }
-#define OPENMP_CLAUSE(Name, Class)                                             \
-  void Visit##Class(const Class *C);
+  OMPClauseEnqueue(EnqueueVisitor *Visitor) : Visitor(Visitor) {}
+#define OPENMP_CLAUSE(Name, Class) void Visit##Class(const Class *C);
 #include "clang/Basic/OpenMPKinds.def"
 };
 
-template<typename T>
-void OMPClauseEnqueue::VisitOMPClauseList(const T *Node) {
+template <typename T> void OMPClauseEnqueue::VisitOMPClauseList(const T *Node) {
   for (typename T::varlist_const_iterator I = Node->varlist_begin(),
                                           E = Node->varlist_end();
-         I != E; ++I)
+       I != E; ++I)
     Visitor->AddStmt(*I);
 }
 
-void OMPClauseEnqueue::VisitOMPIfClause(const OMPIfClause *C) { }
+void OMPClauseEnqueue::VisitOMPIfClause(const OMPIfClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPFinalClause(const OMPFinalClause *C) { }
+void OMPClauseEnqueue::VisitOMPFinalClause(const OMPFinalClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPNumThreadsClause(const OMPNumThreadsClause *C) { }
+void OMPClauseEnqueue::VisitOMPNumThreadsClause(const OMPNumThreadsClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPCollapseClause(const OMPCollapseClause *C) { }
+void OMPClauseEnqueue::VisitOMPCollapseClause(const OMPCollapseClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPDefaultClause(const OMPDefaultClause *C) { }
+void OMPClauseEnqueue::VisitOMPDefaultClause(const OMPDefaultClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPProcBindClause(const OMPProcBindClause *C) { }
+void OMPClauseEnqueue::VisitOMPProcBindClause(const OMPProcBindClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPScheduleClause(const OMPScheduleClause *C) { }
+void OMPClauseEnqueue::VisitOMPDeviceClause(const OMPDeviceClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPDistScheduleClause(const OMPDistScheduleClause *C) { }
+void OMPClauseEnqueue::VisitOMPScheduleClause(const OMPScheduleClause *C) {}
+
+void
+OMPClauseEnqueue::VisitOMPDistScheduleClause(const OMPDistScheduleClause *C) {}
 
 void OMPClauseEnqueue::VisitOMPPrivateClause(const OMPPrivateClause *C) {
   VisitOMPClauseList(C);
 }
 
-void OMPClauseEnqueue::VisitOMPFirstPrivateClause(const OMPFirstPrivateClause *C) {
+void
+OMPClauseEnqueue::VisitOMPFirstPrivateClause(const OMPFirstPrivateClause *C) {
   VisitOMPClauseList(C);
 }
 
-void OMPClauseEnqueue::VisitOMPLastPrivateClause(const OMPLastPrivateClause *C) {
+void
+OMPClauseEnqueue::VisitOMPLastPrivateClause(const OMPLastPrivateClause *C) {
   VisitOMPClauseList(C);
 }
 
@@ -1986,11 +1994,17 @@ void OMPClauseEnqueue::VisitOMPSharedClause(const OMPSharedClause *C) {
   VisitOMPClauseList(C);
 }
 
+void OMPClauseEnqueue::VisitOMPLinearClause(const OMPLinearClause *C) {
+  VisitOMPClauseList(C);
+  Visitor->AddStmt(C->getStep());
+}
+
 void OMPClauseEnqueue::VisitOMPCopyinClause(const OMPCopyinClause *C) {
   VisitOMPClauseList(C);
 }
 
-void OMPClauseEnqueue::VisitOMPCopyPrivateClause(const OMPCopyPrivateClause *C) {
+void
+OMPClauseEnqueue::VisitOMPCopyPrivateClause(const OMPCopyPrivateClause *C) {
   VisitOMPClauseList(C);
 }
 
@@ -1998,54 +2012,57 @@ void OMPClauseEnqueue::VisitOMPReductionClause(const OMPReductionClause *C) {
   VisitOMPClauseList(C);
 }
 
-void OMPClauseEnqueue::VisitOMPOrderedClause(const OMPOrderedClause *C) { }
+void OMPClauseEnqueue::VisitOMPOrderedClause(const OMPOrderedClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPNowaitClause(const OMPNowaitClause *C) { }
+void OMPClauseEnqueue::VisitOMPNowaitClause(const OMPNowaitClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPUntiedClause(const OMPUntiedClause *C) { }
+void OMPClauseEnqueue::VisitOMPUntiedClause(const OMPUntiedClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPMergeableClause(const OMPMergeableClause *C) { }
+void OMPClauseEnqueue::VisitOMPMergeableClause(const OMPMergeableClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPReadClause(const OMPReadClause *C) { }
+void OMPClauseEnqueue::VisitOMPReadClause(const OMPReadClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPWriteClause(const OMPWriteClause *C) { }
+void OMPClauseEnqueue::VisitOMPWriteClause(const OMPWriteClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPUpdateClause(const OMPUpdateClause *C) { }
+void OMPClauseEnqueue::VisitOMPUpdateClause(const OMPUpdateClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPCaptureClause(const OMPCaptureClause *C) { }
+void OMPClauseEnqueue::VisitOMPCaptureClause(const OMPCaptureClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPSeqCstClause(const OMPSeqCstClause *C) { }
+void OMPClauseEnqueue::VisitOMPSeqCstClause(const OMPSeqCstClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPInBranchClause(const OMPInBranchClause *C) { }
+void OMPClauseEnqueue::VisitOMPInBranchClause(const OMPInBranchClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPNotInBranchClause(const OMPNotInBranchClause *C) { }
+void
+OMPClauseEnqueue::VisitOMPNotInBranchClause(const OMPNotInBranchClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPFlushClause(const OMPFlushClause *C) { }
+void OMPClauseEnqueue::VisitOMPFlushClause(const OMPFlushClause *C) {}
+
+void OMPClauseEnqueue::VisitOMPDependClause(const OMPDependClause *C) {
+  VisitOMPClauseList(C);
+}
+
+void OMPClauseEnqueue::VisitOMPMapClause(const OMPMapClause *C) {
+  VisitOMPClauseList(C);
+}
 
 void OMPClauseEnqueue::VisitOMPUniformClause(const OMPUniformClause *C) {
   VisitOMPClauseList(C);
 }
 
-void OMPClauseEnqueue::VisitOMPSafelenClause(const OMPSafelenClause *C) { }
+void OMPClauseEnqueue::VisitOMPSafelenClause(const OMPSafelenClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPSimdlenClause(const OMPSimdlenClause *C) { }
+void OMPClauseEnqueue::VisitOMPSimdlenClause(const OMPSimdlenClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPNumTeamsClause(const OMPNumTeamsClause *C) { }
+void OMPClauseEnqueue::VisitOMPNumTeamsClause(const OMPNumTeamsClause *C) {}
 
-void OMPClauseEnqueue::VisitOMPThreadLimitClause(const OMPThreadLimitClause *C) { }
-
-void OMPClauseEnqueue::VisitOMPLinearClause(const OMPLinearClause *C) {
-  VisitOMPClauseList(C);
-}
+void
+OMPClauseEnqueue::VisitOMPThreadLimitClause(const OMPThreadLimitClause *C) {}
 
 void OMPClauseEnqueue::VisitOMPAlignedClause(const OMPAlignedClause *C) {
   VisitOMPClauseList(C);
 }
+}
 
-void OMPClauseEnqueue::VisitOMPDependClause(const OMPDependClause *C) {
-  VisitOMPClauseList(C);
-}
-}
 void EnqueueVisitor::EnqueueChildren(const OMPClause *S) {
   unsigned size = WL.size();
   OMPClauseEnqueue Visitor(this);
@@ -2324,8 +2341,8 @@ void EnqueueVisitor::VisitPseudoObjectExpr(const PseudoObjectExpr *E) {
   Visit(E->getSyntacticForm());
 }
 
-void EnqueueVisitor::VisitOMPExecutableDirective(
-  const OMPExecutableDirective *D) {
+void
+EnqueueVisitor::VisitOMPExecutableDirective(const OMPExecutableDirective *D) {
   EnqueueChildren(D);
   for (ArrayRef<OMPClause *>::iterator I = D->clauses().begin(),
                                        E = D->clauses().end();
@@ -2341,11 +2358,13 @@ void EnqueueVisitor::VisitOMPForDirective(const OMPForDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPParallelForDirective(const OMPParallelForDirective *D) {
+void
+EnqueueVisitor::VisitOMPParallelForDirective(const OMPParallelForDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPParallelForSimdDirective(const OMPParallelForSimdDirective *D) {
+void EnqueueVisitor::VisitOMPParallelForSimdDirective(
+    const OMPParallelForSimdDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -2357,11 +2376,27 @@ void EnqueueVisitor::VisitOMPForSimdDirective(const OMPForSimdDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+void EnqueueVisitor::VisitOMPDistributeSimdDirective(
+    const OMPDistributeSimdDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
+void EnqueueVisitor::VisitOMPDistributeParallelForDirective(
+    const OMPDistributeParallelForDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
+void EnqueueVisitor::VisitOMPDistributeParallelForSimdDirective(
+    const OMPDistributeParallelForSimdDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
 void EnqueueVisitor::VisitOMPSectionsDirective(const OMPSectionsDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPParallelSectionsDirective(const OMPParallelSectionsDirective *D) {
+void EnqueueVisitor::VisitOMPParallelSectionsDirective(
+    const OMPParallelSectionsDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -2377,8 +2412,8 @@ void EnqueueVisitor::VisitOMPTaskDirective(const OMPTaskDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPTaskyieldDirective(
-                                      const OMPTaskyieldDirective *D) {
+void
+EnqueueVisitor::VisitOMPTaskyieldDirective(const OMPTaskyieldDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -2398,8 +2433,8 @@ void EnqueueVisitor::VisitOMPTaskwaitDirective(const OMPTaskwaitDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
-void EnqueueVisitor::VisitOMPTaskgroupDirective(
-                                        const OMPTaskgroupDirective *D) {
+void
+EnqueueVisitor::VisitOMPTaskgroupDirective(const OMPTaskgroupDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -2415,12 +2450,25 @@ void EnqueueVisitor::VisitOMPOrderedDirective(const OMPOrderedDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
+void EnqueueVisitor::VisitOMPTeamsDirective(const OMPTeamsDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
+void
+EnqueueVisitor::VisitOMPDistributeDirective(const OMPDistributeDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
 void EnqueueVisitor::VisitOMPCancelDirective(const OMPCancelDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
 void EnqueueVisitor::VisitOMPCancellationPointDirective(
-                                   const OMPCancellationPointDirective *D) {
+    const OMPCancellationPointDirective *D) {
+  VisitOMPExecutableDirective(D);
+}
+
+void EnqueueVisitor::VisitOMPTargetDirective(const OMPTargetDirective *D) {
   VisitOMPExecutableDirective(D);
 }
 
@@ -4034,6 +4082,12 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return cxstring::createRef("asm label");
   case CXCursor_PackedAttr:
     return cxstring::createRef("attribute(packed)");
+  case CXCursor_PureAttr:
+    return cxstring::createRef("attribute(pure)");
+  case CXCursor_ConstAttr:
+    return cxstring::createRef("attribute(const)");
+  case CXCursor_NoDuplicateAttr:
+    return cxstring::createRef("attribute(noduplicate)");
   case CXCursor_PreprocessingDirective:
     return cxstring::createRef("preprocessing directive");
   case CXCursor_MacroDefinition:
@@ -4088,12 +4142,18 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return cxstring::createRef("OMPForDirective");
   case CXCursor_OMPParallelForDirective:
     return cxstring::createRef("OMPParallelForDirective");
-  case CXCursor_OMPParallelForSimdDirective:
-    return cxstring::createRef("OMPParallelForSimdDirective");
   case CXCursor_OMPSimdDirective:
     return cxstring::createRef("OMPSimdDirective");
   case CXCursor_OMPForSimdDirective:
     return cxstring::createRef("OMPForSimdDirective");
+  case CXCursor_OMPParallelForSimdDirective:
+    return cxstring::createRef("OMPParallelForSimdDirective");
+  case CXCursor_OMPDistributeSimdDirective:
+    return cxstring::createRef("OMPDistributeSimdDirective");
+  case CXCursor_OMPDistributeParallelForDirective:
+    return cxstring::createRef("OMPDistributeParallelForDirective");
+  case CXCursor_OMPDistributeParallelForSimdDirective:
+    return cxstring::createRef("OMPDistributeParallelForSimdDirective");
   case CXCursor_OMPSectionsDirective:
     return cxstring::createRef("OMPSectionsDirective");
   case CXCursor_OMPParallelSectionsDirective:
@@ -4122,10 +4182,16 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return cxstring::createRef("OMPFlushDirective");
   case CXCursor_OMPOrderedDirective:
     return cxstring::createRef("OMPOrderedDirective");
+  case CXCursor_OMPTeamsDirective:
+    return cxstring::createRef("OMPTeamsDirective");
+  case CXCursor_OMPDistributeDirective:
+    return cxstring::createRef("OMPDisitributeDirective");
   case CXCursor_OMPCancelDirective:
     return cxstring::createRef("OMPCancelDirective");
   case CXCursor_OMPCancellationPointDirective:
     return cxstring::createRef("OMPCancellationPointDirective");
+  case CXCursor_OMPTargetDirective:
+    return cxstring::createRef("OMPTargetDirective");
   }
 
   llvm_unreachable("Unhandled CXCursorKind");
@@ -4863,6 +4929,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::OMPThreadPrivate:
   case Decl::OMPDeclareReduction:
   case Decl::OMPDeclareSimd:
+  case Decl::OMPDeclareTarget:
     return C;
 
   // Declaration kinds that don't make any sense here, but are
@@ -5895,14 +5962,13 @@ static void annotatePreprocessorTokens(CXTranslationUnit TU,
         break;
 
       MacroInfo *MI = 0;
-      if (Tok.is(tok::raw_identifier) &&
-          StringRef(Tok.getRawIdentifierData(), Tok.getLength()) == "define") {
+      if (Tok.is(tok::raw_identifier) && Tok.getRawIdentifier() == "define") {
         if (lexNext(Lex, Tok, NextIdx, NumTokens))
           break;
 
         if (Tok.is(tok::raw_identifier)) {
-          StringRef Name(Tok.getRawIdentifierData(), Tok.getLength());
-          IdentifierInfo &II = PP.getIdentifierTable().get(Name);
+          IdentifierInfo &II =
+              PP.getIdentifierTable().get(Tok.getRawIdentifier());
           SourceLocation MappedTokLoc =
               CXXUnit->mapLocationToPreamble(Tok.getLocation());
           MI = getMacroInfo(II, MappedTokLoc, TU);
@@ -6241,8 +6307,10 @@ static int getCursorPlatformAvailabilityForDecl(const Decl *D,
       HadAvailAttr = true;
       if (always_deprecated)
         *always_deprecated = 1;
-      if (deprecated_message)
+      if (deprecated_message) {
+        clang_disposeString(*deprecated_message);
         *deprecated_message = cxstring::createDup(Deprecated->getMessage());
+      }
       continue;
     }
     
@@ -6251,6 +6319,7 @@ static int getCursorPlatformAvailabilityForDecl(const Decl *D,
       if (always_unavailable)
         *always_unavailable = 1;
       if (unavailable_message) {
+        clang_disposeString(*unavailable_message);
         *unavailable_message = cxstring::createDup(Unavailable->getMessage());
       }
       continue;
@@ -6517,17 +6586,6 @@ CXString clang_Cursor_getBriefCommentText(CXCursor C) {
   return cxstring::createNull();
 }
 
-CXComment clang_Cursor_getParsedComment(CXCursor C) {
-  if (!clang_isDeclaration(C.kind))
-    return cxcomment::createCXComment(NULL, NULL);
-
-  const Decl *D = getCursorDecl(C);
-  const ASTContext &Context = getCursorContext(C);
-  const comments::FullComment *FC = Context.getCommentForDecl(D, /*PP=*/ NULL);
-
-  return cxcomment::createCXComment(FC, getCursorTU(C));
-}
-
 CXModule clang_Cursor_getModule(CXCursor C) {
   if (C.kind == CXCursor_ModuleImportDecl) {
     if (const ImportDecl *ImportD =
@@ -6536,6 +6594,26 @@ CXModule clang_Cursor_getModule(CXCursor C) {
   }
 
   return 0;
+}
+
+CXModule clang_getModuleForFile(CXTranslationUnit TU, CXFile File) {
+  if (isNotUsableTU(TU)) {
+    LOG_BAD_TU(TU);
+    return nullptr;
+  }
+  if (!File)
+    return nullptr;
+  FileEntry *FE = static_cast<FileEntry *>(File);
+  
+  ASTUnit &Unit = *cxtu::getASTUnit(TU);
+  HeaderSearch &HS = Unit.getPreprocessor().getHeaderSearchInfo();
+  ModuleMap::KnownHeader Header = HS.findModuleForHeader(FE);
+  
+  if (Module *Mod = Header.getModule()) {
+    if (Header.getRole() != ModuleMap::ExcludedHeader)
+      return Mod;
+  }
+  return nullptr;
 }
 
 CXFile clang_Module_getASTFile(CXModule CXMod) {
@@ -6564,6 +6642,13 @@ CXString clang_Module_getFullName(CXModule CXMod) {
     return cxstring::createEmpty();
   Module *Mod = static_cast<Module*>(CXMod);
   return cxstring::createDup(Mod->getFullModuleName());
+}
+
+int clang_Module_isSystem(CXModule CXMod) {
+  if (!CXMod)
+    return 0;
+  Module *Mod = static_cast<Module*>(CXMod);
+  return Mod->IsSystem;
 }
 
 unsigned clang_Module_getNumTopLevelHeaders(CXTranslationUnit TU,
@@ -6928,7 +7013,7 @@ void cxindex::printDiagsToStderr(ASTUnit *Unit) {
   for (ASTUnit::stored_diag_iterator D = Unit->stored_diag_begin(), 
                                   DEnd = Unit->stored_diag_end();
        D != DEnd; ++D) {
-    CXStoredDiagnostic Diag(*D, Unit->getASTContext().getLangOpts());
+    CXStoredDiagnostic Diag(*D, Unit->getLangOpts());
     CXString Msg = clang_formatDiagnostic(&Diag,
                                 clang_defaultDiagnosticDisplayOptions());
     fprintf(stderr, "%s\n", clang_getCString(Msg));
@@ -7001,8 +7086,7 @@ MacroDefinition *cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI,
   if (!PPRec)
     return 0;
 
-  StringRef Name(Tok.getRawIdentifierData(), Tok.getLength());
-  IdentifierInfo &II = PP.getIdentifierTable().get(Name);
+  IdentifierInfo &II = PP.getIdentifierTable().get(Tok.getRawIdentifier());
   if (!II.hadMacroDefinition())
     return 0;
 

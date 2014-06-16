@@ -131,6 +131,16 @@ struct PragmaMSPragma : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+/// PragmaOptimizeHandler - "\#pragma clang optimize on/off".
+struct PragmaOptimizeHandler : public PragmaHandler {
+  PragmaOptimizeHandler(Sema &S)
+    : PragmaHandler("optimize"), Actions(S) {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &FirstToken) override;
+private:
+  Sema &Actions;
+};
+
 }  // end namespace
 
 void Parser::initializePragmaHandlers() {
@@ -196,6 +206,9 @@ void Parser::initializePragmaHandlers() {
     PP.AddPragmaHandler(MSSection.get());
   }
 
+  OptimizeHandler.reset(new PragmaOptimizeHandler(Actions));
+  PP.AddPragmaHandler("clang", OptimizeHandler.get());
+
 #ifdef MOLLY
   //TODO: Make independent of actions; use __annot_token instead
   PP.AddPragmaHandler(new PragmaMollyHandler(Actions));
@@ -254,6 +267,9 @@ void Parser::resetPragmaHandlers() {
 
   PP.RemovePragmaHandler("STDC", FPContractHandler.get());
   FPContractHandler.reset();
+
+  PP.RemovePragmaHandler("clang", OptimizeHandler.get());
+  OptimizeHandler.reset();
 }
 
 /// \brief Handle the annotation token produced for #pragma unused(...)
@@ -590,7 +606,7 @@ void PragmaGCCVisibilityHandler::HandlePragma(Preprocessor &PP,
 
   const IdentifierInfo *VisType;
   if (PushPop && PushPop->isStr("pop")) {
-    VisType = 0;
+    VisType = nullptr;
   } else if (PushPop && PushPop->isStr("push")) {
     PP.LexUnexpandedToken(Tok);
     if (Tok.isNot(tok::l_paren)) {
@@ -650,7 +666,7 @@ void PragmaPackHandler::HandlePragma(Preprocessor &PP,
   }
 
   Sema::PragmaPackKind Kind = Sema::PPK_Default;
-  IdentifierInfo *Name = 0;
+  IdentifierInfo *Name = nullptr;
   Token Alignment;
   Alignment.startToken();
   SourceLocation LParenLoc = Tok.getLocation();
@@ -1238,7 +1254,7 @@ void PragmaMSPointersToMembers::HandlePragma(Preprocessor &PP,
       } else if (Tok.is(tok::r_paren)) {
         // #pragma pointers_to_members(full_generality) implicitly specifies
         // virtual_inheritance.
-        Arg = 0;
+        Arg = nullptr;
         RepresentationMethod = LangOptions::PPTMK_FullGeneralityVirtualInheritance;
       } else {
         PP.Diag(Tok.getLocation(), diag::err_expected_punc)
@@ -1535,4 +1551,41 @@ void PragmaCommentHandler::HandlePragma(Preprocessor &PP,
     PP.getPPCallbacks()->PragmaComment(CommentLoc, II, ArgumentString);
 
   Actions.ActOnPragmaMSComment(Kind, ArgumentString);
+}
+
+// #pragma clang optimize off
+// #pragma clang optimize on
+void PragmaOptimizeHandler::HandlePragma(Preprocessor &PP, 
+                                        PragmaIntroducerKind Introducer,
+                                        Token &FirstToken) {
+  Token Tok;
+  PP.Lex(Tok);
+  if (Tok.is(tok::eod)) {
+    PP.Diag(Tok.getLocation(), diag::err_pragma_optimize_missing_argument);
+    return;
+  }
+  if (Tok.isNot(tok::identifier)) {
+    PP.Diag(Tok.getLocation(), diag::err_pragma_optimize_invalid_argument)
+      << PP.getSpelling(Tok);
+    return;
+  }
+  const IdentifierInfo *II = Tok.getIdentifierInfo();
+  // The only accepted values are 'on' or 'off'.
+  bool IsOn = false;
+  if (II->isStr("on")) {
+    IsOn = true;
+  } else if (!II->isStr("off")) {
+    PP.Diag(Tok.getLocation(), diag::err_pragma_optimize_invalid_argument)
+      << PP.getSpelling(Tok);
+    return;
+  }
+  PP.Lex(Tok);
+  
+  if (Tok.isNot(tok::eod)) {
+    PP.Diag(Tok.getLocation(), diag::err_pragma_optimize_extra_argument)
+      << PP.getSpelling(Tok);
+    return;
+  }
+
+  Actions.ActOnPragmaOptimize(IsOn, FirstToken.getLocation());
 }

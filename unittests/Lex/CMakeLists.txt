@@ -12,4 +12,5 @@ LINK_LIBS
   clangLex
   clangParse
   clangSema
+  clangSerialization
   )

@@ -45,7 +45,7 @@ set(files
   xopintrin.h
   cpuid.h
   unwind.h
-  module.map
+  module.modulemap
   qpxintrin.h
   )
 
