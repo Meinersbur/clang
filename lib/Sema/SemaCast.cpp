@@ -2051,6 +2051,15 @@ void CastOperation::CheckCXXCStyleCast(bool FunctionalStyle,
       return;
     }
 
+  // BG/Q vector4double, support AltiVec-style initialization with a single
+  // literal for bgxlc compatibility.
+  if (const VectorType *vecTy = DestType->getAs<VectorType>())
+    if (vecTy->getElementType()->isFloatingType()
+        && SrcExpr.get()->getType()->isFloatingType() && !FunctionalStyle) {
+      Kind = CK_VectorSplat;
+      return;
+    }
+
   // C++ [expr.cast]p5: The conversions performed by
   //   - a const_cast,
   //   - a static_cast,
@@ -2263,6 +2272,15 @@ void CastOperation::CheckCStyleCast() {
     SrcExpr = ExprError();
     return;
   }
+
+  // BG/Q vector4double, support AltiVec-style initialization with a single
+  // literal for bgxlc compatibility.
+  if (const VectorType *vecTy = DestType->getAs<VectorType>())
+    if (vecTy->getElementType()->isFloatingType()
+        && SrcExpr.get()->getType()->isFloatingType()) {
+      Kind = CK_VectorSplat;
+      return;
+    }
 
   if (DestType->isExtVectorType()) {
     SrcExpr = Self.CheckExtVectorCast(OpRange, DestType, SrcExpr.take(), Kind);
