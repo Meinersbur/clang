@@ -21,6 +21,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/PartialDiagnostic.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/Initialization.h"
 #include "llvm/ADT/SmallVector.h"
 #include <set>
@@ -1066,6 +1067,11 @@ static TryCastResult TryStaticCast(Sema &Self, ExprResult &SrcExpr,
     Kind = CK_BitCast;
     return TC_Success;
   }
+  // Allow ns-pointer to cf-pointer conversion in either direction
+  // with static casts.
+  if (!CStyle &&
+      Self.CheckTollFreeBridgeStaticCast(DestType, SrcExpr.get(), Kind))
+    return TC_Success;
   
   // We tried everything. Everything! Nothing works! :-(
   return TC_NotApplicable;
@@ -1346,7 +1352,8 @@ TryStaticMemberPointerUpcast(Sema &Self, ExprResult &SrcExpr, QualType SrcType,
   QualType DestClass(DestMemPtr->getClass(), 0);
   CXXBasePaths Paths(/*FindAmbiguities=*/true, /*RecordPaths=*/true,
                   /*DetectVirtual=*/true);
-  if (!Self.IsDerivedFrom(SrcClass, DestClass, Paths)) {
+  if (Self.RequireCompleteType(OpRange.getBegin(), SrcClass, 0) ||
+      !Self.IsDerivedFrom(SrcClass, DestClass, Paths)) {
     return TC_NotApplicable;
   }
 
@@ -1430,6 +1437,10 @@ TryStaticImplicitCast(Sema &Self, ExprResult &SrcExpr, QualType DestType,
                                     diag::err_allocation_of_abstract_type)) {
       msg = 0;
       return TC_Failed;
+    }
+  } else if (DestType->isMemberPointerType()) {
+    if (Self.Context.getTargetInfo().getCXXABI().isMicrosoft()) {
+      Self.RequireCompleteType(OpRange.getBegin(), DestType, 0);
     }
   }
 
@@ -1578,8 +1589,7 @@ static TryCastResult TryConstCast(Sema &Self, ExprResult &SrcExpr,
     // This is a const_cast from a class prvalue to an rvalue reference type.
     // Materialize a temporary to store the result of the conversion.
     SrcExpr = new (Self.Context) MaterializeTemporaryExpr(
-        SrcType, SrcExpr.take(), /*IsLValueReference*/ false,
-        /*ExtendingDecl*/ 0);
+        SrcType, SrcExpr.take(), /*IsLValueReference*/ false);
 
   return TC_Success;
 }
@@ -1776,6 +1786,13 @@ static TryCastResult TryReinterpretCast(Sema &Self, ExprResult &SrcExpr,
                            /*CheckObjCLifetime=*/CStyle)) {
       msg = diag::err_bad_cxx_cast_qualifiers_away;
       return TC_Failed;
+    }
+
+    if (Self.Context.getTargetInfo().getCXXABI().isMicrosoft()) {
+      // We need to determine the inheritance model that the class will use if
+      // haven't yet.
+      Self.RequireCompleteType(OpRange.getBegin(), SrcType, 0);
+      Self.RequireCompleteType(OpRange.getBegin(), DestType, 0);
     }
 
     // Don't allow casting between member pointers of different sizes.
@@ -2034,6 +2051,15 @@ void CastOperation::CheckCXXCStyleCast(bool FunctionalStyle,
       return;
     }
 
+  // BG/Q vector4double, support AltiVec-style initialization with a single
+  // literal for bgxlc compatibility.
+  if (const VectorType *vecTy = DestType->getAs<VectorType>())
+    if (vecTy->getElementType()->isFloatingType()
+        && SrcExpr.get()->getType()->isFloatingType() && !FunctionalStyle) {
+      Kind = CK_VectorSplat;
+      return;
+    }
+
   // C++ [expr.cast]p5: The conversions performed by
   //   - a const_cast,
   //   - a static_cast,
@@ -2082,10 +2108,16 @@ void CastOperation::CheckCXXCStyleCast(bool FunctionalStyle,
                                 DestType,
                                 /*Complain*/ true,
                                 Found);
-      
-      assert(!Fn && "cast failed but able to resolve overload expression!!");
-      (void)Fn;
-
+      if (Fn) {
+        // If DestType is a function type (not to be confused with the function
+        // pointer type), it will be possible to resolve the function address,
+        // but the type cast should be considered as failure.
+        OverloadExpr *OE = OverloadExpr::find(SrcExpr.get()).Expression;
+        Self.Diag(OpRange.getBegin(), diag::err_bad_cstyle_cast_overload)
+          << OE->getName() << DestType << OpRange
+          << OE->getQualifierLoc().getSourceRange();
+        Self.NoteAllOverloadCandidates(SrcExpr.get());
+      }
     } else {
       diagnoseBadCast(Self, msg, (FunctionalStyle ? CT_Functional : CT_CStyle),
                       OpRange, SrcExpr.get(), DestType, ListInitialization);
@@ -2168,6 +2200,21 @@ void CastOperation::CheckCStyleCast() {
 
   assert(!SrcType->isPlaceholderType());
 
+  // OpenCL v1 s6.5: Casting a pointer to address space A to a pointer to
+  // address space B is illegal.
+  if (Self.getLangOpts().OpenCL && DestType->isPointerType() &&
+      SrcType->isPointerType()) {
+    if (DestType->getPointeeType().getAddressSpace() !=
+        SrcType->getPointeeType().getAddressSpace()) {
+      Self.Diag(OpRange.getBegin(),
+                diag::err_typecheck_incompatible_address_space)
+          << SrcType << DestType << Sema::AA_Casting
+          << SrcExpr.get()->getSourceRange();
+      SrcExpr = ExprError();
+      return;
+    }
+  }
+
   if (Self.RequireCompleteType(OpRange.getBegin(), DestType,
                                diag::err_typecheck_cast_to_incomplete)) {
     SrcExpr = ExprError();
@@ -2225,6 +2272,15 @@ void CastOperation::CheckCStyleCast() {
     SrcExpr = ExprError();
     return;
   }
+
+  // BG/Q vector4double, support AltiVec-style initialization with a single
+  // literal for bgxlc compatibility.
+  if (const VectorType *vecTy = DestType->getAs<VectorType>())
+    if (vecTy->getElementType()->isFloatingType()
+        && SrcExpr.get()->getType()->isFloatingType()) {
+      Kind = CK_VectorSplat;
+      return;
+    }
 
   if (DestType->isExtVectorType()) {
     SrcExpr = Self.CheckExtVectorCast(OpRange, DestType, SrcExpr.take(), Kind);
@@ -2319,6 +2375,7 @@ void CastOperation::CheckCStyleCast() {
       return;
     }
   }
+  
   DiagnoseCastOfObjCSEL(Self, SrcExpr, DestType);
   DiagnoseBadFunctionCast(Self, SrcExpr, DestType);
   Kind = Self.PrepareScalarCast(SrcExpr, DestType);

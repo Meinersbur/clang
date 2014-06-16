@@ -17,7 +17,7 @@ using namespace clang;
 
 MacroInfo::MacroInfo(SourceLocation DefLoc)
   : Location(DefLoc),
-    ArgumentList(0),
+    ArgumentList(nullptr),
     NumArguments(0),
     IsDefinitionLengthCached(false),
     IsFunctionLike(false),
@@ -29,7 +29,8 @@ MacroInfo::MacroInfo(SourceLocation DefLoc)
     IsUsed(false),
     IsAllowRedefinitionsWithoutWarning(false),
     IsWarnIfUnused(false),
-    FromASTFile(false) {
+    FromASTFile(false),
+    UsedForHeaderGuard(false) {
 }
 
 unsigned MacroInfo::getDefinitionLengthSlow(SourceManager &SM) const {
@@ -125,14 +126,11 @@ bool MacroInfo::isIdenticalTo(const MacroInfo &Other, Preprocessor &PP,
   return true;
 }
 
-MacroDirective::DefInfo MacroDirective::getDefinition(bool AllowHidden) {
+MacroDirective::DefInfo MacroDirective::getDefinition() {
   MacroDirective *MD = this;
   SourceLocation UndefLoc;
   Optional<bool> isPublic;
   for (; MD; MD = MD->getPrevious()) {
-    if (!AllowHidden && MD->isHidden())
-      continue;
-
     if (DefMacroDirective *DefMD = dyn_cast<DefMacroDirective>(MD))
       return DefInfo(DefMD, UndefLoc,
                      !isPublic.hasValue() || isPublic.getValue());
@@ -147,7 +145,8 @@ MacroDirective::DefInfo MacroDirective::getDefinition(bool AllowHidden) {
       isPublic = VisMD->isPublic();
   }
 
-  return DefInfo();
+  return DefInfo(nullptr, UndefLoc,
+                 !isPublic.hasValue() || isPublic.getValue());
 }
 
 const MacroDirective::DefInfo

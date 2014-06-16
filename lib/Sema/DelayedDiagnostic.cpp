@@ -19,13 +19,22 @@
 using namespace clang;
 using namespace sema;
 
-DelayedDiagnostic DelayedDiagnostic::makeDeprecation(SourceLocation Loc,
+DelayedDiagnostic
+DelayedDiagnostic::makeAvailability(Sema::AvailabilityDiagnostic AD,
+                                    SourceLocation Loc,
                                     const NamedDecl *D,
                                     const ObjCInterfaceDecl *UnknownObjCClass,
                                     const ObjCPropertyDecl  *ObjCProperty,
                                     StringRef Msg) {
   DelayedDiagnostic DD;
-  DD.Kind = Deprecation;
+  switch (AD) {
+    case Sema::AD_Deprecation:
+      DD.Kind = Deprecation;
+      break;
+    case Sema::AD_Unavailable:
+      DD.Kind = Unavailable;
+      break;
+  }
   DD.Triggered = false;
   DD.Loc = Loc;
   DD.DeprecationData.Decl = D;
@@ -43,12 +52,13 @@ DelayedDiagnostic DelayedDiagnostic::makeDeprecation(SourceLocation Loc,
 }
 
 void DelayedDiagnostic::Destroy() {
-  switch (Kind) {
+  switch (static_cast<DDKind>(Kind)) {
   case Access: 
     getAccessData().~AccessedEntity(); 
     break;
 
-  case Deprecation: 
+  case Deprecation:
+  case Unavailable:
     delete [] DeprecationData.Message;
     break;
 

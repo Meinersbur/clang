@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/ExprCXX.h"
@@ -48,6 +49,11 @@ static QualType Desugar(ASTContext &Context, QualType QT, bool &ShouldAKA) {
     }
     // ...or an attributed type...
     if (const AttributedType *AT = dyn_cast<AttributedType>(Ty)) {
+      QT = AT->desugar();
+      continue;
+    }
+    // ...or an adjusted type...
+    if (const AdjustedType *AT = dyn_cast<AdjustedType>(Ty)) {
       QT = AT->desugar();
       continue;
     }
@@ -222,6 +228,20 @@ ConvertTypeToDiagnosticString(ASTContext &Context, QualType Ty,
         return S;
       }
     }
+
+    // Give some additional info on vector types. These are either not desugared
+    // or displaying complex __attribute__ expressions so add details of the
+    // type and element count.
+    if (Ty->isVectorType()) {
+      const VectorType *VTy = Ty->getAs<VectorType>();
+      std::string DecoratedString;
+      llvm::raw_string_ostream OS(DecoratedString);
+      const char *Values = VTy->getNumElements() > 1 ? "values" : "value";
+      OS << "'" << S << "' (vector of " << VTy->getNumElements() << " '"
+         << VTy->getElementType().getAsString(Context.getPrintingPolicy())
+         << "' " << Values << ")";
+      return OS.str();
+    }
   }
 
   S = "'" + S + "'";
@@ -354,6 +374,14 @@ void clang::FormatASTNodeDiagnosticArgument(
       NeedQuotes = false;
       break;
     }
+    case DiagnosticsEngine::ak_attr: {
+      const Attr *At = reinterpret_cast<Attr *>(Val);
+      assert(At && "Received null Attr object!");
+      OS << '\'' << At->getSpelling() << '\'';
+      NeedQuotes = false;
+      break;
+    }
+
   }
 
   OS.flush();
@@ -470,10 +498,11 @@ class TemplateDiff {
 
       DiffNode(unsigned ParentNode = 0)
         : Kind(Invalid), NextNode(0), ChildNode(0), ParentNode(ParentNode),
-          FromType(), ToType(), FromExpr(0), ToExpr(0), FromTD(0), ToTD(0),
-          IsValidFromInt(false), IsValidToInt(false), FromValueDecl(0),
-          ToValueDecl(0), FromAddressOf(false), ToAddressOf(false),
-          FromDefault(false), ToDefault(false), Same(false) { }
+          FromType(), ToType(), FromExpr(nullptr), ToExpr(nullptr),
+          FromTD(nullptr), ToTD(nullptr), IsValidFromInt(false),
+          IsValidToInt(false), FromValueDecl(nullptr), ToValueDecl(nullptr),
+          FromAddressOf(false), ToAddressOf(false), FromDefault(false),
+          ToDefault(false), Same(false) {}
     };
 
     /// FlatTree - A flattened tree used to store the DiffNodes.
@@ -718,7 +747,7 @@ class TemplateDiff {
     TSTiterator(ASTContext &Context, const TemplateSpecializationType *TST)
         : TST(TST),
           DesugarTST(GetTemplateSpecializationType(Context, TST->desugar())),
-          Index(0), CurrentTA(0), EndTA(0) {
+          Index(0), CurrentTA(nullptr), EndTA(nullptr) {
       if (isEnd()) return;
 
       // Set to first template argument.  If not a parameter pack, done.
@@ -809,13 +838,13 @@ class TemplateDiff {
     const RecordType *RT = Ty->getAs<RecordType>();
 
     if (!RT)
-      return 0;
+      return nullptr;
 
     const ClassTemplateSpecializationDecl *CTSD =
         dyn_cast<ClassTemplateSpecializationDecl>(RT->getDecl());
 
     if (!CTSD)
-      return 0;
+      return nullptr;
 
     Ty = Context.getTemplateSpecializationType(
              TemplateName(CTSD->getSpecializedTemplate()),
@@ -887,9 +916,9 @@ class TemplateDiff {
       // Handle Expressions
       if (NonTypeTemplateParmDecl *DefaultNTTPD =
               dyn_cast<NonTypeTemplateParmDecl>(ParamND)) {
-        Expr *FromExpr = 0, *ToExpr = 0;
+        Expr *FromExpr = nullptr, *ToExpr = nullptr;
         llvm::APSInt FromInt, ToInt;
-        ValueDecl *FromValueDecl = 0, *ToValueDecl = 0;
+        ValueDecl *FromValueDecl = nullptr, *ToValueDecl = nullptr;
         unsigned ParamWidth = 128; // Safe default
         if (DefaultNTTPD->getType()->isIntegralOrEnumerationType())
           ParamWidth = Context.getIntWidth(DefaultNTTPD->getType());
@@ -1072,7 +1101,7 @@ class TemplateDiff {
   /// GetExpr - Retrieves the template expression argument, including default
   /// arguments.
   Expr *GetExpr(const TSTiterator &Iter, NonTypeTemplateParmDecl *DefaultNTTPD) {
-    Expr *ArgExpr = 0;
+    Expr *ArgExpr = nullptr;
     bool isVariadic = DefaultNTTPD->isParameterPack();
 
     if (!Iter.isEnd())
@@ -1136,7 +1165,7 @@ class TemplateDiff {
     bool isVariadic = DefaultTTPD->isParameterPack();
 
     TemplateArgument TA = DefaultTTPD->getDefaultArgument().getArgument();
-    TemplateDecl *DefaultTD = 0;
+    TemplateDecl *DefaultTD = nullptr;
     if (TA.getKind() != TemplateArgument::Null)
       DefaultTD = TA.getAsTemplate().getAsTemplateDecl();
 
@@ -1145,7 +1174,7 @@ class TemplateDiff {
     if (!isVariadic)
       return DefaultTD;
 
-    return 0;
+    return nullptr;
   }
 
   /// IsSameConvertedInt - Returns true if both integers are equal when
@@ -1349,8 +1378,7 @@ class TemplateDiff {
         FromType.getLocalUnqualifiedType() ==
         ToType.getLocalUnqualifiedType()) {
       Qualifiers FromQual = FromType.getLocalQualifiers(),
-                 ToQual = ToType.getLocalQualifiers(),
-                 CommonQual;
+                 ToQual = ToType.getLocalQualifiers();
       PrintQualifiers(FromQual, ToQual);
       FromType.getLocalUnqualifiedType().print(OS, Policy);
       return;
@@ -1417,7 +1445,7 @@ class TemplateDiff {
     if (!E)
       OS << "(no argument)";
     else
-      E->printPretty(OS, 0, Policy); return;
+      E->printPretty(OS, nullptr, Policy);
   }
 
   /// PrintTemplateTemplate - Handles printing of template template arguments,

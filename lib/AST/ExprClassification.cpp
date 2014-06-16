@@ -165,8 +165,6 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::FloatingLiteralClass:
   case Expr::CXXNoexceptExprClass:
   case Expr::CXXScalarValueInitExprClass:
-  case Expr::UnaryTypeTraitExprClass:
-  case Expr::BinaryTypeTraitExprClass:
   case Expr::TypeTraitExprClass:
   case Expr::ArrayTypeTraitExprClass:
   case Expr::ExpressionTraitExprClass:
@@ -183,6 +181,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::AsTypeExprClass:
   case Expr::ObjCIndirectCopyRestoreExprClass:
   case Expr::AtomicExprClass:
+  case Expr::CEANIndexExprClass:
     return Cl::CL_PRValue;
 
     // Next come the complicated cases.
@@ -348,7 +347,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::ObjCMessageExprClass:
     if (const ObjCMethodDecl *Method =
           cast<ObjCMessageExpr>(E)->getMethodDecl()) {
-      Cl::Kinds kind = ClassifyUnnamed(Ctx, Method->getResultType());
+      Cl::Kinds kind = ClassifyUnnamed(Ctx, Method->getReturnType());
       return (kind == Cl::CL_PRValue) ? Cl::CL_ObjCMessageRValue : kind;
     }
     return Cl::CL_PRValue;
@@ -543,10 +542,21 @@ static Cl::Kinds ClassifyConditional(ASTContext &Ctx, const Expr *True,
          "This is only relevant for C++.");
 
   // C++ [expr.cond]p2
-  //   If either the second or the third operand has type (cv) void, [...]
-  //   the result [...] is a prvalue.
-  if (True->getType()->isVoidType() || False->getType()->isVoidType())
+  //   If either the second or the third operand has type (cv) void,
+  //   one of the following shall hold:
+  if (True->getType()->isVoidType() || False->getType()->isVoidType()) {
+    // The second or the third operand (but not both) is a (possibly
+    // parenthesized) throw-expression; the result is of the [...] value
+    // category of the other.
+    bool TrueIsThrow = isa<CXXThrowExpr>(True->IgnoreParenImpCasts());
+    bool FalseIsThrow = isa<CXXThrowExpr>(False->IgnoreParenImpCasts());
+    if (const Expr *NonThrow = TrueIsThrow ? (FalseIsThrow ? nullptr : False)
+                                           : (FalseIsThrow ? True : nullptr))
+      return ClassifyInternal(Ctx, NonThrow);
+
+    //   [Otherwise] the result [...] is a prvalue.
     return Cl::CL_PRValue;
+  }
 
   // Note that at this point, we have already performed all conversions
   // according to [expr.cond]p3.
@@ -584,13 +594,16 @@ static Cl::ModifiableType IsModifiable(ASTContext &Ctx, const Expr *E,
   // Assignment to a property in ObjC is an implicit setter access. But a
   // setter might not exist.
   if (const ObjCPropertyRefExpr *Expr = dyn_cast<ObjCPropertyRefExpr>(E)) {
-    if (Expr->isImplicitProperty() && Expr->getImplicitPropertySetter() == 0)
+    if (Expr->isImplicitProperty() &&
+        Expr->getImplicitPropertySetter() == nullptr)
       return Cl::CM_NoSetterProperty;
   }
 
   CanQualType CT = Ctx.getCanonicalType(E->getType());
   // Const stuff is obviously not modifiable.
   if (CT.isConstQualified())
+    return Cl::CM_ConstQualified;
+  if (CT.getQualifiers().getAddressSpace() == LangAS::opencl_constant)
     return Cl::CM_ConstQualified;
 
   // Arrays are not modifiable, only their elements are.

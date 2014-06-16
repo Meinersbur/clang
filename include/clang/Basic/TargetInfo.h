@@ -16,9 +16,9 @@
 #define LLVM_CLANG_BASIC_TARGETINFO_H
 
 #include "clang/Basic/AddressSpaces.h"
-#include "clang/Basic/TargetCXXABI.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Basic/TargetCXXABI.h"
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Basic/VersionTuple.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -283,7 +283,7 @@ public:
   unsigned getLongLongAlign() const { return LongLongAlign; }
 
   /// \brief Determine whether the __int128 type is supported on this target.
-  bool hasInt128Type() const { return getPointerWidth(0) >= 64; } // FIXME
+  virtual bool hasInt128Type() const { return getPointerWidth(0) >= 64; } // FIXME
 
   /// \brief Return the alignment that is suitable for storing any
   /// object with a fundamental alignment requirement.
@@ -579,6 +579,7 @@ public:
   }
 
   const char *getTargetDescription() const {
+    assert(DescriptionString);
     return DescriptionString;
   }
 
@@ -603,24 +604,6 @@ public:
   /// consistent target-independent semantics for "default" visibility
   /// either; the entire thing is pretty badly mangled.
   virtual bool hasProtectedVisibility() const { return true; }
-
-  /// \brief Return the section to use for CFString literals, or 0 if no
-  /// special section is used.
-  virtual const char *getCFStringSection() const {
-    return "__DATA,__cfstring";
-  }
-
-  /// \brief Return the section to use for NSString literals, or 0 if no
-  /// special section is used.
-  virtual const char *getNSStringSection() const {
-    return "__OBJC,__cstring_object,regular,no_dead_strip";
-  }
-
-  /// \brief Return the section to use for NSString literals, or 0 if no
-  /// special section is used (NonFragile ABI).
-  virtual const char *getNSStringNonFragileABISection() const {
-    return "__DATA, __objc_stringobj, regular, no_dead_strip";
-  }
 
   /// \brief An optional hook that targets can implement to perform semantic
   /// checking on attribute((section("foo"))) specifiers.
@@ -752,7 +735,7 @@ public:
 
   /// \brief Return the section to use for C++ static initialization functions.
   virtual const char *getStaticInitSectionSpecifier() const {
-    return 0;
+    return nullptr;
   }
 
   const LangAS::Map &getAddressSpaceMap() const {
@@ -818,7 +801,7 @@ protected:
                                 unsigned &NumAliases) const = 0;
   virtual void getGCCAddlRegNames(const AddlRegName *&Addl,
                                   unsigned &NumAddl) const {
-    Addl = 0;
+    Addl = nullptr;
     NumAddl = 0;
   }
   virtual bool validateAsmConstraint(const char *&Name,

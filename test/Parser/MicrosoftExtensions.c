@@ -30,6 +30,20 @@ void __forceinline InterlockedBitTestAndSet (long *Base, long Bit)
   };
 #endif
 }
+
+// Both inline and __forceinline is OK.
+inline void __forceinline pr8264() {
+}
+__forceinline void inline pr8264_1() {
+}
+void inline __forceinline pr8264_2() {
+}
+void __forceinline inline pr8264_3() {
+}
+// But duplicate __forceinline causes warning.
+void __forceinline __forceinline pr8264_4() {  // expected-warning{{duplicate '__forceinline' declaration specifier}}
+}
+
 _inline int foo99() { return 99; }
 
 void test_ms_alignof_alias() {
@@ -57,8 +71,8 @@ char x = FOO(a);
 typedef enum E { e1 };
 
 
-enum __declspec(deprecated) E2 { i, j, k }; // expected-note {{declared here}}
-__declspec(deprecated) enum E3 { a, b, c } e; // expected-note {{declared here}}
+enum __declspec(deprecated) E2 { i, j, k }; // expected-note {{'E2' has been explicitly marked deprecated here}}
+__declspec(deprecated) enum E3 { a, b, c } e; // expected-note {{'e' has been explicitly marked deprecated here}}
 
 void deprecated_enum_test(void)
 {
@@ -84,20 +98,26 @@ void ms_intrinsics(int a)
   __debugbreak();
 }
 
-struct __declspec(frobble) S1 {};	/* expected-warning {{unknown __declspec attribute 'frobble' ignored}} */
+struct __declspec(frobble) S1 {};	/* expected-warning {{__declspec attribute 'frobble' is not supported}} */
 struct __declspec(12) S2 {};	/* expected-error {{__declspec attributes must be an identifier or string literal}} */
 struct __declspec("testing") S3 {}; /* expected-warning {{__declspec attribute '"testing"' is not supported}} */
+
+/* declspecs with arguments cannot have an empty argument list, even if the
+   arguments are optional. */
+__declspec(deprecated()) void dep_func_test(void); /* expected-error {{parentheses must be omitted if 'deprecated' attribute's argument list is empty}} */
+__declspec(deprecated) void dep_func_test2(void);
+__declspec(deprecated("")) void dep_func_test3(void);
 
 /* Ensure multiple declspec attributes are supported */
 struct __declspec(align(8) deprecated) S4 {};
 
 /* But multiple declspecs must still be legal */
-struct __declspec(deprecated frobble "testing") S5 {};  /* expected-warning {{unknown __declspec attribute 'frobble' ignored}} expected-warning {{__declspec attribute '"testing"' is not supported}} */
-struct __declspec(unknown(12) deprecated) S6 {};	/* expected-warning {{unknown __declspec attribute 'unknown' ignored}}*/
+struct __declspec(deprecated frobble "testing") S5 {};  /* expected-warning {{__declspec attribute 'frobble' is not supported}} expected-warning {{__declspec attribute '"testing"' is not supported}} */
+struct __declspec(unknown(12) deprecated) S6 {};	/* expected-warning {{__declspec attribute 'unknown' is not supported}}*/
 
 struct S7 {
 	int foo() { return 12; }
-	__declspec(property(get=foo) deprecated) int t; // expected-note {{declared here}}
+	__declspec(property(get=foo) deprecated) int t; // expected-note {{'t' has been explicitly marked deprecated here}}
 };
 
 /* Technically, this is legal (though it does nothing) */

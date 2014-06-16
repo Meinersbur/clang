@@ -50,6 +50,9 @@ static CXCursorKind GetCursorKind(const Attr *A) {
     case attr::Annotate: return CXCursor_AnnotateAttr;
     case attr::AsmLabel: return CXCursor_AsmLabelAttr;
     case attr::Packed: return CXCursor_PackedAttr;
+    case attr::Pure: return CXCursor_PureAttr;
+    case attr::Const: return CXCursor_ConstAttr;
+    case attr::NoDuplicate: return CXCursor_NoDuplicateAttr;
   }
 
   return CXCursor_UnexposedAttr;
@@ -213,7 +216,6 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::AsTypeExprClass:
   case Stmt::AtomicExprClass:
   case Stmt::BinaryConditionalOperatorClass:
-  case Stmt::BinaryTypeTraitExprClass:
   case Stmt::TypeTraitExprClass:
   case Stmt::CXXBindTemporaryExprClass:
   case Stmt::CXXDefaultArgExprClass:
@@ -236,12 +238,12 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::ShuffleVectorExprClass:
   case Stmt::ConvertVectorExprClass:
   case Stmt::UnaryExprOrTypeTraitExprClass:
-  case Stmt::UnaryTypeTraitExprClass:
   case Stmt::VAArgExprClass:
   case Stmt::ObjCArrayLiteralClass:
   case Stmt::ObjCDictionaryLiteralClass:
   case Stmt::ObjCBoxedExprClass:
   case Stmt::ObjCSubscriptRefExprClass:
+  case Stmt::CEANIndexExprClass:
     K = CXCursor_UnexposedExpr;
     break;
 
@@ -514,8 +516,32 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::OMPForDirectiveClass:
     K = CXCursor_OMPForDirective;
     break;
+  case Stmt::OMPParallelForDirectiveClass:
+    K = CXCursor_OMPParallelForDirective;
+    break;
+  case Stmt::OMPParallelForSimdDirectiveClass:
+    K = CXCursor_OMPParallelForSimdDirective;
+    break;
+  case Stmt::OMPSimdDirectiveClass:
+    K = CXCursor_OMPSimdDirective;
+    break;
+  case Stmt::OMPForSimdDirectiveClass:
+    K = CXCursor_OMPForSimdDirective;
+    break;
+  case Stmt::OMPDistributeSimdDirectiveClass:
+    K = CXCursor_OMPDistributeSimdDirective;
+    break;
+  case Stmt::OMPDistributeParallelForDirectiveClass:
+    K = CXCursor_OMPDistributeParallelForDirective;
+    break;
+  case Stmt::OMPDistributeParallelForSimdDirectiveClass:
+    K = CXCursor_OMPDistributeParallelForSimdDirective;
+    break;
   case Stmt::OMPSectionsDirectiveClass:
     K = CXCursor_OMPSectionsDirective;
+    break;
+  case Stmt::OMPParallelSectionsDirectiveClass:
+    K = CXCursor_OMPParallelSectionsDirective;
     break;
   case Stmt::OMPSectionDirectiveClass:
     K = CXCursor_OMPSectionDirective;
@@ -553,8 +579,23 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::OMPOrderedDirectiveClass:
     K = CXCursor_OMPOrderedDirective;
     break;
+  case Stmt::OMPTeamsDirectiveClass:
+    K = CXCursor_OMPTeamsDirective;
+    break;
+  case Stmt::OMPDistributeDirectiveClass:
+    K = CXCursor_OMPDistributeDirective;
+    break;
+  case Stmt::OMPTargetDirectiveClass:
+    K = CXCursor_OMPTargetDirective;
+    break;
+  case Stmt::OMPCancelDirectiveClass:
+    K = CXCursor_OMPCancelDirective;
+    break;
+  case Stmt::OMPCancellationPointDirectiveClass:
+    K = CXCursor_OMPCancellationPointDirective;
+    break;
   }
-  
+
   CXCursor C = { K, 0, { Parent, S, TU } };
   return C;
 }

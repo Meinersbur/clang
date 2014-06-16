@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Sema/SemaInternal.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -291,7 +292,7 @@ CheckExtVectorComponent(Sema &S, QualType baseType, ExprValueKind &VK,
 
   // This flag determines whether or not CompName has an 's' char prefix,
   // indicating that it is a string of hex values to be used as vector indices.
-  bool HexSwizzle = *compStr == 's' || *compStr == 'S';
+  bool HexSwizzle = (*compStr == 's' || *compStr == 'S') && compStr[1];
 
   bool HasRepeated = false;
   bool HasIndex[16] = {};
@@ -383,9 +384,8 @@ static Decl *FindGetterSetterNameDeclFromProtocolList(const ObjCProtocolDecl*PDe
   if (ObjCMethodDecl *OMD = PDecl->getInstanceMethod(Sel))
     return OMD;
 
-  for (ObjCProtocolDecl::protocol_iterator I = PDecl->protocol_begin(),
-       E = PDecl->protocol_end(); I != E; ++I) {
-    if (Decl *D = FindGetterSetterNameDeclFromProtocolList(*I, Member, Sel,
+  for (const auto *I : PDecl->protocols()) {
+    if (Decl *D = FindGetterSetterNameDeclFromProtocolList(I, Member, Sel,
                                                            Context))
       return D;
   }
@@ -398,25 +398,22 @@ static Decl *FindGetterSetterNameDecl(const ObjCObjectPointerType *QIdTy,
                                       ASTContext &Context) {
   // Check protocols on qualified interfaces.
   Decl *GDecl = 0;
-  for (ObjCObjectPointerType::qual_iterator I = QIdTy->qual_begin(),
-       E = QIdTy->qual_end(); I != E; ++I) {
+  for (const auto *I : QIdTy->quals()) {
     if (Member)
-      if (ObjCPropertyDecl *PD = (*I)->FindPropertyDeclaration(Member)) {
+      if (ObjCPropertyDecl *PD = I->FindPropertyDeclaration(Member)) {
         GDecl = PD;
         break;
       }
     // Also must look for a getter or setter name which uses property syntax.
-    if (ObjCMethodDecl *OMD = (*I)->getInstanceMethod(Sel)) {
+    if (ObjCMethodDecl *OMD = I->getInstanceMethod(Sel)) {
       GDecl = OMD;
       break;
     }
   }
   if (!GDecl) {
-    for (ObjCObjectPointerType::qual_iterator I = QIdTy->qual_begin(),
-         E = QIdTy->qual_end(); I != E; ++I) {
+    for (const auto *I : QIdTy->quals()) {
       // Search in the protocol-qualifier list of current protocol.
-      GDecl = FindGetterSetterNameDeclFromProtocolList(*I, Member, Sel, 
-                                                       Context);
+      GDecl = FindGetterSetterNameDeclFromProtocolList(I, Member, Sel, Context);
       if (GDecl)
         return GDecl;
     }
@@ -545,7 +542,7 @@ class RecordMemberExprValidatorCCC : public CorrectionCandidateCallback {
   explicit RecordMemberExprValidatorCCC(const RecordType *RTy)
       : Record(RTy->getDecl()) {}
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     NamedDecl *ND = candidate.getCorrectionDecl();
     // Don't accept candidates that cannot be member functions, constants,
     // variables, or templates.
@@ -558,11 +555,9 @@ class RecordMemberExprValidatorCCC : public CorrectionCandidateCallback {
 
     if (const CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(Record)) {
       // Accept candidates that occur in any of the current class' base classes.
-      for (CXXRecordDecl::base_class_const_iterator BS = RD->bases_begin(),
-                                                    BSEnd = RD->bases_end();
-           BS != BSEnd; ++BS) {
+      for (const auto &BS : RD->bases()) {
         if (const RecordType *BSTy = dyn_cast_or_null<RecordType>(
-                BS->getType().getTypePtrOrNull())) {
+                BS.getType().getTypePtrOrNull())) {
           if (BSTy->getDecl()->containsDecl(ND))
             return true;
         }
@@ -632,7 +627,8 @@ LookupMemberExprInRecord(Sema &SemaRef, LookupResult &R,
   RecordMemberExprValidatorCCC Validator(RTy);
   TypoCorrection Corrected = SemaRef.CorrectTypo(R.getLookupNameInfo(),
                                                  R.getLookupKind(), NULL,
-                                                 &SS, Validator, DC);
+                                                 &SS, Validator,
+                                                 Sema::CTK_ErrorRecovery, DC);
   R.clear();
   if (Corrected.isResolved() && !Corrected.isKeyword()) {
     R.setLookupName(Corrected.getCorrection());
@@ -810,8 +806,6 @@ Sema::BuildAnonymousStructUnionMemberReference(const CXXScopeSpec &SS,
     if (!result)
       return ExprError();
 
-    baseObjectIsPointer = false;
-    
     // FIXME: check qualified member access
   }
   
@@ -883,7 +877,54 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
     BaseType = BaseType->castAs<PointerType>()->getPointeeType();
   }
   R.setBaseObjectType(BaseType);
-
+  
+  LambdaScopeInfo *const CurLSI = getCurLambda();
+  // If this is an implicit member reference and the overloaded
+  // name refers to both static and non-static member functions
+  // (i.e. BaseExpr is null) and if we are currently processing a lambda, 
+  // check if we should/can capture 'this'...
+  // Keep this example in mind:
+  //  struct X {
+  //   void f(int) { }
+  //   static void f(double) { }
+  // 
+  //   int g() {
+  //     auto L = [=](auto a) { 
+  //       return [](int i) {
+  //         return [=](auto b) {
+  //           f(b); 
+  //           //f(decltype(a){});
+  //         };
+  //       };
+  //     };
+  //     auto M = L(0.0); 
+  //     auto N = M(3);
+  //     N(5.32); // OK, must not error. 
+  //     return 0;
+  //   }
+  //  };
+  //
+  if (!BaseExpr && CurLSI) {
+    SourceLocation Loc = R.getNameLoc();
+    if (SS.getRange().isValid())
+      Loc = SS.getRange().getBegin();    
+    DeclContext *EnclosingFunctionCtx = CurContext->getParent()->getParent();
+    // If the enclosing function is not dependent, then this lambda is 
+    // capture ready, so if we can capture this, do so.
+    if (!EnclosingFunctionCtx->isDependentContext()) {
+      // If the current lambda and all enclosing lambdas can capture 'this' -
+      // then go ahead and capture 'this' (since our unresolved overload set 
+      // contains both static and non-static member functions). 
+      if (!CheckCXXThisCapture(Loc, /*Explcit*/false, /*Diagnose*/false))
+        CheckCXXThisCapture(Loc);
+    } else if (CurContext->isDependentContext()) { 
+      // ... since this is an implicit member reference, that might potentially
+      // involve a 'this' capture, mark 'this' for potential capture in 
+      // enclosing lambdas.
+      if (CurLSI->ImpCaptureStyle != CurLSI->ImpCap_None)
+        CurLSI->addPotentialThisCapture(Loc);
+    }
+  }
   const DeclarationNameInfo &MemberNameInfo = R.getLookupNameInfo();
   DeclarationName MemberName = MemberNameInfo.getName();
   SourceLocation MemberLoc = MemberNameInfo.getLoc();
@@ -1158,6 +1199,11 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
       // overloaded operator->, but that should have been dealt with
       // by now--or a diagnostic message already issued if a problem
       // was encountered while looking for the overloaded operator->.
+      if (!getLangOpts().CPlusPlus) {
+        Diag(OpLoc, diag::err_typecheck_member_reference_suggestion)
+          << BaseType << int(IsArrow) << BaseExpr.get()->getSourceRange()
+          << FixItHint::CreateReplacement(OpLoc, ".");
+      }
       IsArrow = false;
     } else if (BaseType->isFunctionType()) {
       goto fail;
@@ -1225,7 +1271,8 @@ Sema::LookupMemberExpr(LookupResult &R, ExprResult &BaseExpr,
       Validator.IsObjCIvarLookup = IsArrow;
       if (TypoCorrection Corrected = CorrectTypo(R.getLookupNameInfo(),
                                                  LookupMemberName, NULL, NULL,
-                                                 Validator, IDecl)) {
+                                                 Validator, CTK_ErrorRecovery,
+                                                 IDecl)) {
         IV = Corrected.getCorrectionDeclAs<ObjCIvarDecl>();
         diagnoseTypo(Corrected,
                      PDiag(diag::err_typecheck_member_reference_ivar_suggest)
@@ -1575,8 +1622,7 @@ ExprResult Sema::ActOnMemberAccessExpr(Scope *S, Expr *Base,
   bool IsArrow = (OpKind == tok::arrow);
 
   NamedDecl *FirstQualifierInScope
-    = (!SS.isSet() ? 0 : FindFirstQualifierInScope(S,
-                       static_cast<NestedNameSpecifier*>(SS.getScopeRep())));
+    = (!SS.isSet() ? 0 : FindFirstQualifierInScope(S, SS.getScopeRep()));
 
   // This is a postfix expression, so get rid of ParenListExprs.
   ExprResult Result = MaybeConvertParenListExprToParenExpr(S, Base);
@@ -1700,14 +1746,7 @@ Sema::BuildImplicitMemberExpr(const CXXScopeSpec &SS,
   assert(!R.empty() && !R.isAmbiguous());
   
   SourceLocation loc = R.getNameLoc();
-  
-  // We may have found a field within an anonymous union or struct
-  // (C++ [class.union]).
-  // FIXME: template-ids inside anonymous structs?
-  if (IndirectFieldDecl *FD = R.getAsSingle<IndirectFieldDecl>())
-    return BuildAnonymousStructUnionMemberReference(SS, R.getNameLoc(), FD,
-                                                    R.begin().getPair());
-  
+
   // If this is known to be an instance access, go ahead and build an
   // implicit 'this' expression now.
   // 'this' expression now.

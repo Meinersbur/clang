@@ -16,6 +16,7 @@
 
 #include <string>
 #include <vector>
+#include "llvm/Support/Regex.h"
 
 namespace clang {
 
@@ -50,12 +51,20 @@ public:
   };
 
   enum DebugInfoKind {
-    NoDebugInfo,          // Don't generate debug info.
-    DebugLineTablesOnly,  // Emit only debug info necessary for generating
-                          // line number tables (-gline-tables-only).
-    LimitedDebugInfo,     // Limit generated debug info to reduce size
-                          // (-flimit-debug-info).
-    FullDebugInfo         // Generate complete debug info.
+    NoDebugInfo,          /// Don't generate debug info.
+
+    DebugLineTablesOnly,  /// Emit only debug info necessary for generating
+                          /// line number tables (-gline-tables-only).
+
+    LimitedDebugInfo,     /// Limit generated debug info to reduce size
+                          /// (-fno-standalone-debug). This emits
+                          /// forward decls for types that could be
+                          /// replaced with forward decls in the source
+                          /// code. For dynamic C++ classes type info
+                          /// is only emitted int the module that
+                          /// contains the classe's vtable.
+
+    FullDebugInfo         /// Generate complete debug info.
   };
 
   enum TLSModel {
@@ -130,6 +139,19 @@ public:
 
   /// A list of dependent libraries.
   std::vector<std::string> DependentLibraries;
+
+  /// Name of the profile file to use with -fprofile-sample-use.
+  std::string SampleProfileFile;
+
+  /// Name of the profile file to use as input for -fprofile-instr-use
+  std::string InstrProfileInput;
+
+  /// Regular expression to select optimizations for which we should enable
+  /// optimization remarks. Transformation passes whose name matches this
+  /// expression (and support this feature), will emit a diagnostic
+  /// whenever they perform a transformation. This is enabled by the
+  /// -Rpass=regexp flag.
+  std::shared_ptr<llvm::Regex> OptimizationRemarkPattern;
 
 public:
   // Define accessors/mutators for code generation options of enumeration type.

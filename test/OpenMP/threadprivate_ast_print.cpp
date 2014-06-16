@@ -1,5 +1,10 @@
 // RUN: %clang_cc1 -verify -fopenmp -ast-print %s | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -std=c++11 -include-pch %t -fsyntax-only -verify %s -ast-print | FileCheck %s
 // expected-no-diagnostics
+
+#ifndef HEADER
+#define HEADER
 
 struct St{
  int a;
@@ -21,9 +26,16 @@ int a, b;
 #pragma omp threadprivate(d, b)
 // CHECK-NEXT: #pragma omp threadprivate(d,b)
 
+template <class T>
+struct ST {
+  static T m;
+  #pragma omp threadprivate(m)
+};
+
 template <class T> T foo() {
   static T v;
   #pragma omp threadprivate(v)
+  v = ST<T>::m;
   return v;
 }
 //CHECK: template <class T = int> int foo() {
@@ -41,3 +53,5 @@ int main () {
   a=2;
   return (foo<int>());
 }
+
+#endif

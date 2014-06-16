@@ -18,6 +18,7 @@
 
 #include "Encoding.h"
 #include "clang/Format/Format.h"
+#include "llvm/Support/Regex.h"
 
 namespace clang {
 class SourceManager;
@@ -103,6 +104,9 @@ private:
   /// \c Replacement.
   unsigned addTokenOnNewLine(LineState &State, bool DryRun);
 
+  /// \brief Calculate the new column for a line wrap before the next token.
+  unsigned getNewLineColumn(const LineState &State);
+
   /// \brief Adds a multiline token to the \p State.
   ///
   /// \returns Extra penalty for the first line of the literal: last line is
@@ -115,13 +119,14 @@ private:
   ///
   /// This includes implicitly concatenated strings, strings that will be broken
   /// by clang-format and string literals with escaped newlines.
-  bool NextIsMultilineString(const LineState &State);
+  bool nextIsMultilineString(const LineState &State);
 
   FormatStyle Style;
   SourceManager &SourceMgr;
   WhitespaceManager &Whitespaces;
   encoding::Encoding Encoding;
   bool BinPackInconclusiveFunctions;
+  llvm::Regex CommentPragmasRegex;
 };
 
 struct ParenState {
@@ -130,10 +135,12 @@ struct ParenState {
       : Indent(Indent), IndentLevel(IndentLevel), LastSpace(LastSpace),
         FirstLessLess(0), BreakBeforeClosingBrace(false), QuestionColumn(0),
         AvoidBinPacking(AvoidBinPacking), BreakBeforeParameter(false),
-        NoLineBreak(NoLineBreak), ColonPos(0), StartOfFunctionCall(0),
-        StartOfArraySubscripts(0), NestedNameSpecifierContinuation(0),
-        CallContinuation(0), VariablePos(0), ContainsLineBreak(false),
-        ContainsUnwrappedBuilder(0) {}
+        NoLineBreak(NoLineBreak), LastOperatorWrapped(true), ColonPos(0),
+        StartOfFunctionCall(0), StartOfArraySubscripts(0),
+        NestedNameSpecifierContinuation(0), CallContinuation(0), VariablePos(0),
+        ContainsLineBreak(false), ContainsUnwrappedBuilder(0),
+        AlignColons(true), ObjCSelectorNameFound(false), LambdasFound(0),
+        JSFunctionInlined(false) {}
 
   /// \brief The position to which a specific parenthesis level needs to be
   /// indented.
@@ -176,6 +183,10 @@ struct ParenState {
   /// \brief Line breaking in this context would break a formatting rule.
   bool NoLineBreak;
 
+  /// \brief True if the last binary operator on this level was wrapped to the
+  /// next line.
+  bool LastOperatorWrapped;
+
   /// \brief The position of the colon in an ObjC method declaration/call.
   unsigned ColonPos;
 
@@ -210,6 +221,30 @@ struct ParenState {
   /// builder-type call on one line.
   bool ContainsUnwrappedBuilder;
 
+  /// \brief \c true if the colons of the curren ObjC method expression should
+  /// be aligned.
+  ///
+  /// Not considered for memoization as it will always have the same value at
+  /// the same token.
+  bool AlignColons;
+
+  /// \brief \c true if at least one selector name was found in the current
+  /// ObjC method expression.
+  ///
+  /// Not considered for memoization as it will always have the same value at
+  /// the same token.
+  bool ObjCSelectorNameFound;
+
+  /// \brief Counts the number of lambda introducers found on this level.
+  ///
+  /// Not considered for memoization as it will always have the same value at
+  /// the same token.
+  unsigned LambdasFound;
+
+  // \brief The previous JavaScript 'function' keyword is not wrapped to a new
+  // line.
+  bool JSFunctionInlined;
+
   bool operator<(const ParenState &Other) const {
     if (Indent != Other.Indent)
       return Indent < Other.Indent;
@@ -227,6 +262,8 @@ struct ParenState {
       return BreakBeforeParameter;
     if (NoLineBreak != Other.NoLineBreak)
       return NoLineBreak;
+    if (LastOperatorWrapped != Other.LastOperatorWrapped)
+      return LastOperatorWrapped;
     if (ColonPos != Other.ColonPos)
       return ColonPos < Other.ColonPos;
     if (StartOfFunctionCall != Other.StartOfFunctionCall)
@@ -241,6 +278,8 @@ struct ParenState {
       return ContainsLineBreak < Other.ContainsLineBreak;
     if (ContainsUnwrappedBuilder != Other.ContainsUnwrappedBuilder)
       return ContainsUnwrappedBuilder < Other.ContainsUnwrappedBuilder;
+    if (JSFunctionInlined != Other.JSFunctionInlined)
+      return JSFunctionInlined < Other.JSFunctionInlined;
     return false;
   }
 };
@@ -258,13 +297,10 @@ struct LineState {
   /// \brief \c true if this line contains a continued for-loop section.
   bool LineContainsContinuedForLoopSection;
 
-  /// \brief The level of nesting inside (), [], <> and {}.
-  unsigned ParenLevel;
-
-  /// \brief The \c ParenLevel at the start of this line.
+  /// \brief The \c NestingLevel at the start of this line.
   unsigned StartOfLineLevel;
 
-  /// \brief The lowest \c ParenLevel on the current line.
+  /// \brief The lowest \c NestingLevel on the current line.
   unsigned LowestLevelOnLine;
 
   /// \brief The start column of the string literal, if we're in a string
@@ -307,8 +343,6 @@ struct LineState {
     if (LineContainsContinuedForLoopSection !=
         Other.LineContainsContinuedForLoopSection)
       return LineContainsContinuedForLoopSection;
-    if (ParenLevel != Other.ParenLevel)
-      return ParenLevel < Other.ParenLevel;
     if (StartOfLineLevel != Other.StartOfLineLevel)
       return StartOfLineLevel < Other.StartOfLineLevel;
     if (LowestLevelOnLine != Other.LowestLevelOnLine)

@@ -55,21 +55,16 @@ public:
     PredefinesBuffer = Buf;
   }
 private:
-  virtual void FileChanged(SourceLocation Loc, FileChangeReason Reason,
-                           SrcMgr::CharacteristicKind FileType,
-                           FileID PrevFID);
-  virtual void FileSkipped(const FileEntry &ParentFile,
-                           const Token &FilenameTok,
-                           SrcMgr::CharacteristicKind FileType);
-  virtual void InclusionDirective(SourceLocation HashLoc,
-                                  const Token &IncludeTok,
-                                  StringRef FileName,
-                                  bool IsAngled,
-                                  CharSourceRange FilenameRange,
-                                  const FileEntry *File,
-                                  StringRef SearchPath,
-                                  StringRef RelativePath,
-                                  const Module *Imported);
+  void FileChanged(SourceLocation Loc, FileChangeReason Reason,
+                   SrcMgr::CharacteristicKind FileType,
+                   FileID PrevFID) override;
+  void FileSkipped(const FileEntry &ParentFile, const Token &FilenameTok,
+                   SrcMgr::CharacteristicKind FileType) override;
+  void InclusionDirective(SourceLocation HashLoc, const Token &IncludeTok,
+                          StringRef FileName, bool IsAngled,
+                          CharSourceRange FilenameRange, const FileEntry *File,
+                          StringRef SearchPath, StringRef RelativePath,
+                          const Module *Imported) override;
   void WriteLineInfo(const char *Filename, int Line,
                      SrcMgr::CharacteristicKind FileType,
                      StringRef EOL, StringRef Extra = StringRef());
@@ -77,7 +72,7 @@ private:
   void OutputContentUpTo(const MemoryBuffer &FromFile,
                          unsigned &WriteFrom, unsigned WriteTo,
                          StringRef EOL, int &lines,
-                         bool EnsureNewline = false);
+                         bool EnsureNewline);
   void CommentOutDirective(Lexer &DirectivesLex, const Token &StartToken,
                            const MemoryBuffer &FromFile, StringRef EOL,
                            unsigned &NextToWrite, int &Lines);
@@ -93,7 +88,7 @@ private:
 /// Initializes an InclusionRewriter with a \p PP source and \p OS destination.
 InclusionRewriter::InclusionRewriter(Preprocessor &PP, raw_ostream &OS,
                                      bool ShowLineMarkers)
-    : PP(PP), SM(PP.getSourceManager()), OS(OS), PredefinesBuffer(0),
+  : PP(PP), SM(PP.getSourceManager()), OS(OS), PredefinesBuffer(nullptr),
     ShowLineMarkers(ShowLineMarkers),
     LastInsertedFileChange(FileChanges.end()) {
   // If we're in microsoft mode, use normal #line instead of line markers.
@@ -196,7 +191,7 @@ InclusionRewriter::FindFileChangeLocation(SourceLocation Loc) const {
   FileChangeMap::const_iterator I = FileChanges.find(Loc.getRawEncoding());
   if (I != FileChanges.end())
     return &I->second;
-  return NULL;
+  return nullptr;
 }
 
 /// Detect the likely line ending style of \p FromFile by examining the first
@@ -205,7 +200,7 @@ static StringRef DetectEOL(const MemoryBuffer &FromFile) {
   // detect what line endings the file uses, so that added content does not mix
   // the style
   const char *Pos = strchr(FromFile.getBufferStart(), '\n');
-  if (Pos == NULL)
+  if (!Pos)
     return "\n";
   if (Pos + 1 < FromFile.getBufferEnd() && Pos[1] == '\r')
     return "\n\r";
@@ -250,15 +245,19 @@ void InclusionRewriter::CommentOutDirective(Lexer &DirectiveLex,
                                             StringRef EOL,
                                             unsigned &NextToWrite, int &Line) {
   OutputContentUpTo(FromFile, NextToWrite,
-    SM.getFileOffset(StartToken.getLocation()), EOL, Line);
+    SM.getFileOffset(StartToken.getLocation()), EOL, Line, false);
   Token DirectiveToken;
   do {
     DirectiveLex.LexFromRawLexer(DirectiveToken);
   } while (!DirectiveToken.is(tok::eod) && DirectiveToken.isNot(tok::eof));
+  if (&FromFile == PredefinesBuffer) {
+    // OutputContentUpTo() would not output anything anyway.
+    return;
+  }
   OS << "#if 0 /* expanded by -frewrite-includes */" << EOL;
   OutputContentUpTo(FromFile, NextToWrite,
     SM.getFileOffset(DirectiveToken.getLocation()) + DirectiveToken.getLength(),
-    EOL, Line);
+    EOL, Line, true);
   OS << "#endif /* expanded by -frewrite-includes */" << EOL;
 }
 
@@ -335,10 +334,11 @@ bool InclusionRewriter::HandleHasInclude(
   bool isAngled = PP.GetIncludeFilenameSpelling(Tok.getLocation(), Filename);
   const DirectoryLookup *CurDir;
   const FileEntry *File = PP.getHeaderSearchInfo().LookupFile(
-      Filename, isAngled, 0, CurDir,
-      PP.getSourceManager().getFileEntryForID(FileId), 0, 0, 0, false);
+      Filename, SourceLocation(), isAngled, nullptr, CurDir,
+      PP.getSourceManager().getFileEntryForID(FileId), nullptr, nullptr,
+      nullptr, false);
 
-  FileExists = File != 0;
+  FileExists = File != nullptr;
   return true;
 }
 
@@ -357,14 +357,19 @@ bool InclusionRewriter::Process(FileID FileId,
 
   StringRef EOL = DetectEOL(FromFile);
 
-  // Per the GNU docs: "1" indicates the start of a new file.
-  WriteLineInfo(FileName, 1, FileType, EOL, " 1");
+  // Per the GNU docs: "1" indicates entering a new file.
+  if (FileId == SM.getMainFileID() || FileId == PP.getPredefinesFileID())
+    WriteLineInfo(FileName, 1, FileType, EOL, "");
+  else
+    WriteLineInfo(FileName, 1, FileType, EOL, " 1");
 
   if (SM.getFileIDSize(FileId) == 0)
     return false;
 
-  // The next byte to be copied from the source file
-  unsigned NextToWrite = 0;
+  // The next byte to be copied from the source file, which may be non-zero if
+  // the lexer handled a BOM.
+  unsigned NextToWrite = SM.getFileOffset(RawLex.getSourceLocation());
+  assert(SM.getLineNumber(FileId, NextToWrite) == 1);
   int Line = 1; // The current input file line number.
 
   Token RawToken;
@@ -379,13 +384,15 @@ bool InclusionRewriter::Process(FileID FileId,
       RawLex.LexFromRawLexer(RawToken);
       if (RawToken.is(tok::raw_identifier))
         PP.LookUpIdentifierInfo(RawToken);
-      if (RawToken.getIdentifierInfo() != NULL) {
+      if (RawToken.getIdentifierInfo() != nullptr) {
         switch (RawToken.getIdentifierInfo()->getPPKeywordID()) {
           case tok::pp_include:
           case tok::pp_include_next:
           case tok::pp_import: {
             CommentOutDirective(RawLex, HashToken, FromFile, EOL, NextToWrite,
               Line);
+            if (FileId != PP.getPredefinesFileID())
+              WriteLineInfo(FileName, Line - 1, FileType, EOL, "");
             StringRef LineInfoExtra;
             if (const FileChange *Change = FindFileChangeLocation(
                 HashToken.getLocation())) {
@@ -442,7 +449,8 @@ bool InclusionRewriter::Process(FileID FileId,
 
                 // Rewrite __has_include(x)
                 if (RawToken.getIdentifierInfo()->isStr("__has_include")) {
-                  if (!HandleHasInclude(FileId, RawLex, 0, RawToken, HasFile))
+                  if (!HandleHasInclude(FileId, RawLex, nullptr, RawToken,
+                                        HasFile))
                     continue;
                   // Rewrite __has_include_next(x)
                 } else if (RawToken.getIdentifierInfo()->isStr(
@@ -460,12 +468,12 @@ bool InclusionRewriter::Process(FileID FileId,
                 // Replace the macro with (0) or (1), followed by the commented
                 // out macro for reference.
                 OutputContentUpTo(FromFile, NextToWrite, SM.getFileOffset(Loc),
-                                  EOL, Line);
+                                  EOL, Line, false);
                 OS << '(' << (int) HasFile << ")/*";
                 OutputContentUpTo(FromFile, NextToWrite,
                                   SM.getFileOffset(RawToken.getLocation()) +
                                   RawToken.getLength(),
-                                  EOL, Line);
+                                  EOL, Line, false);
                 OS << "*/";
               }
             } while (RawToken.isNot(tok::eod));
@@ -517,13 +525,7 @@ void clang::RewriteIncludesInInput(Preprocessor &PP, raw_ostream *OS,
   InclusionRewriter *Rewrite = new InclusionRewriter(PP, *OS,
                                                      Opts.ShowLineMarkers);
   PP.addPPCallbacks(Rewrite);
-  // Ignore all pragmas, otherwise there will be warnings about unknown pragmas
-  // (because there's nothing to handle them).
-  PP.AddPragmaHandler(new EmptyPragmaHandler());
-  // Ignore also all pragma in all namespaces created
-  // in Preprocessor::RegisterBuiltinPragmas().
-  PP.AddPragmaHandler("GCC", new EmptyPragmaHandler());
-  PP.AddPragmaHandler("clang", new EmptyPragmaHandler());
+  PP.IgnorePragmas();
 
   // First let the preprocessor process the entire file and call callbacks.
   // Callbacks will record which #include's were actually performed.

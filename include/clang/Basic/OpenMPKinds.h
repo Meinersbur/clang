@@ -24,9 +24,9 @@ enum OpenMPDirectiveKind {
   OMPD_unknown = 0,
 #define OPENMP_DIRECTIVE(Name) \
   OMPD_##Name,
+#define OPENMP_DIRECTIVE_EXT(Name, Str) \
+  OMPD_##Name,
 #include "clang/Basic/OpenMPKinds.def"
-  OMPD_parallel_for,
-  OMPD_parallel_sections,
   NUM_OPENMP_DIRECTIVES
 };
 
@@ -67,6 +67,24 @@ enum OpenMPReductionClauseOperator {
   NUM_OPENMP_REDUCTION_OPERATORS
 };
 
+/// \brief OpenMP dependence types for 'depend' clause.
+enum OpenMPDependClauseType {
+  OMPC_DEPEND_unknown = 0,
+#define OPENMP_DEPENDENCE_TYPE(Name, Type) \
+  OMPC_DEPEND_##Name,
+#include "clang/Basic/OpenMPKinds.def"
+  NUM_OPENMP_DEPENDENCE_TYPE
+};
+
+/// \brief OpenMP mapping kind for 'map' clause.
+enum OpenMPMapClauseKind {
+  OMPC_MAP_unknown = 0,
+#define OPENMP_MAP_KIND(Name, Kind) \
+  OMPC_MAP_##Name,
+#include "clang/Basic/OpenMPKinds.def"
+  NUM_OPENMP_MAP_KIND
+};
+
 /// \brief OpenMP attributes for 'schedule' clause.
 enum OpenMPScheduleClauseKind {
   OMPC_SCHEDULE_unknown = 0,
@@ -74,6 +92,15 @@ enum OpenMPScheduleClauseKind {
   OMPC_SCHEDULE_##Name,
 #include "clang/Basic/OpenMPKinds.def"
   NUM_OPENMP_SCHEDULE_KINDS
+};
+
+/// \brief OpenMP attributes for 'dist_schedule' clause.
+enum OpenMPDistScheduleClauseKind {
+  OMPC_DIST_SCHEDULE_unknown = 0,
+#define OPENMP_DIST_SCHEDULE_KIND(Name) \
+  OMPC_DIST_SCHEDULE_##Name,
+#include "clang/Basic/OpenMPKinds.def"
+  NUM_OPENMP_DIST_SCHEDULE_KINDS
 };
 
 OpenMPDirectiveKind getOpenMPDirectiveKind(llvm::StringRef Str);

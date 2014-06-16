@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++1y -verify -fsyntax-only %s
+// RUN: %clang_cc1 -std=c++1y -verify -fsyntax-only %s -fdelayed-template-parsing -DDELAYED_TEMPLATE_PARSING
 
 auto f(); // expected-note {{previous}}
 int f(); // expected-error {{differ only in their return type}}
@@ -260,6 +261,13 @@ namespace DefaultedMethods {
 
 namespace Constexpr {
   constexpr auto f1(int n) { return n; }
+  template<typename T> struct X { constexpr auto f() {} }; // PR18746
+  template<typename T> struct Y { constexpr T f() {} }; // expected-note {{control reached end of constexpr function}}
+  void f() {
+    X<int>().f();
+    Y<void>().f();
+    constexpr int q = Y<int>().f(); // expected-error {{must be initialized by a constant expression}} expected-note {{in call to '&Y<int>()->f()'}}
+  }
   struct NonLiteral { ~NonLiteral(); } nl; // expected-note {{user-provided destructor}}
   constexpr auto f2(int n) { return nl; } // expected-error {{return type 'Constexpr::NonLiteral' is not a literal type}}
 }
@@ -392,10 +400,19 @@ namespace CurrentInstantiation {
   int k2 = S<int>().h(false);
 
   template<typename T> struct U {
+ #ifndef DELAYED_TEMPLATE_PARSING
     auto f(); // expected-note {{here}}
     int g() { return f(); } // expected-error {{cannot be used before it is defined}}
+ #else
+    auto f(); 
+    int g() { return f(); } 
+ #endif
   };
+ #ifndef DELAYED_TEMPLATE_PARSING 
   template int U<int>::g(); // expected-note {{in instantiation of}}
+ #else
+  template int U<int>::g();
+ #endif
   template<typename T> auto U<T>::f() { return T(); }
   template int U<short>::g(); // ok
 }
@@ -407,4 +424,62 @@ namespace WithDefaultArgs {
   template<typename T> void f();
   using T = decltype(f(A<int>()));
   using T = decltype(f<int>(A<int>()));
+}
+
+namespace MultilevelDeduction {
+
+auto F() -> auto* { return (int*)0; }
+
+auto (*G())() -> int* { return F; }
+
+auto run = G();
+
+namespace Templated {
+template<class T>
+auto F(T t) -> auto* { return (T*)0; }
+
+template<class T>
+auto (*G(T t))(T) -> T* { return &F<T>; }
+
+
+template<class T>
+auto (*G2(T t))(T) -> auto* { return &F<T>; }
+
+auto run_int = G(1);
+auto run_char = G2('a');
+
+}
+}
+
+namespace rnk {
+extern "C" int puts(const char *s);
+template <typename T>
+auto foo(T x) -> decltype(x) {
+#ifdef DELAYED_TEMPLATE_PARSING
+  ::rnk::bar();
+#endif
+  return x;
+}
+void bar() { puts("bar"); }
+int main() { return foo(0); }
+
+}
+
+namespace OverloadedOperators {
+  template<typename T> struct A {
+    auto operator()() { return T{}; }
+    auto operator[](int) { return T{}; }
+    auto operator+(int) { return T{}; }
+    auto operator+() { return T{}; }
+    friend auto operator-(A) { return T{}; }
+    friend auto operator-(A, A) { return T{}; }
+  };
+  void f(A<int> a) {
+    int b = a();
+    int c = a[0];
+    int d = a + 0;
+    int e = +a;
+    int f = -a;
+    int g = a - a;
+  }
 }
