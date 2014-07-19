@@ -2325,7 +2325,8 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD,
       Old->hasExternalFormalLinkage() &&
       !New->getTemplateSpecializationInfo() &&
       !canRedefineFunction(Old, getLangOpts())) {
-    if (getLangOpts().MicrosoftExt) {
+    //if (getLangOpts().MicrosoftExt) {
+    if (true) { //MK: IBM header files like to ignore this
       Diag(New->getLocation(), diag::warn_static_non_static) << New;
       Diag(OldLocation, PrevDiag);
     } else {
