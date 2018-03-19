@@ -60,6 +60,8 @@ struct LoopAttributes {
 
   /// \brief Value for llvm.loop.distribute.enable metadata.
   LVEnableState DistributeEnable;
+
+  bool Reverse;
 };
 
 /// \brief Information used when generating a structured loop.
