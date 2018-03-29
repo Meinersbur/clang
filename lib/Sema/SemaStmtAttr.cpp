@@ -131,7 +131,8 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
                  .Case("unroll", LoopHintAttr::Unroll)
                  .Case("unroll_count", LoopHintAttr::UnrollCount)
                  .Case("distribute", LoopHintAttr::Distribute)
-                 .Default(LoopHintAttr::Vectorize);
+                 .Case("reverse", LoopHintAttr::Reverse)
+                 .Case("vectorize", LoopHintAttr::Vectorize);
     if (Option == LoopHintAttr::VectorizeWidth ||
         Option == LoopHintAttr::InterleaveCount ||
         Option == LoopHintAttr::UnrollCount) {
@@ -142,7 +143,8 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
     } else if (Option == LoopHintAttr::Vectorize ||
                Option == LoopHintAttr::Interleave ||
                Option == LoopHintAttr::Unroll ||
-               Option == LoopHintAttr::Distribute) {
+               Option == LoopHintAttr::Distribute ||
+               Option == LoopHintAttr::Reverse) {
       assert(StateLoc && StateLoc->Ident && "Loop hint must have an argument");
       if (StateLoc->Ident->isStr("disable"))
         State = LoopHintAttr::Disable;
@@ -179,8 +181,10 @@ CheckForIncompatibleAttributes(Sema &S,
   } HintAttrs[] = {{nullptr, nullptr},
                    {nullptr, nullptr},
                    {nullptr, nullptr},
-                   {nullptr, nullptr}};
+                   {nullptr, nullptr},
+				   {nullptr, nullptr} };
 
+  // TODO: Check consistent loop pragmas globally, not just per loop (with loop naming)
   for (const auto *I : Attrs) {
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(I);
 
@@ -189,7 +193,7 @@ CheckForIncompatibleAttributes(Sema &S,
       continue;
 
     LoopHintAttr::OptionType Option = LH->getOption();
-    enum { Vectorize, Interleave, Unroll, Distribute } Category;
+    enum { Vectorize, Interleave, Unroll, Distribute, Reverse } Category;
     switch (Option) {
     case LoopHintAttr::Vectorize:
     case LoopHintAttr::VectorizeWidth:
@@ -207,13 +211,16 @@ CheckForIncompatibleAttributes(Sema &S,
       // Perform the check for duplicated 'distribute' hints.
       Category = Distribute;
       break;
+	case LoopHintAttr::Reverse:
+		Category = Reverse;
+		break;
     };
 
     auto &CategoryState = HintAttrs[Category];
     const LoopHintAttr *PrevAttr;
     if (Option == LoopHintAttr::Vectorize ||
         Option == LoopHintAttr::Interleave || Option == LoopHintAttr::Unroll ||
-        Option == LoopHintAttr::Distribute) {
+        Option == LoopHintAttr::Distribute || Option == LoopHintAttr::Reverse) {
       // Enable|Disable|AssumeSafety hint.  For example, vectorize(enable).
       PrevAttr = CategoryState.StateAttr;
       CategoryState.StateAttr = LH;
@@ -227,6 +234,7 @@ CheckForIncompatibleAttributes(Sema &S,
     SourceLocation OptionLoc = LH->getRange().getBegin();
     if (PrevAttr)
       // Cannot specify same type of attribute twice.
+		// FIXME: With Polly, we can and have to.
       S.Diag(OptionLoc, diag::err_pragma_loop_compatibility)
           << /*Duplicate=*/true << PrevAttr->getDiagnosticName(Policy)
           << LH->getDiagnosticName(Policy);

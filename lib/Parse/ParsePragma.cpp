@@ -1007,6 +1007,7 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
     StateOption = llvm::StringSwitch<bool>(OptionInfo->getName())
                       .Case("vectorize", true)
                       .Case("interleave", true)
+                      .Case("reverse", true)
                       .Default(false) ||
                   OptionUnroll || OptionDistribute;
   }
@@ -2797,6 +2798,7 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
                            .Case("vectorize_width", true)
                            .Case("interleave_count", true)
                            .Case("unroll_count", true)
+                           .Case("reverse", true)
                            .Default(false);
     if (!OptionValid) {
       PP.Diag(Tok.getLocation(), diag::err_pragma_loop_invalid_option)
