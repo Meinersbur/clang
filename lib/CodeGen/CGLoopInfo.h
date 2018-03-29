@@ -61,7 +61,7 @@ struct LoopAttributes {
   /// \brief Value for llvm.loop.distribute.enable metadata.
   LVEnableState DistributeEnable;
 
-  bool Reverse;
+  LVEnableState ReverseEnable;
 };
 
 /// \brief Information used when generating a structured loop.
@@ -153,6 +153,11 @@ public:
 
   /// \brief Set the unroll count for the next loop pushed.
   void setUnrollCount(unsigned C) { StagedAttrs.UnrollCount = C; }
+
+  void setReverseEnable(bool Enable) {
+    StagedAttrs.ReverseEnable =
+        Enable ? LoopAttributes::Enable : LoopAttributes::Disable;
+  }
 
 private:
   /// \brief Returns true if there is LoopInfo on the stack.
