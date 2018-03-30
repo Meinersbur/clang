@@ -2367,8 +2367,6 @@ namespace {
 
 class VFTableBuilder {
 public:
-  typedef MicrosoftVTableContext::MethodVFTableLocation MethodVFTableLocation;
-
   typedef llvm::DenseMap<GlobalDecl, MethodVFTableLocation>
     MethodVFTableLocationsTy;
 
@@ -3544,6 +3542,18 @@ static void computeFullPathsForVFTables(ASTContext &Context,
   }
 }
 
+static bool vfptrIsEarlierInMDC(const ASTRecordLayout &Layout,
+                                const MethodVFTableLocation &LHS,
+                                const MethodVFTableLocation &RHS) {
+  CharUnits L = LHS.VFPtrOffset;
+  CharUnits R = RHS.VFPtrOffset;
+  if (LHS.VBase)
+    L += Layout.getVBaseClassOffset(LHS.VBase);
+  if (RHS.VBase)
+    R += Layout.getVBaseClassOffset(RHS.VBase);
+  return L < R;
+}
+
 void MicrosoftVTableContext::computeVTableRelatedInformation(
     const CXXRecordDecl *RD) {
   assert(RD->isDynamicClass());
@@ -3574,12 +3584,15 @@ void MicrosoftVTableContext::computeVTableRelatedInformation(
         EmptyAddressPointsMap);
     Thunks.insert(Builder.thunks_begin(), Builder.thunks_end());
 
+    const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
     for (const auto &Loc : Builder.vtable_locations()) {
-      GlobalDecl GD = Loc.first;
-      MethodVFTableLocation NewLoc = Loc.second;
-      auto M = NewMethodLocations.find(GD);
-      if (M == NewMethodLocations.end() || NewLoc < M->second)
-        NewMethodLocations[GD] = NewLoc;
+      auto Insert = NewMethodLocations.insert(Loc);
+      if (!Insert.second) {
+        const MethodVFTableLocation &NewLoc = Loc.second;
+        MethodVFTableLocation &OldLoc = Insert.first->second;
+        if (vfptrIsEarlierInMDC(Layout, NewLoc, OldLoc))
+          OldLoc = NewLoc;
+      }
     }
   }
 
@@ -3717,7 +3730,7 @@ MicrosoftVTableContext::getVFTableLayout(const CXXRecordDecl *RD,
   return *VFTableLayouts[id];
 }
 
-const MicrosoftVTableContext::MethodVFTableLocation &
+const MethodVFTableLocation &
 MicrosoftVTableContext::getMethodVFTableLocation(GlobalDecl GD) {
   assert(cast<CXXMethodDecl>(GD.getDecl())->isVirtual() &&
          "Only use this method for virtual methods or dtors");

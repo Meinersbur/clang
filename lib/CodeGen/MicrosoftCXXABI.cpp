@@ -230,7 +230,7 @@ public:
   getThisArgumentTypeForMethod(const CXXMethodDecl *MD) override {
     MD = MD->getCanonicalDecl();
     if (MD->isVirtual() && !isa<CXXDestructorDecl>(MD)) {
-      MicrosoftVTableContext::MethodVFTableLocation ML =
+      const MethodVFTableLocation &ML =
           CGM.getMicrosoftVTableContext().getMethodVFTableLocation(MD);
       // The vbases might be ordered differently in the final overrider object
       // and the complete object, so the "this" argument may sometimes point to
@@ -616,9 +616,8 @@ private:
   const VBTableGlobals &enumerateVBTables(const CXXRecordDecl *RD);
 
   /// \brief Generate a thunk for calling a virtual member function MD.
-  llvm::Function *EmitVirtualMemPtrThunk(
-      const CXXMethodDecl *MD,
-      const MicrosoftVTableContext::MethodVFTableLocation &ML);
+  llvm::Function *EmitVirtualMemPtrThunk(const CXXMethodDecl *MD,
+                                         const MethodVFTableLocation &ML);
 
 public:
   llvm::Type *ConvertMemberPointerType(const MemberPointerType *MPT) override;
@@ -829,60 +828,7 @@ MicrosoftCXXABI::getRecordArgABI(const CXXRecordDecl *RD) const {
     return RAA_Default;
 
   case llvm::Triple::x86_64:
-    bool CopyCtorIsTrivial = false, CopyCtorIsTrivialForCall = false;
-    bool DtorIsTrivialForCall = false;
-
-    // If a class has at least one non-deleted, trivial copy constructor, it
-    // is passed according to the C ABI. Otherwise, it is passed indirectly.
-    //
-    // Note: This permits classes with non-trivial copy or move ctors to be
-    // passed in registers, so long as they *also* have a trivial copy ctor,
-    // which is non-conforming.
-    if (RD->needsImplicitCopyConstructor()) {
-      if (!RD->defaultedCopyConstructorIsDeleted()) {
-        if (RD->hasTrivialCopyConstructor())
-          CopyCtorIsTrivial = true;
-        if (RD->hasTrivialCopyConstructorForCall())
-          CopyCtorIsTrivialForCall = true;
-      }
-    } else {
-      for (const CXXConstructorDecl *CD : RD->ctors()) {
-        if (CD->isCopyConstructor() && !CD->isDeleted()) {
-          if (CD->isTrivial())
-            CopyCtorIsTrivial = true;
-          if (CD->isTrivialForCall())
-            CopyCtorIsTrivialForCall = true;
-        }
-      }
-    }
-
-    if (RD->needsImplicitDestructor()) {
-      if (!RD->defaultedDestructorIsDeleted() &&
-          RD->hasTrivialDestructorForCall())
-        DtorIsTrivialForCall = true;
-    } else if (const auto *D = RD->getDestructor()) {
-      if (!D->isDeleted() && D->isTrivialForCall())
-        DtorIsTrivialForCall = true;
-    }
-
-    // If the copy ctor and dtor are both trivial-for-calls, pass direct.
-    if (CopyCtorIsTrivialForCall && DtorIsTrivialForCall)
-      return RAA_Default;
-
-    // If a class has a destructor, we'd really like to pass it indirectly
-    // because it allows us to elide copies.  Unfortunately, MSVC makes that
-    // impossible for small types, which it will pass in a single register or
-    // stack slot. Most objects with dtors are large-ish, so handle that early.
-    // We can't call out all large objects as being indirect because there are
-    // multiple x64 calling conventions and the C++ ABI code shouldn't dictate
-    // how we pass large POD types.
-
-    // Note: This permits small classes with nontrivial destructors to be
-    // passed in registers, which is non-conforming.
-    if (CopyCtorIsTrivial &&
-        getContext().getTypeSize(RD->getTypeForDecl()) <= 64)
-      return RAA_Default;
-    return RAA_Indirect;
+    return !canCopyArgument(RD) ? RAA_Indirect : RAA_Default;
   }
 
   llvm_unreachable("invalid enum");
@@ -1389,7 +1335,7 @@ MicrosoftCXXABI::getVirtualFunctionPrologueThisAdjustment(GlobalDecl GD) {
     LookupGD = GlobalDecl(DD, Dtor_Deleting);
   }
 
-  MicrosoftVTableContext::MethodVFTableLocation ML =
+  const MethodVFTableLocation &ML =
       CGM.getMicrosoftVTableContext().getMethodVFTableLocation(LookupGD);
   CharUnits Adjustment = ML.VFPtrOffset;
 
@@ -1438,7 +1384,7 @@ Address MicrosoftCXXABI::adjustThisArgumentForVirtualFunctionCall(
     // with the base one, so look up the deleting one instead.
     LookupGD = GlobalDecl(DD, Dtor_Deleting);
   }
-  MicrosoftVTableContext::MethodVFTableLocation ML =
+  const MethodVFTableLocation &ML =
       CGM.getMicrosoftVTableContext().getMethodVFTableLocation(LookupGD);
 
   CharUnits StaticOffset = ML.VFPtrOffset;
@@ -1904,8 +1850,7 @@ CGCallee MicrosoftCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   llvm::Value *VTable = CGF.GetVTablePtr(VPtr, Ty, MethodDecl->getParent());
 
   MicrosoftVTableContext &VFTContext = CGM.getMicrosoftVTableContext();
-  MicrosoftVTableContext::MethodVFTableLocation ML =
-      VFTContext.getMethodVFTableLocation(GD);
+  const MethodVFTableLocation &ML = VFTContext.getMethodVFTableLocation(GD);
 
   // Compute the identity of the most derived class whose virtual table is
   // located at the MethodVFTableLocation ML.
@@ -1990,16 +1935,16 @@ MicrosoftCXXABI::enumerateVBTables(const CXXRecordDecl *RD) {
   return VBGlobals;
 }
 
-llvm::Function *MicrosoftCXXABI::EmitVirtualMemPtrThunk(
-    const CXXMethodDecl *MD,
-    const MicrosoftVTableContext::MethodVFTableLocation &ML) {
+llvm::Function *
+MicrosoftCXXABI::EmitVirtualMemPtrThunk(const CXXMethodDecl *MD,
+                                        const MethodVFTableLocation &ML) {
   assert(!isa<CXXConstructorDecl>(MD) && !isa<CXXDestructorDecl>(MD) &&
          "can't form pointers to ctors or virtual dtors");
 
   // Calculate the mangled name.
   SmallString<256> ThunkName;
   llvm::raw_svector_ostream Out(ThunkName);
-  getMangleContext().mangleVirtualMemPtrThunk(MD, Out);
+  getMangleContext().mangleVirtualMemPtrThunk(MD, ML, Out);
 
   // If the thunk has been generated previously, just return it.
   if (llvm::GlobalValue *GV = CGM.getModule().getNamedValue(ThunkName))
@@ -2813,7 +2758,7 @@ MicrosoftCXXABI::EmitMemberFunctionPointer(const CXXMethodDecl *MD) {
     FirstField = CGM.GetAddrOfFunction(MD, Ty);
   } else {
     auto &VTableContext = CGM.getMicrosoftVTableContext();
-    MicrosoftVTableContext::MethodVFTableLocation ML =
+    const MethodVFTableLocation &ML =
         VTableContext.getMethodVFTableLocation(MD);
     FirstField = EmitVirtualMemPtrThunk(MD, ML);
     // Include the vfptr adjustment if the method is in a non-primary vftable.
