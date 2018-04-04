@@ -84,6 +84,7 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
   IdentifierLoc *OptionLoc = A.getArgAsIdent(1);
   IdentifierLoc *StateLoc = A.getArgAsIdent(2);
   Expr *ValueExpr = A.getArgAsExpr(3);
+  IdentifierLoc *IdLoc = A.getArgAsIdent(4);
 
   bool PragmaUnroll = PragmaNameLoc->Ident->getName() == "unroll";
   bool PragmaNoUnroll = PragmaNameLoc->Ident->getName() == "nounroll";
@@ -132,7 +133,8 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
                  .Case("unroll_count", LoopHintAttr::UnrollCount)
                  .Case("distribute", LoopHintAttr::Distribute)
                  .Case("reverse", LoopHintAttr::Reverse)
-                 .Case("vectorize", LoopHintAttr::Vectorize);
+                 .Case("vectorize", LoopHintAttr::Vectorize)
+				 .Case("id", LoopHintAttr::Id);
     if (Option == LoopHintAttr::VectorizeWidth ||
         Option == LoopHintAttr::InterleaveCount ||
         Option == LoopHintAttr::UnrollCount) {
@@ -156,7 +158,12 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
         State = LoopHintAttr::Enable;
       else
         llvm_unreachable("bad loop hint argument");
-    } else
+	}
+	else if (Option == LoopHintAttr::Id) {
+		assert(IdLoc && "Attribute must have an identifier expression.");
+		// Any restrictions on identifier names?
+		auto Name = IdLoc->Ident->getName();
+	} else
       llvm_unreachable("bad loop hint");
   }
 

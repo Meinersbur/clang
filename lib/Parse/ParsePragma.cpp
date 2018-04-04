@@ -1001,6 +1001,7 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   bool OptionUnroll = false;
   bool OptionDistribute = false;
   bool StateOption = false;
+  bool IdOption = false;
   if (OptionInfo) { // Pragma Unroll does not specify an option.
     OptionUnroll = OptionInfo->isStr("unroll");
     OptionDistribute = OptionInfo->isStr("distribute");
@@ -1010,6 +1011,7 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
                       .Case("reverse", true)
                       .Default(false) ||
                   OptionUnroll || OptionDistribute;
+	IdOption = OptionInfo->isStr("id");
   }
 
   bool AssumeSafetyArg = !OptionUnroll && !OptionDistribute;
@@ -1024,26 +1026,36 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
   // Validate the argument.
   if (StateOption) {
-    ConsumeAnnotationToken();
-    SourceLocation StateLoc = Toks[0].getLocation();
-    IdentifierInfo *StateInfo = Toks[0].getIdentifierInfo();
+	  ConsumeAnnotationToken();
+	  SourceLocation StateLoc = Toks[0].getLocation();
+	  IdentifierInfo *StateInfo = Toks[0].getIdentifierInfo();
 
-    bool Valid = StateInfo &&
-                 llvm::StringSwitch<bool>(StateInfo->getName())
-                     .Cases("enable", "disable", true)
-                     .Case("full", OptionUnroll)
-                     .Case("assume_safety", AssumeSafetyArg)
-                     .Default(false);
-    if (!Valid) {
-      Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
-          << /*FullKeyword=*/OptionUnroll
-          << /*AssumeSafetyKeyword=*/AssumeSafetyArg;
-      return false;
-    }
-    if (Toks.size() > 2)
-      Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
-          << PragmaLoopHintString(Info->PragmaName, Info->Option);
-    Hint.StateLoc = IdentifierLoc::create(Actions.Context, StateLoc, StateInfo);
+	  bool Valid = StateInfo &&
+		  llvm::StringSwitch<bool>(StateInfo->getName())
+		  .Cases("enable", "disable", true)
+		  .Case("full", OptionUnroll)
+		  .Case("assume_safety", AssumeSafetyArg)
+		  .Default(false);
+	  if (!Valid) {
+		  Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
+			  << /*FullKeyword=*/OptionUnroll
+			  << /*AssumeSafetyKeyword=*/AssumeSafetyArg;
+		  return false;
+	  }
+	  if (Toks.size() > 2)
+		  Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
+		  << PragmaLoopHintString(Info->PragmaName, Info->Option);
+	  Hint.StateLoc = IdentifierLoc::create(Actions.Context, StateLoc, StateInfo);
+  } else if (IdOption) {
+	  ConsumeAnnotationToken();
+	  SourceLocation IdLoc = Toks[0].getLocation();
+	  IdentifierInfo *IdInfo = Toks[0].getIdentifierInfo();
+	  auto Id = IdInfo->getName();
+
+	  if (Toks.size() > 2)
+		  Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol)
+		  << PragmaLoopHintString(Info->PragmaName, Info->Option);
+	  Hint.IdLoc = IdentifierLoc::create(Actions.Context, IdLoc, IdInfo);
   } else {
     // Enter constant expression including eof terminator into token stream.
     PP.EnterTokenStream(Toks, /*DisableMacroExpansion=*/false);
@@ -2799,6 +2811,7 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
                            .Case("interleave_count", true)
                            .Case("unroll_count", true)
                            .Case("reverse", true)
+		.Case("id",true)
                            .Default(false);
     if (!OptionValid) {
       PP.Diag(Tok.getLocation(), diag::err_pragma_loop_invalid_option)

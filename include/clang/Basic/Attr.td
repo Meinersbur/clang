@@ -2677,12 +2677,12 @@ def LoopHint : Attr {
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
-                           "unroll", "unroll_count", "distribute", "reverse"],
+                           "unroll", "unroll_count", "distribute", "reverse", "id"],
                           ["Vectorize", "VectorizeWidth", "Interleave", "InterleaveCount",
-                           "Unroll", "UnrollCount", "Distribute", "Reverse"]>,
+                           "Unroll", "UnrollCount", "Distribute", "Reverse", "Id"]>,
               EnumArgument<"State", "LoopHintState",
-                           ["enable", "disable", "numeric", "assume_safety", "full"],
-                           ["Enable", "Disable", "Numeric", "AssumeSafety", "Full"]>,
+                           ["enable", "disable", "numeric", "assume_safety", "full", "name"],
+                           ["Enable", "Disable", "Numeric", "AssumeSafety", "Full", "Name"]>,
               ExprArgument<"Value">];
 
   let AdditionalMembers = [{
@@ -2696,6 +2696,7 @@ def LoopHint : Attr {
     case UnrollCount: return "unroll_count";
     case Distribute: return "distribute";
     case Reverse: return "reverse";
+    case Id: return "id";
     }
     llvm_unreachable("Unhandled LoopHint option.");
   }
@@ -2729,8 +2730,10 @@ def LoopHint : Attr {
       OS << "full";
     else if (state == AssumeSafety)
       OS << "assume_safety";
-    else
+    else if (state == Disable)
       OS << "disable";
+    else
+      value->printPretty(OS, nullptr, Policy);
     OS << ")";
     return OS.str();
   }

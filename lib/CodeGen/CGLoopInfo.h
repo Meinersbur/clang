@@ -62,6 +62,8 @@ struct LoopAttributes {
   LVEnableState DistributeEnable;
 
   LVEnableState ReverseEnable;
+
+  std::string LoopId;
 };
 
 /// \brief Information used when generating a structured loop.
