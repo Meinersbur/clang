@@ -32,11 +32,14 @@ struct LoopHint {
   // Identifier for the hint state argument.  If null, then the state is
   // default value such as for "#pragma unroll".
   IdentifierLoc *StateLoc;
+
+  IdentifierLoc *IdLoc;
+
   // Expression for the hint argument if it exists, null otherwise.
   Expr *ValueExpr;
 
   LoopHint()
-      : PragmaNameLoc(nullptr), OptionLoc(nullptr), StateLoc(nullptr),
+      : PragmaNameLoc(nullptr), OptionLoc(nullptr), StateLoc(nullptr), IdLoc(nullptr),
         ValueExpr(nullptr) {}
 };
 

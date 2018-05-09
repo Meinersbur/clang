@@ -453,7 +453,7 @@ class Attr {
   // Set to true if all of the attribute's arguments should be parsed in an
   // unevaluated context.
   bit ParseArgumentsAsUnevaluated = 0;
-  // Set to true if this attribute meaningful when applied to or inherited 
+  // Set to true if this attribute meaningful when applied to or inherited
   // in a class template definition.
   bit MeaningfulToClassTemplateDefinition = 0;
   // Set to true if this attribute can be used with '#pragma clang attribute'.
@@ -580,7 +580,7 @@ def AlignValue : Attr {
     // the future (and a corresponding C++ attribute), but this can be done
     // later once we decide if we also want them to have slightly-different
     // semantics than Intel's align_value.
-    // 
+    //
     // Does not get a [[]] spelling because the attribute is not exposed as such
     // by Intel.
     GNU<"align_value">
@@ -1662,7 +1662,7 @@ def Overloadable : Attr {
   let Documentation = [OverloadableDocs];
 }
 
-def Override : InheritableAttr { 
+def Override : InheritableAttr {
   let Spellings = [Keyword<"override">];
   let SemaHandler = 0;
   let Documentation = [Undocumented];
@@ -1741,7 +1741,7 @@ def RequireConstantInit : InheritableAttr {
 def WorkGroupSizeHint :  InheritableAttr {
   // Does not have a [[]] spelling because it is an OpenCL-related attribute.
   let Spellings = [GNU<"work_group_size_hint">];
-  let Args = [UnsignedArgument<"XDim">, 
+  let Args = [UnsignedArgument<"XDim">,
               UnsignedArgument<"YDim">,
               UnsignedArgument<"ZDim">];
   let Subjects = SubjectList<[Function], ErrorDiag>;
@@ -2682,12 +2682,12 @@ def LoopHint : Attr {
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
-                           "unroll", "unroll_count", "distribute"],
+                           "unroll", "unroll_count", "distribute", "reverse", "id"],
                           ["Vectorize", "VectorizeWidth", "Interleave", "InterleaveCount",
-                           "Unroll", "UnrollCount", "Distribute"]>,
+                           "Unroll", "UnrollCount", "Distribute", "Reverse", "Id"]>,
               EnumArgument<"State", "LoopHintState",
-                           ["enable", "disable", "numeric", "assume_safety", "full"],
-                           ["Enable", "Disable", "Numeric", "AssumeSafety", "Full"]>,
+                           ["enable", "disable", "numeric", "assume_safety", "full", "name"],
+                           ["Enable", "Disable", "Numeric", "AssumeSafety", "Full", "Name"]>,
               ExprArgument<"Value">];
 
   let AdditionalMembers = [{
@@ -2700,6 +2700,8 @@ def LoopHint : Attr {
     case Unroll: return "unroll";
     case UnrollCount: return "unroll_count";
     case Distribute: return "distribute";
+    case Reverse: return "reverse";
+    case Id: return "id";
     }
     llvm_unreachable("Unhandled LoopHint option.");
   }
@@ -2733,8 +2735,10 @@ def LoopHint : Attr {
       OS << "full";
     else if (state == AssumeSafety)
       OS << "assume_safety";
-    else
+    else if (state == Disable)
       OS << "disable";
+    else
+      value->printPretty(OS, nullptr, Policy);
     OS << ")";
     return OS.str();
   }
