@@ -1937,7 +1937,7 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
       continue;
 
     ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
-                            ArgsUnion(Hint.ValueExpr), Hint.IdLoc};
+                            ArgsUnion(Hint.ValueExpr), Hint.IdLoc, Hint.LoopIdLoc, Hint.ApplyOnLoc };
     TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
                      Hint.PragmaNameLoc->Loc, ArgHints, sizeof(ArgHints)/sizeof(ArgHints[0]),
                      AttributeList::AS_Pragma);

@@ -2686,7 +2686,8 @@ def LoopHint : Attr {
                    Pragma<"", "nounroll">];
 
   /// State of the loop optimization specified by the spelling.
-  let Args = [EnumArgument<"Option", "OptionType",
+  let Args = [StringArgument<"ApplyOn">, // ApplyOn
+              EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
                            "unroll", "unroll_count", "distribute", "reverse", "id"],
                           ["Vectorize", "VectorizeWidth", "Interleave", "InterleaveCount",
@@ -2694,7 +2695,8 @@ def LoopHint : Attr {
               EnumArgument<"State", "LoopHintState",
                            ["enable", "disable", "numeric", "assume_safety", "full", "name"],
                            ["Enable", "Disable", "Numeric", "AssumeSafety", "Full", "Name"]>,
-              ExprArgument<"Value">];
+              ExprArgument<"Value">,
+              StringArgument<"Identifier">];
 
   let AdditionalMembers = [{
   static const char *getOptionName(int Option) {
@@ -2743,6 +2745,8 @@ def LoopHint : Attr {
       OS << "assume_safety";
     else if (state == Disable)
       OS << "disable";
+    else if (state == Name)
+      OS << "name";
     else
       value->printPretty(OS, nullptr, Policy);
     OS << ")";
