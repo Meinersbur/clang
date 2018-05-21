@@ -2574,10 +2574,6 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     i = 1; l = 0; u = 7;
     break;
   case X86::BI__builtin_ia32_sha1rnds4:
-  case X86::BI__builtin_ia32_shuf_f32x4_256_mask:
-  case X86::BI__builtin_ia32_shuf_f64x2_256_mask:
-  case X86::BI__builtin_ia32_shuf_i32x4_256_mask:
-  case X86::BI__builtin_ia32_shuf_i64x2_256_mask:
     i = 2; l = 0; u = 3;
     break;
   case X86::BI__builtin_ia32_vpermil2pd:
@@ -2696,10 +2692,6 @@ bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case X86::BI__builtin_ia32_palignr512_mask:
   case X86::BI__builtin_ia32_vcomisd:
   case X86::BI__builtin_ia32_vcomiss:
-  case X86::BI__builtin_ia32_shuf_f32x4_mask:
-  case X86::BI__builtin_ia32_shuf_f64x2_mask:
-  case X86::BI__builtin_ia32_shuf_i32x4_mask:
-  case X86::BI__builtin_ia32_shuf_i64x2_mask:
   case X86::BI__builtin_ia32_dbpsadbw128_mask:
   case X86::BI__builtin_ia32_dbpsadbw256_mask:
   case X86::BI__builtin_ia32_dbpsadbw512_mask:
@@ -9673,7 +9665,8 @@ static void DiagnoseFloatingImpCast(Sema &S, Expr *E, QualType T,
     return DiagnoseImpCast(
         S, E, T, CContext,
         IsLiteral ? diag::warn_impcast_literal_float_to_integer_out_of_range
-                  : diag::warn_impcast_float_to_integer_out_of_range);
+                  : diag::warn_impcast_float_to_integer_out_of_range,
+        PruneWarnings);
 
   unsigned DiagID = 0;
   if (IsLiteral) {
@@ -11287,7 +11280,7 @@ bool Sema::CheckParmsForFunctionDef(ArrayRef<ParmVarDecl *> Parameters,
         if (!ClassDecl->isInvalidDecl() &&
             !ClassDecl->hasIrrelevantDestructor() &&
             !ClassDecl->isDependentContext() &&
-            Context.isParamDestroyedInCallee(Param->getType())) {
+            ClassDecl->isParamDestroyedInCallee()) {
           CXXDestructorDecl *Destructor = LookupDestructor(ClassDecl);
           MarkFunctionReferenced(Param->getLocation(), Destructor);
           DiagnoseUseOfDecl(Destructor, Param->getLocation());

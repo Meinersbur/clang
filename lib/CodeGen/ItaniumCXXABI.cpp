@@ -825,7 +825,6 @@ ItaniumCXXABI::EmitMemberFunctionPointer(const CXXMethodDecl *MD) {
 llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
                                                   CharUnits ThisAdjustment) {
   assert(MD->isInstance() && "Member function must not be static!");
-  MD = MD->getCanonicalDecl();
 
   CodeGenTypes &Types = CGM.getTypes();
 
@@ -1640,7 +1639,6 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
                                                   Address This,
                                                   llvm::Type *Ty,
                                                   SourceLocation Loc) {
-  GD = GD.getCanonicalDecl();
   Ty = Ty->getPointerTo()->getPointerTo();
   auto *MethodDecl = cast<CXXMethodDecl>(GD.getDecl());
   llvm::Value *VTable = CGF.GetVTablePtr(This, Ty, MethodDecl->getParent());
@@ -1674,7 +1672,7 @@ CGCallee ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
     VFunc = VFuncLoad;
   }
 
-  CGCallee Callee(MethodDecl, VFunc);
+  CGCallee Callee(MethodDecl->getCanonicalDecl(), VFunc);
   return Callee;
 }
 
@@ -3630,12 +3628,22 @@ static StructorCodegen getCodegenToUse(CodeGenModule &CGM,
   }
   llvm::GlobalValue::LinkageTypes Linkage = CGM.getFunctionLinkage(AliasDecl);
 
-  if (llvm::GlobalValue::isDiscardableIfUnused(Linkage))
-    return StructorCodegen::RAUW;
+  // All discardable structors can be RAUWed, but we don't want to do that in
+  // unoptimized code, as that makes complete structor symbol disappear
+  // completely, which degrades debugging experience.
+  // Symbols with private linkage can be safely aliased, so we special case them
+  // here.
+  if (llvm::GlobalValue::isLocalLinkage(Linkage))
+    return CGM.getCodeGenOpts().OptimizationLevel > 0 ? StructorCodegen::RAUW
+                                                      : StructorCodegen::Alias;
 
+  // Linkonce structors cannot be aliased nor placed in a comdat, so these need
+  // to be emitted separately.
   // FIXME: Should we allow available_externally aliases?
-  if (!llvm::GlobalAlias::isValidLinkage(Linkage))
-    return StructorCodegen::RAUW;
+  if (llvm::GlobalValue::isDiscardableIfUnused(Linkage) ||
+      !llvm::GlobalAlias::isValidLinkage(Linkage))
+    return CGM.getCodeGenOpts().OptimizationLevel > 0 ? StructorCodegen::RAUW
+                                                      : StructorCodegen::Emit;
 
   if (llvm::GlobalValue::isWeakForLinker(Linkage)) {
     // Only ELF and wasm support COMDATs with arbitrary names (C5/D5).

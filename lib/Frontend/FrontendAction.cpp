@@ -88,8 +88,10 @@ public:
 
   void DeclRead(serialization::DeclID ID, const Decl *D) override {
     llvm::outs() << "PCH DECL: " << D->getDeclKindName();
-    if (const NamedDecl *ND = dyn_cast<NamedDecl>(D))
-      llvm::outs() << " - " << *ND;
+    if (const NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
+      llvm::outs() << " - ";
+      ND->printQualifiedName(llvm::outs());
+    }
     llvm::outs() << "\n";
 
     DelegatingDeserializationListener::DeclRead(ID, D);
@@ -151,6 +153,10 @@ FrontendAction::CreateWrappedASTConsumer(CompilerInstance &CI,
 
   // If there are no registered plugins we don't need to wrap the consumer
   if (FrontendPluginRegistry::begin() == FrontendPluginRegistry::end())
+    return Consumer;
+
+  // If this is a code completion run, avoid invoking the plugin consumers
+  if (CI.hasCodeCompletionConsumer())
     return Consumer;
 
   // Collect the list of plugins that go before the main action (in Consumers)
