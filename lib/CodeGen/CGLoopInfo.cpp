@@ -189,11 +189,26 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
 
   // Identify loop hint attributes from Attrs.
   for (const auto *Attr : Attrs) {
-    const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
-    const OpenCLUnrollHintAttr *OpenCLHint =
-        dyn_cast<OpenCLUnrollHintAttr>(Attr);
+	  	if (auto LId = dyn_cast<LoopIdAttr>(Attr)) {
+		 setLoopId(LId->getLoopName());
+		 continue;
+	}
+	if (auto LReversal = dyn_cast<LoopReversalAttr>(Attr)) {
+				auto ApplyOn = LReversal->getApplyOn();
+				if (ApplyOn.empty()) {
+			// Apply to the following loop
+		} else {
+		  // Apply on the loop with that name
+		}
 
-    // Skip non loop hint attributes
+		addTransformation( LoopTransformation::createReversal(ApplyOn) );
+		continue;
+	}
+
+    const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
+    const OpenCLUnrollHintAttr *OpenCLHint =  dyn_cast<OpenCLUnrollHintAttr>(Attr);
+
+	   // Skip non loop hint attributes
     if (!LH && !OpenCLHint) {
       continue;
     }
@@ -225,24 +240,6 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       Option = LH->getOption();
       State = LH->getState();
     }
-
-	switch (Option) { 
-	case LoopHintAttr::Id:
-		setLoopId(LH->getIdentifier());
-		break;
-    case LoopHintAttr::Reverse: {
-		auto ApplyOn = LH->getApplyOn();
-		if (ApplyOn.empty()) {
-			// Apply to the following loop
-		} else {
-		  // Apply on the loop with that name
-		}
-
-		addTransformation( LoopTransformation::createReversal(ApplyOn) );
-		} break;
-    default:
-		break;
-	}
 
     switch (State) {
     case LoopHintAttr::Disable:
