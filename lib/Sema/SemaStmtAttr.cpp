@@ -77,28 +77,25 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const AttributeList &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
-static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-#if 1
-  // New #pragma clang loop
-  IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0); // "loop"
-    IdentifierLoc *OptionLoc = A.getArgAsIdent(1); // Transformation: "id", "reverse"
-  IdentifierLoc *LoopIdLoc = A.getArgAsIdent(5);     // <loopname> as in #pragma clang loop id(<loopname>)
-  IdentifierLoc *ApplyOnLoc = A.getArgAsIdent(6); // <loopname> as in #pragma clang loop(<loopname>) <transform> 
-    LoopHintAttr::Spelling Spelling = LoopHintAttr::Spelling(A.getAttributeSpellingListIndex());
+static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
+	assert(A.getNumArgs() == 1);
 
-  auto TransName = OptionLoc->Ident->getName();
-  if (TransName == "id") {
-  return LoopHintAttr::CreateImplicit(S.Context, Spelling, "", LoopHintAttr::Id, LoopHintAttr::Name, nullptr, LoopIdLoc->Ident->getName(), A.getRange());
-  }
+		// <loopname> as in #pragma clang loop id(<loopname>)
+    auto LoopIdLoc = A.getArgAsIdent(0); 
 
-    if (TransName == "reverse") {
-		return LoopHintAttr::CreateImplicit(S.Context, Spelling, ApplyOnLoc->Ident->getName(), LoopHintAttr::Reverse, LoopHintAttr::Name, nullptr, StringRef(), A.getRange());
-  }
+    return LoopIdAttr ::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(), A.getRange());
+}
 
-  llvm_unreachable("Unhandled loop hint");
+static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
+    assert(A.getNumArgs() == 1);
 
-#else
-  // Old #pragma clang loop
+		// <loopname> as in #pragma clang loop(<loopname>) <transform>
+    IdentifierLoc *ApplyOnLoc = A.getArgAsIdent( 0); 
+    return LoopReversalAttr::CreateImplicit(        S.Context, ApplyOnLoc->Ident->getName(),        A.getRange());
+}
+
+static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
+                                SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
   IdentifierLoc *OptionLoc = A.getArgAsIdent(1);
   IdentifierLoc *StateLoc = A.getArgAsIdent(2);
@@ -152,7 +149,6 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A, Sourc
                  .Case("unroll_count", LoopHintAttr::UnrollCount)
                  .Case("distribute", LoopHintAttr::Distribute)
                  .Case("reverse", LoopHintAttr::Reverse)
-                 .Case("vectorize", LoopHintAttr::Vectorize)
                  .Case("id", LoopHintAttr::Id);
     if (Option == LoopHintAttr::VectorizeWidth ||
         Option == LoopHintAttr::InterleaveCount ||
@@ -185,9 +181,9 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A, Sourc
       llvm_unreachable("bad loop hint");
   }
 
-  return LoopHintAttr::CreateImplicit(S.Context, Spelling, Option, State,
-                                      ValueExpr, A.getRange());
-#endif
+  return LoopHintAttr::CreateImplicit(S.Context, Spelling, StringRef(), Option,
+                                      State, ValueExpr, StringRef(),
+                                      A.getRange());
 }
 
 static void
@@ -338,6 +334,10 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
     return handleFallThroughAttr(S, St, A, Range);
   case AttributeList::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
+  case AttributeList::AT_LoopId:
+	    return handleLoopId(S,St,A,Range);
+  case AttributeList::AT_LoopReversal:
+	  return handleLoopReversal(S,St,A,Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

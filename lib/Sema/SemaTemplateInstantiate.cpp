@@ -1240,7 +1240,7 @@ TemplateInstantiator::TransformLoopHintAttr(const LoopHintAttr *LH) {
   // non-type template parameter.
   return LoopHintAttr::CreateImplicit(
       getSema().Context, LH->getSemanticSpelling(), LH->getApplyOn(), LH->getOption(),
-      LH->getState(), TransformedExpr, LH->getIdentifier()  , LH->getRange());
+      LH->getState(), TransformedExpr, LH->getIdentifier(), LH->getRange());
 }
 
 ExprResult TemplateInstantiator::transformNonTypeTemplateParmRef(

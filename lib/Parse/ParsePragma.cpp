@@ -204,6 +204,9 @@ struct PragmaLoopHintHandler : public PragmaHandler {
   PragmaLoopHintHandler() : PragmaHandler("loop") {}
   void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
                     Token &FirstToken) override;
+
+  void HandleLegacySyntax(Preprocessor &PP, PragmaIntroducerKind Introducer,  Token &FirstToken);
+  void HandleOmpSyntax(Preprocessor &PP, PragmaIntroducerKind Introducer,  Token &FirstToken);
 };
 
 struct PragmaUnrollHintHandler : public PragmaHandler {
@@ -943,6 +946,7 @@ bool Parser::HandlePragmaMSInitSeg(StringRef PragmaName,
 namespace {
 struct PragmaLoopHintInfo {
   Token PragmaName;
+  bool NewSyntax = false;
   Token Option;
   ArrayRef<Token> Toks;
 };
@@ -964,91 +968,9 @@ static std::string PragmaLoopHintString(Token PragmaName, Token Option) {
 
 
 bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
-  assert(Tok.is(tok::annot_pragma_loop_hint));
+	  assert(Tok.is(tok::annot_pragma_loop_hint));
   PragmaLoopHintInfo *Info =
       static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
-
-#if 1
-  // New #pragma clang loop
-
-  auto &Toks = Info->Toks;
-  
-  int i = 0;
-  auto &LoopTok = Toks[i];
-  assert(LoopTok.is(tok::identifier));
-  assert(LoopTok.getIdentifierInfo()->getName() == "loop");
-    Hint.PragmaNameLoc = IdentifierLoc::create(Actions.Context, LoopTok.getLocation(), LoopTok.getIdentifierInfo());
-  i+=1;
-
-  // Parse loop name this applies to.
-  StringRef ApplyOn;
-  if (Toks[i].is(tok::l_paren)) {
-		auto &LoopNameTok = Toks[i+1];
-		auto &RParTok = Toks[i+2];
-
-		assert(LoopNameTok.is(tok::identifier));
-		auto ApplyOn = LoopNameTok.getIdentifierInfo()->getName();
-		assert(RParTok.is(tok::r_paren));
-
-			  Hint.ApplyOnLoc = IdentifierLoc::create(Actions.Context, LoopNameTok.getLocation(), LoopNameTok.getIdentifierInfo());
-
-		i+=3;
-  }
-
-  auto &IdTok = Toks[i];
-  assert(IdTok.is(tok::identifier));
-  	  Hint.OptionLoc = IdentifierLoc::create(Actions.Context, IdTok.getLocation(), IdTok.getIdentifierInfo());
-  i+=1;
-
-  if (ApplyOn.empty() && IdTok.getIdentifierInfo()->getName() == "id") {
-	  auto &LParTok = Toks[i];
-	  auto &NameTok = Toks[i+1];
-	  auto &RParTok = Toks[i+2];
-	  auto &EofTok = Toks[i+3];
-
-	  assert(LParTok.is(tok::l_paren));
-	  assert(NameTok.is(tok::identifier));
-	  auto LoopId = NameTok.getIdentifierInfo()->getName();
-	  assert(RParTok.is(tok::r_paren));
-	  assert(EofTok.is(tok::eof));
-
-
-
-	  Hint.Range = SourceRange(IdTok.getLocation(), RParTok.getLocation());
-	  Hint.StateLoc = nullptr;
-	  Hint.IdLoc = nullptr;
-	  Hint.ValueExpr = nullptr;
-	  Hint.LoopIdLoc = IdentifierLoc::create(Actions.Context, NameTok.getLocation(), NameTok.getIdentifierInfo());
-
-	  i+=4;
-      assert(Toks.size() == i);
-	  ConsumeAnnotationToken();
-	  return true;
-  }
-
-  if(IdTok.getIdentifierInfo()->getName() == "reverse") {
-	  // TODO: With ApplyOn, could appear anywhere (in the function?)
-	  // Use Sema::ActOnXYZ instead of addind a token
-	  Hint.Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
-	  Hint.StateLoc = nullptr;
-	  Hint.IdLoc = nullptr;
-	  Hint.ValueExpr = nullptr;
-	  Hint.LoopIdLoc = nullptr;
-
-	  auto &EofTok = Toks[i];
-	   assert(EofTok.is(tok::eof));
-	  i+=1;
-
-      assert(Toks.size() == i); // Nothing following 
-	  ConsumeAnnotationToken();
-	  return true;
-  }
-
-  llvm_unreachable("Unrecognized transformation");
-  return false;
-
-#else
-  // Old #pragma clang loop
 
   IdentifierInfo *PragmaNameInfo = Info->PragmaName.getIdentifierInfo();
   Hint.PragmaNameLoc = IdentifierLoc::create(
@@ -1165,9 +1087,95 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
   Hint.Range = SourceRange(Info->PragmaName.getLocation(),
                            Info->Toks.back().getLocation());
-#endif
+
   return true;
 }
+
+
+bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
+		   SourceRange &Range,
+		     SmallVectorImpl<ArgsUnion> &ArgHints) {
+  assert(Tok.is(tok::annot_pragma_loop_annotation));
+  assert(ArgHints.size()==0);
+  PragmaLoopHintInfo *Info =  static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
+  
+
+  auto &Toks = Info->Toks;
+  
+  int i = 0;
+  auto &LoopTok = Toks[i];
+  assert(LoopTok.is(tok::identifier));
+  assert(LoopTok.getIdentifierInfo()->getName() == "loop");
+  i+=1;
+
+  IdentifierLoc *ApplyOnLoc=nullptr;
+
+  // Parse loop name this applies to.
+  StringRef ApplyOn;
+  if (Toks[i].is(tok::l_paren)) {
+		auto &LoopNameTok = Toks[i+1];
+		auto &RParTok = Toks[i+2];
+
+		assert(LoopNameTok.is(tok::identifier));
+		auto ApplyOn = LoopNameTok.getIdentifierInfo()->getName();
+		assert(RParTok.is(tok::r_paren));
+
+		ApplyOnLoc = IdentifierLoc::create(Actions.Context, LoopNameTok.getLocation(), LoopNameTok.getIdentifierInfo());
+
+		i+=3;
+  }
+
+  auto &IdTok = Toks[i];
+  assert(IdTok.is(tok::identifier));
+  	   PragmaNameLoc = IdentifierLoc::create(Actions.Context, IdTok.getLocation(), IdTok.getIdentifierInfo());
+  i+=1;
+
+  if (IdTok.getIdentifierInfo()->getName() == "id") {
+	  assert(!ApplyOnLoc && "No id on already named loop");
+	  auto &LParTok = Toks[i];
+	  auto &NameTok = Toks[i+1];
+	  auto &RParTok = Toks[i+2];
+	  auto &EofTok = Toks[i+3];
+
+	  assert(LParTok.is(tok::l_paren));
+	  assert(NameTok.is(tok::identifier));
+	  auto LoopId = NameTok.getIdentifierInfo()->getName();
+	  assert(RParTok.is(tok::r_paren));
+	  assert(EofTok.is(tok::eof));
+
+
+	  Range = SourceRange(IdTok.getLocation(), RParTok.getLocation());
+	  //ArgHints.push_back(OptionLoc);
+	  ArgHints.push_back(IdentifierLoc::create(Actions.Context, NameTok.getLocation(), NameTok.getIdentifierInfo()));
+
+	  i+=4;
+      assert(Toks.size() == i);
+	  ConsumeAnnotationToken();
+	  return true;
+  }
+
+  if(IdTok.getIdentifierInfo()->getName() == "reverse") {
+	  // TODO: With ApplyOn, could appear anywhere (in the function?)
+	  // Use Sema::ActOnXYZ instead of adding a token
+
+
+	  Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+	  //ArgHints.push_back(OptionLoc);
+	  ArgHints.push_back(ApplyOnLoc);
+
+	  auto &EofTok = Toks[i];
+	   assert(EofTok.is(tok::eof));
+	  i+=1;
+
+      assert(Toks.size() == i); // Nothing following 
+	  ConsumeAnnotationToken();
+	  return true;
+  }
+
+  llvm_unreachable("Unrecognized transformation");
+}
+
 
 namespace {
 struct PragmaAttributeInfo {
@@ -2224,6 +2232,11 @@ void PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
     Pragma.push_back(Tok);
     PP.Lex(Tok);
     if (Tok.is(tok::annot_pragma_openmp)) {
+		// #pragma omp INSIDE a #pragma omp?!? 
+		// According to http://lab.llvm.org:8080/coverage/coverage-reports/clang/coverage/Users/buildslave/jenkins/workspace/clang-stage2-coverage-R/llvm/tools/clang/lib/Parse/ParsePragma.cpp.html#L2134 this does actually happen
+        // Have to find when. Can this happen for #pragma clang loop as well?
+		// Added in r325369
+
       PP.Diag(Tok, diag::err_omp_unexpected_directive) << 0;
       unsigned InnerPragmaCnt = 1;
       while (InnerPragmaCnt != 0) {
@@ -2242,10 +2255,10 @@ void PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   Tok.setLocation(EodLoc);
   Pragma.push_back(Tok);
 
-  auto Toks = llvm::make_unique<Token[]>(Pragma.size());
+  auto Toks = llvm::make_unique<Token[]>(Pragma.size()); // Why not using ArrayRef<Token>
   std::copy(Pragma.begin(), Pragma.end(), Toks.get());
   PP.EnterTokenStream(std::move(Toks), Pragma.size(),
-                      /*DisableMacroExpansion=*/false);
+                      /*DisableMacroExpansion=*/false); // Isn't adding a single tok::annot_pragma_openmp token with setAnnotationValue preferable?
 }
 
 /// Handle '#pragma pointers_to_members'
@@ -2816,6 +2829,40 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
   return false;
 }
 
+void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
+                                         PragmaIntroducerKind Introducer,
+                                         Token &Tok) {
+	// Identify the legacy syntax
+	// Matches one of:
+	//   "loop" <keyword> "("
+	// 
+	// New syntax does not have "(" after <keyword>
+
+	auto &KeywordLoopToken = Tok;
+	assert(KeywordLoopToken.is(tok::identifier));
+	assert(KeywordLoopToken.getIdentifierInfo()->getName() == "loop");
+
+	Token HintToken;
+	PP.Lex(HintToken);
+
+	if (!HintToken.is(tok::identifier) || HintToken.getIdentifierInfo()->getName() == "id") {
+		PP.EnterTokenStream(HintToken, true);
+		return HandleOmpSyntax(PP, Introducer,KeywordLoopToken);
+	}
+	
+	Token LParToken;
+	PP.Lex(LParToken);
+
+	PP.EnterTokenStream({HintToken, LParToken}, true);
+
+	if (LParToken.is(tok::l_paren)) 
+		  return HandleLegacySyntax(PP, Introducer , Tok);
+	
+
+
+	return HandleOmpSyntax(PP, Introducer,KeywordLoopToken);
+}
+
 /// Handle the \#pragma clang loop directive.
 ///  #pragma clang 'loop' loop-hints
 ///
@@ -2861,44 +2908,9 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
 /// compile time.  Specifying unroll(disable) disables unrolling for the
 /// loop. Specifying unroll_count(_value_) instructs llvm to try to unroll the
 /// loop the number of times indicated by the value.
-void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
+void PragmaLoopHintHandler::HandleLegacySyntax(Preprocessor &PP,
                                          PragmaIntroducerKind Introducer,
                                          Token &Tok) {
-#if 1
-	// New #pragma clang loop syntax, one hint per line.
-
-	// Add all tokens for later parsing
-	auto StartLoc = Tok.getLocation();
-	auto *Info = new (PP.getPreprocessorAllocator()) PragmaLoopHintInfo;
-
-        SmallVector<Token, 4> ValueList;
-        while (Tok.isNot(tok::eod)) {
-          ValueList.push_back(Tok);
-          PP.Lex(Tok);
-        }
-        auto EndLoc = Tok.getLocation();
-
-        Token EOFTok;
-        EOFTok.startToken();
-        EOFTok.setKind(tok::eof);
-        EOFTok.setLocation(EndLoc);
-        ValueList.push_back(EOFTok); // Terminates expression for parsing.
-
-        Info->Toks = llvm::makeArrayRef(ValueList).copy(PP.getPreprocessorAllocator());
-        //Info->PragmaName = PragmaName;
-        //Info->Option = Option;
-
-	    Token LoopHintTok;
-        LoopHintTok.startToken();
-        LoopHintTok.setKind(tok::annot_pragma_loop_hint);
-        LoopHintTok.setLocation(StartLoc);
-        LoopHintTok.setAnnotationEndLoc(EndLoc);
-        LoopHintTok.setAnnotationValue(static_cast<void *>(Info));
-
-  PP.EnterTokenStream(LoopHintTok, /*DisableMacroExpansion=*/false);
-#else
-	// Old #pragma clang loop syntax
-
   // Incoming token is "loop" from "#pragma clang loop".
   Token PragmaName = Tok;
   SmallVector<Token, 1> TokenList;
@@ -2966,8 +2978,47 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
 
   PP.EnterTokenStream(std::move(TokenArray), TokenList.size(),
                       /*DisableMacroExpansion=*/false);
-#endif
 }
+
+
+  void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &Tok) {
+	// New #pragma clang loop syntax, one hint per line.
+
+	// Add all tokens for later parsing
+	auto StartLoc = Tok.getLocation();
+	auto *Info = new (PP.getPreprocessorAllocator()) PragmaLoopHintInfo;
+	Info->NewSyntax = true;
+
+        SmallVector<Token, 4> ValueList;
+        while (Tok.isNot(tok::eod)) {
+          ValueList.push_back(Tok);
+          PP.Lex(Tok);
+        }
+        auto EndLoc = Tok.getLocation();
+
+        Token EOFTok;
+        EOFTok.startToken();
+        EOFTok.setKind(tok::eof);
+        EOFTok.setLocation(EndLoc);
+        ValueList.push_back(EOFTok); // Terminates expression for parsing.
+
+        Info->Toks = llvm::makeArrayRef(ValueList).copy(PP.getPreprocessorAllocator());
+        //Info->PragmaName = PragmaName;
+        //Info->Option = Option;
+
+		  auto TokenArray = llvm::make_unique<Token[]>(1);
+	    Token &LoopHintTok = TokenArray[0];
+
+        LoopHintTok.startToken();
+        LoopHintTok.setKind(tok::annot_pragma_loop_annotation);
+        LoopHintTok.setLocation(StartLoc);
+        LoopHintTok.setAnnotationEndLoc(EndLoc);
+        LoopHintTok.setAnnotationValue(static_cast<void *>(Info));
+
+  PP.EnterTokenStream(std::move(TokenArray), 1,/*DisableMacroExpansion=*/false);
+  }
+
+
 
 /// Handle the loop unroll optimization pragmas.
 ///  #pragma unroll

@@ -475,6 +475,8 @@ class Attr {
   // attribute may be documented under multiple categories, more than one
   // Documentation entry may be listed.
   list<Documentation> Documentation;
+
+  bit PrettyPrintSpelling = 0;
 }
 
 /// A type attribute is not processed on a declaration or a statement.
@@ -2677,6 +2679,46 @@ def InitSeg : Attr {
   }];
 }
 
+def LoopId : Attr {
+  // #pragma clang loop id(loopname)
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "id">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"LoopName">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop id(" << getLoopName() << ")";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopReversal : Attr {
+  // #pragma clang loop reverse
+  // #pragma clang loop(loopname) reverse
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "reverse">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty())
+						OS << "(" << getApplyOn() << ")";
+			OS << " reverse";
+		}
+  }];
+
+  let Documentation = [];
+}
+
 def LoopHint : Attr {
   /// #pragma clang loop <option> directive
   /// vectorize: vectorizes loop operations if State == Enable.
@@ -2692,11 +2734,15 @@ def LoopHint : Attr {
   /// boolean: fully unrolls loop if State == Enable.
   /// expression: unrolls loop 'Value' times.
 
-  let Spellings = [Pragma<"clang", "loop">, Pragma<"", "unroll">,
-                   Pragma<"", "nounroll">];
+  let Spellings = [Pragma<"", "loop">, Pragma<"", "unroll">,
+                   Pragma<"", "nounroll">,
+								   //Pragma<"", "id">,
+                   //Pragma<"", "reverse">,
+                   Pragma<"nonsensical", "testspelling">];
+  let PrettyPrintSpelling = 0;
 
   /// State of the loop optimization specified by the spelling.
-  let Args = [StringArgument<"ApplyOn">, // ApplyOn
+  let Args = [StringArgument<"ApplyOn">,
               EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
                            "unroll", "unroll_count", "distribute", "reverse", "id"],
@@ -2726,17 +2772,17 @@ def LoopHint : Attr {
 
   void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
     unsigned SpellingIndex = getSpellingListIndex();
-    // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
-    // "nounroll" is already emitted as the pragma name.
-    if (SpellingIndex == Pragma_nounroll)
+    if (SpellingIndex == Pragma_nounroll) {
+      OS << "nounroll";
       return;
+    }
     else if (SpellingIndex == Pragma_unroll) {
-      OS << ' ' << getValueString(Policy);
+      OS << "unroll " << getValueString(Policy);
       return;
     }
 
-    assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-    OS << ' ' << getOptionName(option) << getValueString(Policy);
+    assert(SpellingIndex == Pragma_loop && "Unexpected spelling");
+    OS << "clang loop " << getOptionName(option) << getValueString(Policy);
   }
 
   // Return a string containing the loop hint argument including the
@@ -2771,7 +2817,7 @@ def LoopHint : Attr {
     else if (SpellingIndex == Pragma_unroll)
       return "#pragma unroll" + (option == UnrollCount ? getValueString(Policy) : "");
 
-    assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
+    assert(SpellingIndex == Pragma_loop && "Unexpected spelling");
     return getOptionName(option) + getValueString(Policy);
   }
   }];
