@@ -477,7 +477,7 @@ class Attr {
   // Documentation entry may be listed.
   list<Documentation> Documentation;
 
-  bit PrettyPrintSpelling = 0;
+  bit PrettyPrintSpelling = 1;
 }
 
 /// A type attribute is not processed on a declaration or a statement.
