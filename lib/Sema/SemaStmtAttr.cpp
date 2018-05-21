@@ -91,7 +91,8 @@ static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A, Sourc
 
 		// <loopname> as in #pragma clang loop(<loopname>) <transform>
     IdentifierLoc *ApplyOnLoc = A.getArgAsIdent( 0); 
-    return LoopReversalAttr::CreateImplicit(        S.Context, ApplyOnLoc->Ident->getName(),        A.getRange());
+	auto ApplyOn = ApplyOnLoc ?  ApplyOnLoc->Ident->getName() : StringRef();
+    return LoopReversalAttr::CreateImplicit(        S.Context,ApplyOn,        A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
