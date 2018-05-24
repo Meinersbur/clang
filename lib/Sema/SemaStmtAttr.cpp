@@ -95,6 +95,22 @@ static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A, Sourc
     return LoopReversalAttr::CreateImplicit(        S.Context,ApplyOn,        A.getRange());
 }
 
+static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
+    assert(A.getNumArgs() >= 1);
+
+	// <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
+	SmallVector <IdentifierLoc *,4> ApplyOnLocs;
+		SmallVector <StringRef,4> ApplyOns;
+	auto NumArgs = A.getNumArgs();
+	for (unsigned i = 0; i < NumArgs; i+=1) {
+		auto Ident = A.getArgAsIdent(i);
+		ApplyOnLocs.push_back(Ident);
+		ApplyOns.push_back(Ident->Ident->getName());
+    }
+
+    return LoopTilingAttr ::CreateImplicit( S.Context,ApplyOns.data() , ApplyOns.size(),       A.getRange());
+}
+
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
                                 SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
@@ -339,6 +355,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
 	    return handleLoopId(S,St,A,Range);
   case AttributeList::AT_LoopReversal:
 	  return handleLoopReversal(S,St,A,Range);
+  case AttributeList::AT_LoopTiling:
+	   return handleLoopTiling(S,St,A,Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

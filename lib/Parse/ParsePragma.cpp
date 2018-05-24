@@ -1108,21 +1108,36 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
   assert(LoopTok.getIdentifierInfo()->getName() == "loop");
   i+=1;
 
-  IdentifierLoc *ApplyOnLoc=nullptr;
+  //IdentifierLoc *ApplyOnLoc=nullptr;
 
   // Parse loop name this applies to.
-  StringRef ApplyOn;
+  //SmallVector<StringRef,4> ApplyOns;
+  SmallVector<IdentifierLoc*,4> ApplyOnLocs;
+ // StringRef ApplyOn;
   if (Toks[i].is(tok::l_paren)) {
-		auto &LoopNameTok = Toks[i+1];
-		auto &RParTok = Toks[i+2];
+	   i+=1;
 
-		assert(LoopNameTok.is(tok::identifier));
-		auto ApplyOn = LoopNameTok.getIdentifierInfo()->getName();
-		assert(RParTok.is(tok::r_paren));
+	    while (true) {
+			auto &LoopNameTok = Toks[i];
+			assert(LoopNameTok.is(tok::identifier));
+			auto ApplyOnLoc = IdentifierLoc::create(Actions.Context, LoopNameTok.getLocation(), LoopNameTok.getIdentifierInfo());
+			//auto ApplyOn = LoopNameTok.getIdentifierInfo()->getName();
 
-		ApplyOnLoc = IdentifierLoc::create(Actions.Context, LoopNameTok.getLocation(), LoopNameTok.getIdentifierInfo());
+			ApplyOnLocs.push_back(ApplyOnLoc);
+	
+			auto &RParTok = Toks[i+1];
+			if (RParTok.is(tok::r_paren)) {
+				i+=2;
+				break;
+			}
 
-		i+=3;
+			if (RParTok.is(tok::comma)) {
+				i+=2;
+				continue;
+               }
+
+			llvm_unreachable("unexpected token");
+		}
   }
 
   auto &IdTok = Toks[i];
@@ -1131,7 +1146,7 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
   i+=1;
 
   if (IdTok.getIdentifierInfo()->getName() == "id") {
-	  assert(!ApplyOnLoc && "No id on already named loop");
+	  assert(ApplyOnLocs.empty() && "No id on already named loop");
 	  auto &LParTok = Toks[i];
 	  auto &NameTok = Toks[i+1];
 	  auto &RParTok = Toks[i+2];
@@ -1157,12 +1172,28 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
   if(IdTok.getIdentifierInfo()->getName() == "reverse") {
 	  // TODO: With ApplyOn, could appear anywhere (in the function?)
 	  // Use Sema::ActOnXYZ instead of adding a token
-
+	  assert(ApplyOnLocs.size()<=1 && "only single loop supported for reverse");
 
 	  Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
 	  //ArgHints.push_back(OptionLoc);
-	  ArgHints.push_back(ApplyOnLoc);
+	  ArgHints.push_back(ApplyOnLocs[0]);
+
+	  auto &EofTok = Toks[i];
+	   assert(EofTok.is(tok::eof));
+	  i+=1;
+
+      assert(Toks.size() == i); // Nothing following 
+	  ConsumeAnnotationToken();
+	  return true;
+  }
+
+  if(IdTok.getIdentifierInfo()->getName() == "tile") {
+	   assert(ApplyOnLocs.size()>=2 && "loop spec required for tile");
+
+	   Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+	   for (auto NameLoc : ApplyOnLocs)
+		   ArgHints.push_back(NameLoc);
 
 	  auto &EofTok = Toks[i];
 	   assert(EofTok.is(tok::eof));

@@ -33,17 +33,32 @@ class ASTContext;
 namespace CodeGen {
 
 struct LoopTransformation {
-  enum TransformKind { Reverse };
-
-  // TODO: If ApplyOn is set, should not appear in the transformation stack
-llvm::  StringRef ApplyOn;
-
+  enum TransformKind { Reversal, Tiling };
   TransformKind Kind;
 
-  static LoopTransformation createReversal( llvm::StringRef ApplyOn =  llvm::StringRef()) {
+  // TODO: If ApplyOn is set, should not appear in the transformation stack
+  llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
+
+  llvm::StringRef getApplyOn() const {
+	  assert(ApplyOns.size()==1);
+	return ApplyOns[0];
+  }
+
+  static LoopTransformation
+  createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
     LoopTransformation Result;
-    Result.ApplyOn = ApplyOn;
-    Result.Kind = Reverse;
+	    Result.Kind = Reversal;
+    Result.ApplyOns.push_back( ApplyOn);
+
+    return Result;
+  }
+
+  static LoopTransformation
+  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns) {
+    LoopTransformation Result;
+	    Result.Kind = Tiling;
+	for (auto ApplyOn : ApplyOns)
+		Result.ApplyOns.push_back(ApplyOn);
     return Result;
   }
 };
@@ -181,7 +196,7 @@ public:
   void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
 
   void addTransformation(LoopTransformation Transform) {
-	  StagedAttrs.TransformationStack.push_back(Transform);
+    StagedAttrs.TransformationStack.push_back(Transform);
   }
 
 private:

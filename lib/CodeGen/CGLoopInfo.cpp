@@ -121,29 +121,49 @@ static MDNode *createMetadata( LLVMContext &Ctx, Function *F, const LoopAttribut
   LoopID->replaceOperandWith(0, LoopID);
 
   auto TopLoopId = LoopID;
-  for (auto &Transform : reverse( Attrs.TransformationStack) ) {
+  for (auto &Transform : reverse(Attrs.TransformationStack) ) {
 	  switch(Transform.Kind) { 
-	  case LoopTransformation::Reverse:
+	  case LoopTransformation::Reversal: {
 		  SmallVector<Metadata *, 4> TransformArgs;
 		  TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
 
-		  if (Transform.ApplyOn.empty()) {
+		  auto ApplyOn = Transform.getApplyOn();
+
+		  if (ApplyOn.empty()) {
 			  // Apply on TopLoopId
+			  assert(TopLoopId);
 			  TransformArgs.push_back(TopLoopId);
 		  } else {
 			  // Apply on Transform.ApplyOn
 			  //TODO: Search for LoopID instead of using the name?
-			  TransformArgs.push_back(MDString::get(Ctx, Transform.ApplyOn));
+			  TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
 		  }
 
 		  auto MDTransform = MDNode::get(Ctx, TransformArgs);
 
-		  auto Transforms = MDNode::get(Ctx, MDTransform);
+		  auto Transforms = MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
 		  F->addMetadata("looptransform", *Transforms);
 
 		  // TODO: Different scheme for transformations that output more than one 
 		  TopLoopId = MDTransform;
-		  break;
+          } break;
+      case LoopTransformation::Tiling: {
+		  SmallVector<Metadata *, 4> TransformArgs;
+		  TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
+
+		  SmallVector<Metadata *, 4> ApplyOnArgs;
+		  for (auto ApplyOn: Transform.ApplyOns) {
+			  assert(!ApplyOn.empty() && "Must specify loops to tile");
+			  ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+		  }
+		  TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+
+		  auto MDTransform = MDNode::get(Ctx, TransformArgs);
+		  auto Transforms = MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+		   F->addMetadata("looptransform", *Transforms);
+		   TopLoopId = nullptr; // No unique follow-up node
+
+	    } break;
 	  }
   }
 
@@ -202,6 +222,10 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
 		}
 
 		addTransformation( LoopTransformation::createReversal(ApplyOn) );
+		continue;
+	}
+		if (auto LTiling = dyn_cast<LoopTilingAttr>(Attr)) {
+		addTransformation(LoopTransformation::createTiling( ArrayRef<StringRef>(LTiling->applyOn_begin(), LTiling->applyOn_end()) )  );
 		continue;
 	}
 

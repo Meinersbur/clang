@@ -2720,6 +2720,37 @@ def LoopReversal : Attr {
   let Documentation = [];
 }
 
+def LoopTiling : Attr {
+  // #pragma clang loop tile
+  // #pragma clang loop(loopname1, loopname2, ...) tile
+
+  let Spellings = [Pragma<"", "tile">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First)
+							OS << ", ";
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			}
+			OS << " tile";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
 def LoopHint : Attr {
   /// #pragma clang loop <option> directive
   /// vectorize: vectorizes loop operations if State == Enable.
