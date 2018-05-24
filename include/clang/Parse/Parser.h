@@ -593,9 +593,9 @@ private:
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
 
-   bool HandlePragmaLoopAnnotation(   IdentifierLoc *&PragmaNameLoc,
-		   SourceRange &Range,
-		     SmallVectorImpl<ArgsUnion> &ArgHints);
+  bool HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
+                                  SourceRange &Range,
+                                  SmallVectorImpl<ArgsUnion> &ArgHints);
 
   bool ParsePragmaAttributeSubjectMatchRuleSet(
       attr::ParsedSubjectMatchRuleSet &SubjectMatchRules,
@@ -1791,7 +1791,6 @@ private:
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
 
-
   /// Describes the behavior that should be taken for an __if_exists
   /// block.
   enum IfExistsBehavior {
@@ -2224,7 +2223,7 @@ private:
     attrs.clear();
   }
   void DiagnoseProhibitedAttributes(ParsedAttributesWithRange &attrs,
-    SourceLocation FixItLoc);
+                                    SourceLocation FixItLoc);
 
   // Forbid C++11 and C2x attributes that appear on certain syntactic locations
   // which standard permits but we don't supported yet, for example, attributes

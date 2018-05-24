@@ -40,15 +40,15 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
   llvm::StringRef getApplyOn() const {
-	  assert(ApplyOns.size()==1);
-	return ApplyOns[0];
+    assert(ApplyOns.size() == 1);
+    return ApplyOns[0];
   }
 
   static LoopTransformation
   createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
     LoopTransformation Result;
-	    Result.Kind = Reversal;
-    Result.ApplyOns.push_back( ApplyOn);
+    Result.Kind = Reversal;
+    Result.ApplyOns.push_back(ApplyOn);
 
     return Result;
   }
@@ -56,9 +56,9 @@ struct LoopTransformation {
   static LoopTransformation
   createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns) {
     LoopTransformation Result;
-	    Result.Kind = Tiling;
-	for (auto ApplyOn : ApplyOns)
-		Result.ApplyOns.push_back(ApplyOn);
+    Result.Kind = Tiling;
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
     return Result;
   }
 };

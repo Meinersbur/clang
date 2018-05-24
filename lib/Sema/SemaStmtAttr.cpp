@@ -77,38 +77,43 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const AttributeList &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
-static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-	assert(A.getNumArgs() == 1);
+static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
+                          SourceRange) {
+  assert(A.getNumArgs() == 1);
 
-		// <loopname> as in #pragma clang loop id(<loopname>)
-    auto LoopIdLoc = A.getArgAsIdent(0); 
+  // <loopname> as in #pragma clang loop id(<loopname>)
+  auto LoopIdLoc = A.getArgAsIdent(0);
 
-    return LoopIdAttr ::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(), A.getRange());
+  return LoopIdAttr ::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
+                                     A.getRange());
 }
 
-static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-    assert(A.getNumArgs() == 1);
+static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A,
+                                SourceRange) {
+  assert(A.getNumArgs() == 1);
 
-		// <loopname> as in #pragma clang loop(<loopname>) <transform>
-    IdentifierLoc *ApplyOnLoc = A.getArgAsIdent( 0); 
-	auto ApplyOn = ApplyOnLoc ?  ApplyOnLoc->Ident->getName() : StringRef();
-    return LoopReversalAttr::CreateImplicit(        S.Context,ApplyOn,        A.getRange());
+  // <loopname> as in #pragma clang loop(<loopname>) <transform>
+  IdentifierLoc *ApplyOnLoc = A.getArgAsIdent(0);
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
 }
 
-static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-    assert(A.getNumArgs() >= 1);
+static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
+                              SourceRange) {
+  assert(A.getNumArgs() >= 1);
 
-	// <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
-	SmallVector <IdentifierLoc *,4> ApplyOnLocs;
-		SmallVector <StringRef,4> ApplyOns;
-	auto NumArgs = A.getNumArgs();
-	for (unsigned i = 0; i < NumArgs; i+=1) {
-		auto Ident = A.getArgAsIdent(i);
-		ApplyOnLocs.push_back(Ident);
-		ApplyOns.push_back(Ident->Ident->getName());
-    }
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  for (unsigned i = 0; i < NumArgs; i += 1) {
+    auto Ident = A.getArgAsIdent(i);
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
 
-    return LoopTilingAttr ::CreateImplicit( S.Context,ApplyOns.data() , ApplyOns.size(),       A.getRange());
+  return LoopTilingAttr ::CreateImplicit(S.Context, ApplyOns.data(),
+                                         ApplyOns.size(), A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
@@ -352,11 +357,11 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
   case AttributeList::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
   case AttributeList::AT_LoopId:
-	    return handleLoopId(S,St,A,Range);
+    return handleLoopId(S, St, A, Range);
   case AttributeList::AT_LoopReversal:
-	  return handleLoopReversal(S,St,A,Range);
+    return handleLoopReversal(S, St, A, Range);
   case AttributeList::AT_LoopTiling:
-	   return handleLoopTiling(S,St,A,Range);
+    return handleLoopTiling(S, St, A, Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

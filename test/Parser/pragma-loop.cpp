@@ -285,6 +285,6 @@ const int VV = 4;
   }
 
 #pragma clang loop interleave(enable)
-/* expected-error {{expected statement}} */ 
+/* expected-error {{expected statement}} */
 #endif
 }

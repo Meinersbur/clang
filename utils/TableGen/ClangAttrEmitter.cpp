@@ -1399,9 +1399,9 @@ writePrettyPrintFunction(Record &R,
     OS << "  case " << I << " : {\n";
 
     if (Variety == "Pragma") {
-	  OS << "    OS << \"" << Prefix ;
-		if (PrettyPrintSpelling)
-			OS << Spelling;
+      OS << "    OS << \"" << Prefix;
+      if (PrettyPrintSpelling)
+        OS << Spelling;
       OS << "\";\n";
       OS << "    printPrettyPragma(OS, Policy);\n";
       OS << "    OS << \"\\n\";";
@@ -1410,7 +1410,7 @@ writePrettyPrintFunction(Record &R,
       continue;
     }
 
-	 OS <<  "    OS << \"" << Prefix << Spelling;
+    OS << "    OS << \"" << Prefix << Spelling;
 
     if (Spelling == "availability") {
       OS << "(";
@@ -2382,7 +2382,7 @@ void EmitClangAttrImpl(RecordKeeper &Records, raw_ostream &OS) {
     OS << "  A->Implicit = Implicit;\n";
     OS << "  return A;\n}\n\n";
 
-	auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
+    auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
     writePrettyPrintFunction(R, Args, OS, PrettyPrintSpelling);
     writeGetSpellingFunction(R, OS);
   }

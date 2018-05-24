@@ -2,9 +2,9 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
 
 extern "C" void pragma_id(double *A, int N) {
-  #pragma clang loop id(myloop)
-  for (int i=0; i<N; i+=1)
-	  A[i] = A[i] + 1;
+#pragma clang loop id(myloop)
+  for (int i = 0; i < N; i += 1)
+    A[i] = A[i] + 1;
 }
 
 // PRINT-LABEL: extern "C" void pragma_id(double *A, int N) {

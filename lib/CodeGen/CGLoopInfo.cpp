@@ -19,7 +19,8 @@
 using namespace clang::CodeGen;
 using namespace llvm;
 
-static MDNode *createMetadata( LLVMContext &Ctx, Function *F, const LoopAttributes &Attrs,
+static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
+                              const LoopAttributes &Attrs,
                               const llvm::DebugLoc &StartLoc,
                               const llvm::DebugLoc &EndLoc) {
 
@@ -29,9 +30,7 @@ static MDNode *createMetadata( LLVMContext &Ctx, Function *F, const LoopAttribut
       Attrs.UnrollEnable == LoopAttributes::Unspecified &&
       Attrs.DistributeEnable == LoopAttributes::Unspecified &&
       Attrs.ReverseEnable == LoopAttributes::Unspecified && !StartLoc &&
-	  Attrs.LoopId.empty() &&
-	  Attrs.TransformationStack.empty() &&
-      !EndLoc)
+      Attrs.LoopId.empty() && Attrs.TransformationStack.empty() && !EndLoc)
     return nullptr;
 
   SmallVector<Metadata *, 4> Args;
@@ -110,61 +109,63 @@ static MDNode *createMetadata( LLVMContext &Ctx, Function *F, const LoopAttribut
     Args.push_back(MDNode::get(Ctx, Vals));
   }
 
-  if (!Attrs.LoopId.empty() ) {
-	      Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.id"),
+  if (!Attrs.LoopId.empty()) {
+    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.id"),
                         MDString::get(Ctx, Attrs.LoopId)};
-		   Args.push_back(MDNode::get(Ctx, Vals));
+    Args.push_back(MDNode::get(Ctx, Vals));
   }
 
-    // Set the first operand to itself.
+  // Set the first operand to itself.
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
   auto TopLoopId = LoopID;
-  for (auto &Transform : reverse(Attrs.TransformationStack) ) {
-	  switch(Transform.Kind) { 
-	  case LoopTransformation::Reversal: {
-		  SmallVector<Metadata *, 4> TransformArgs;
-		  TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
+  for (auto &Transform : reverse(Attrs.TransformationStack)) {
+    switch (Transform.Kind) {
+    case LoopTransformation::Reversal: {
+      SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
 
-		  auto ApplyOn = Transform.getApplyOn();
+      auto ApplyOn = Transform.getApplyOn();
 
-		  if (ApplyOn.empty()) {
-			  // Apply on TopLoopId
-			  assert(TopLoopId);
-			  TransformArgs.push_back(TopLoopId);
-		  } else {
-			  // Apply on Transform.ApplyOn
-			  //TODO: Search for LoopID instead of using the name?
-			  TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		  }
+      if (ApplyOn.empty()) {
+        // Apply on TopLoopId
+        assert(TopLoopId);
+        TransformArgs.push_back(TopLoopId);
+      } else {
+        // Apply on Transform.ApplyOn
+        // TODO: Search for LoopID instead of using the name?
+        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
 
-		  auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
 
-		  auto Transforms = MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-		  F->addMetadata("looptransform", *Transforms);
+      auto Transforms =
+          MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+      F->addMetadata("looptransform", *Transforms);
 
-		  // TODO: Different scheme for transformations that output more than one 
-		  TopLoopId = MDTransform;
-          } break;
-      case LoopTransformation::Tiling: {
-		  SmallVector<Metadata *, 4> TransformArgs;
-		  TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
+      // TODO: Different scheme for transformations that output more than one
+      TopLoopId = MDTransform;
+    } break;
+    case LoopTransformation::Tiling: {
+      SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
 
-		  SmallVector<Metadata *, 4> ApplyOnArgs;
-		  for (auto ApplyOn: Transform.ApplyOns) {
-			  assert(!ApplyOn.empty() && "Must specify loops to tile");
-			  ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-		  }
-		  TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+      SmallVector<Metadata *, 4> ApplyOnArgs;
+      for (auto ApplyOn : Transform.ApplyOns) {
+        assert(!ApplyOn.empty() && "Must specify loops to tile");
+        ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
+      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
-		  auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		  auto Transforms = MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-		   F->addMetadata("looptransform", *Transforms);
-		   TopLoopId = nullptr; // No unique follow-up node
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      auto Transforms =
+          MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+      F->addMetadata("looptransform", *Transforms);
+      TopLoopId = nullptr; // No unique follow-up node
 
-	    } break;
-	  }
+    } break;
+    }
   }
 
   return LoopID;
@@ -186,13 +187,15 @@ void LoopAttributes::clear() {
   UnrollEnable = LoopAttributes::Unspecified;
   DistributeEnable = LoopAttributes::Unspecified;
   ReverseEnable = LoopAttributes::Unspecified;
-  LoopId = StringRef(); TransformationStack.clear();
+  LoopId = StringRef();
+  TransformationStack.clear();
 }
 
 LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), Header->getParent(), Attrs, StartLoc, EndLoc);
+  LoopID = createMetadata(Header->getContext(), Header->getParent(), Attrs,
+                          StartLoc, EndLoc);
 }
 
 void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
@@ -209,30 +212,32 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
 
   // Identify loop hint attributes from Attrs.
   for (const auto *Attr : Attrs) {
-	  	if (auto LId = dyn_cast<LoopIdAttr>(Attr)) {
-		 setLoopId(LId->getLoopName());
-		 continue;
-	}
-	if (auto LReversal = dyn_cast<LoopReversalAttr>(Attr)) {
-				auto ApplyOn = LReversal->getApplyOn();
-				if (ApplyOn.empty()) {
-			// Apply to the following loop
-		} else {
-		  // Apply on the loop with that name
-		}
+    if (auto LId = dyn_cast<LoopIdAttr>(Attr)) {
+      setLoopId(LId->getLoopName());
+      continue;
+    }
+    if (auto LReversal = dyn_cast<LoopReversalAttr>(Attr)) {
+      auto ApplyOn = LReversal->getApplyOn();
+      if (ApplyOn.empty()) {
+        // Apply to the following loop
+      } else {
+        // Apply on the loop with that name
+      }
 
-		addTransformation( LoopTransformation::createReversal(ApplyOn) );
-		continue;
-	}
-		if (auto LTiling = dyn_cast<LoopTilingAttr>(Attr)) {
-		addTransformation(LoopTransformation::createTiling( ArrayRef<StringRef>(LTiling->applyOn_begin(), LTiling->applyOn_end()) )  );
-		continue;
-	}
+      addTransformation(LoopTransformation::createReversal(ApplyOn));
+      continue;
+    }
+    if (auto LTiling = dyn_cast<LoopTilingAttr>(Attr)) {
+      addTransformation(LoopTransformation::createTiling(ArrayRef<StringRef>(
+          LTiling->applyOn_begin(), LTiling->applyOn_end())));
+      continue;
+    }
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
-    const OpenCLUnrollHintAttr *OpenCLHint =  dyn_cast<OpenCLUnrollHintAttr>(Attr);
+    const OpenCLUnrollHintAttr *OpenCLHint =
+        dyn_cast<OpenCLUnrollHintAttr>(Attr);
 
-	   // Skip non loop hint attributes
+    // Skip non loop hint attributes
     if (!LH && !OpenCLHint) {
       continue;
     }
@@ -354,8 +359,8 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       }
       break;
     case LoopHintAttr::Name:
-		// Already handled
-		break;
+      // Already handled
+      break;
     }
   }
 

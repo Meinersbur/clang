@@ -112,6 +112,6 @@ void test(int *List, int Length) {
   }
 
 #pragma unroll
-/* expected-error {{expected statement}} */ 
+/* expected-error {{expected statement}} */
 #endif
 }

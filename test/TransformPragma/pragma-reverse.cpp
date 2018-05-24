@@ -3,11 +3,10 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
 
 extern "C" void pragma_reverse(double *A, int N) {
-  #pragma clang loop reverse
-  for (int i=N-1; i>=0; i--)
-	  A[i] = A[i] + 1;
+#pragma clang loop reverse
+  for (int i = N - 1; i >= 0; i--)
+    A[i] = A[i] + 1;
 }
-
 
 // PRINT-LABEL: extern "C" void pragma_reverse(double *A, int N) {
 // PRINT-NEXT:   #pragma clang loop reverse
@@ -15,13 +14,11 @@ extern "C" void pragma_reverse(double *A, int N) {
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }
 
-
 // IR-LABEL: define dso_local void @pragma_reverse(double* %A, i32 %N) #0 !looptransform !2 {
 // IR:         br label %for.cond, !llvm.loop !4
 //
 // IR: !2 = !{!3}
 // IR: !3 = !{!"llvm.loop.reverse", !4}
-
 
 // TRANS: define dso_local void @pragma_reverse(double* nocapture %A, i32 %N)
 // TRANS: entry:
