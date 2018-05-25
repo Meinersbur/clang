@@ -46,7 +46,6 @@ set(files
   clflushoptintrin.h
   clwbintrin.h
   emmintrin.h
-  __emmintrin_f16c.h
   f16cintrin.h
   float.h
   fma4intrin.h
@@ -59,6 +58,7 @@ set(files
   immintrin.h
   intrin.h
   inttypes.h
+  invpcidintrin.h
   iso646.h
   limits.h
   lwpintrin.h
