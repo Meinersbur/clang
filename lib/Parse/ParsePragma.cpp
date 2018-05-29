@@ -1178,8 +1178,12 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
 
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-    // ArgHints.push_back(OptionLoc);
-    ArgHints.push_back(ApplyOnLocs[0]);
+	assert(ApplyOnLocs.size()<=1);
+    if (ApplyOnLocs.empty())
+		// Apply on following loop
+		 ArgHints.push_back((IdentifierLoc*)nullptr); 
+      else
+          ArgHints.push_back(ApplyOnLocs[0]);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));
