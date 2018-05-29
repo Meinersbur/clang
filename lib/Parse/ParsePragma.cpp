@@ -1094,7 +1094,7 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
                                         SourceRange &Range,
                                         SmallVectorImpl<ArgsUnion> &ArgHints) {
-  assert(Tok.is(tok::annot_pragma_loop_annotation));
+  assert(Tok.is(tok::annot_pragma_loop_transform));
   assert(ArgHints.size() == 0);
   PragmaLoopHintInfo *Info =
       static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
@@ -3049,7 +3049,7 @@ void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP,
   Token &LoopHintTok = TokenArray[0];
 
   LoopHintTok.startToken();
-  LoopHintTok.setKind(tok::annot_pragma_loop_annotation);
+  LoopHintTok.setKind(tok::annot_pragma_loop_transform);
   LoopHintTok.setLocation(StartLoc);
   LoopHintTok.setAnnotationEndLoc(EndLoc);
   LoopHintTok.setAnnotationValue(static_cast<void *>(Info));

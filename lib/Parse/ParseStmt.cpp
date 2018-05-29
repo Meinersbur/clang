@@ -377,7 +377,7 @@ Retry:
     return StmtEmpty();
 
   case tok::annot_pragma_loop_hint:
-  case tok::annot_pragma_loop_annotation:
+  case tok::annot_pragma_loop_transform:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, Allowed, TrailingElseLoc, Attrs);
 
@@ -1949,7 +1949,7 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
       continue;
     }
 
-    if (Tok.is(tok::annot_pragma_loop_annotation)) {
+    if (Tok.is(tok::annot_pragma_loop_transform)) {
       IdentifierLoc *PragmaNameLoc;
       SourceRange Range;
       SmallVector<ArgsUnion, 8> ArgHints;
