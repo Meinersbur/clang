@@ -1225,11 +1225,12 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
             NumOpenParens -= 1;
           i += 1;
         }
-        auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner+1);
+        auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner + 1);
         auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
 
         // Push back the tokens on the stack so we can parse them
-        PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/false);
+        PP.EnterTokenStream(ClauseParens.slice(1),
+                            /*DisableMacroExpansion=*/false);
 
         // Update token stream; current token could be an annotation token or a
         // closing parent.
@@ -1242,10 +1243,11 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
           TileSizeExpr.push_back(R.get());
 
           if (Tok.is(tok::comma)) {
-			  PP.Lex(Tok);
+            PP.Lex(Tok);
             continue;
           }
-          if (Tok.is(tok::r_paren)) // FIXME: Mabe use eod token to be sure the we don't hit a nested rparen
+          if (Tok.is(tok::r_paren)) // FIXME: Mabe use eod token to be sure the
+                                    // we don't hit a nested rparen
             break;
           llvm_unreachable("Unexpected token");
         }

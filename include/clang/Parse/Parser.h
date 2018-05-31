@@ -594,8 +594,8 @@ private:
   bool HandlePragmaLoopHint(LoopHint &Hint);
 
   bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
-                                  SourceRange &Range,
-                                  SmallVectorImpl<ArgsUnion> &ArgHints);
+                                 SourceRange &Range,
+                                 SmallVectorImpl<ArgsUnion> &ArgHints);
 
   bool ParsePragmaAttributeSubjectMatchRuleSet(
       attr::ParsedSubjectMatchRuleSet &SubjectMatchRules,

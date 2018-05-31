@@ -38,7 +38,7 @@ struct LoopTransformation {
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
-  llvm::SmallVector<int64_t , 4> TileSizes;
+  llvm::SmallVector<int64_t, 4> TileSizes;
 
   llvm::StringRef getApplyOn() const {
     assert(ApplyOns.size() == 1);
@@ -55,10 +55,11 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns, llvm::ArrayRef<int64_t> TileSizes) {
+  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+               llvm::ArrayRef<int64_t> TileSizes) {
     LoopTransformation Result;
     Result.Kind = Tiling;
-	//TODO: list-intialize  
+    // TODO: list-intialize
     for (auto ApplyOn : ApplyOns)
       Result.ApplyOns.push_back(ApplyOn);
     for (auto TileSize : TileSizes)

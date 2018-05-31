@@ -106,26 +106,29 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
   SmallVector<StringRef, 4> ApplyOns;
   auto NumArgs = A.getNumArgs();
-  unsigned i=0;
+  unsigned i = 0;
   while (true) {
-	  auto Ident = A.getArgAsIdent(i);
-	  i+=1;
-	  if (!Ident)
-		  break;
-	      ApplyOnLocs.push_back(Ident);
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
     ApplyOns.push_back(Ident->Ident->getName());
   }
 
-   SmallVector<Expr*, 4> Sizes;
-  while (i<NumArgs) {
-	  auto Expr = A.getArgAsExpr(i);assert(Expr);
-	  i+=1;
-	  Sizes.push_back(Expr);
+  SmallVector<Expr *, 4> Sizes;
+  while (i < NumArgs) {
+    auto Expr = A.getArgAsExpr(i);
+    assert(Expr);
+    i += 1;
+    Sizes.push_back(Expr);
   }
 
-  assert(ApplyOns.size()==Sizes.size());
+  assert(ApplyOns.size() == Sizes.size());
 
-  return LoopTilingAttr ::CreateImplicit(S.Context, ApplyOns.data(), ApplyOns.size(), Sizes.data() ,Sizes.size(), A.getRange());
+  return LoopTilingAttr ::CreateImplicit(S.Context, ApplyOns.data(),
+                                         ApplyOns.size(), Sizes.data(),
+                                         Sizes.size(), A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
