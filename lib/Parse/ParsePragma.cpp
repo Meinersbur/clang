@@ -1195,8 +1195,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "tile") {
-    assert(ApplyOnLocs.size() >= 2 && "loop spec required for tile");
-
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
