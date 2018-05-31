@@ -158,9 +158,15 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       }
       TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
+	  SmallVector<Metadata *, 4> TileSizeArgs;
+	        for (auto TileSize : Transform.TileSizes) {
+        assert(TileSize > 0 && "Must specify tile size");
+        TileSizeArgs.push_back( ConstantAsMetadata::get(ConstantInt::get(Type::getInt64Ty(Ctx),TileSize )));
+      }
+      TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
+
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      auto Transforms =
-          MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+      auto Transforms = MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
       F->addMetadata("looptransform", *Transforms);
       TopLoopId = nullptr; // No unique follow-up node
 
@@ -228,8 +234,16 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
       continue;
     }
     if (auto LTiling = dyn_cast<LoopTilingAttr>(Attr)) {
-      addTransformation(LoopTransformation::createTiling(ArrayRef<StringRef>(
-          LTiling->applyOn_begin(), LTiling->applyOn_end())));
+		SmallVector<int64_t, 4> TileSizes;
+		for (auto TileSizeExpr : LTiling->tileSizes()) {
+			        llvm::APSInt ValueAPS = TileSizeExpr->EvaluateKnownConstInt(Ctx);
+      auto  ValueInt = ValueAPS.getSExtValue();
+			TileSizes.push_back(ValueInt);
+		}
+
+        addTransformation(LoopTransformation::createTiling(
+		  makeArrayRef( LTiling->applyOn_begin(), LTiling->applyOn_size()), 
+		  TileSizes)	  );
       continue;
     }
 

@@ -593,7 +593,7 @@ private:
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
 
-  bool HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
+  bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
                                   SourceRange &Range,
                                   SmallVectorImpl<ArgsUnion> &ArgHints);
 

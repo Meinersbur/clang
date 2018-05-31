@@ -1953,7 +1953,7 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
       IdentifierLoc *PragmaNameLoc;
       SourceRange Range;
       SmallVector<ArgsUnion, 8> ArgHints;
-      if (!HandlePragmaLoopAnnotation(PragmaNameLoc, Range, ArgHints))
+      if (!HandlePragmaLoopTransform(PragmaNameLoc, Range, ArgHints))
         continue;
 
       TempAttrs.addNew(PragmaNameLoc->Ident, Range, nullptr, SourceLocation(),

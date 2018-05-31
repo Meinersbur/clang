@@ -1091,9 +1091,9 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   return true;
 }
 
-bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
-                                        SourceRange &Range,
-                                        SmallVectorImpl<ArgsUnion> &ArgHints) {
+bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                       SourceRange &Range,
+                                       SmallVectorImpl<ArgsUnion> &ArgHints) {
   assert(Tok.is(tok::annot_pragma_loop_transform));
   assert(ArgHints.size() == 0);
   PragmaLoopHintInfo *Info =
@@ -1178,12 +1178,12 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
 
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-	assert(ApplyOnLocs.size()<=1);
+    assert(ApplyOnLocs.size() <= 1);
     if (ApplyOnLocs.empty())
-		// Apply on following loop
-		 ArgHints.push_back((IdentifierLoc*)nullptr); 
-      else
-          ArgHints.push_back(ApplyOnLocs[0]);
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));
@@ -1200,13 +1200,106 @@ bool Parser::HandlePragmaLoopAnnotation(IdentifierLoc *&PragmaNameLoc,
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+
+    while (true) {
+      auto &ClauseTok = Toks[i];
+      if (ClauseTok.is(tok::eof))
+        break;
+
+      assert(ClauseTok.is(tok::identifier));
+      auto ClauseName = ClauseTok.getIdentifierInfo()->getName();
+      if (ClauseName == "sizes") {
+        assert(Toks[i + 1].is(tok::l_paren));
+        i += 2;
+
+        // Get option value
+        auto NumOpenParens = 1;
+        auto StartInner = i;
+        while (NumOpenParens > 0) {
+          auto &Tok = Toks[i];
+          assert(Tok.isNot(tok::eof));
+          if (Tok.is(tok::l_paren))
+            NumOpenParens += 1;
+          else if (Tok.is(tok::r_paren))
+            NumOpenParens -= 1;
+          i += 1;
+        }
+        auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner+1);
+        auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
+
+        // Push back the tokens on the stack so we can parse them
+        PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/false);
+
+        // Update token stream; current token could be an annotation token or a
+        // closing parent.
+        PP.Lex(Tok);
+
+        SmallVector<Expr *, 4> TileSizeExpr;
+        while (true) {
+          ExprResult R = ParseConstantExpression();
+          assert(!R.isInvalid());
+          TileSizeExpr.push_back(R.get());
+
+          if (Tok.is(tok::comma)) {
+			  PP.Lex(Tok);
+            continue;
+          }
+          if (Tok.is(tok::r_paren)) // FIXME: Mabe use eod token to be sure the we don't hit a nested rparen
+            break;
+          llvm_unreachable("Unexpected token");
+        }
+
+#if 0
+        // Split option at commas
+       
+        SmallVector<ArrayRef<Token>, 4> CommaSeparatedExpressions;
+        NumOpenParens = 0;
+        auto ExprStart = 0;
+        for (unsigned j = 0; j < ClauseValue.size(); j += 1) {
+			auto &Tok = ClauseValue[j];
+          if (Tok.is(tok::l_paren))
+            NumOpenParens += 1;
+          else if (Tok.is(tok::r_paren))
+            NumOpenParens += 1;
+          else if (NumOpenParens == 0 && Tok.is(tok::comma)) {
+            CommaSeparatedExpressions.push_back(
+                ClauseValue.slice(ExprStart, j - ExprStart));
+            ExprStart = j + 1;
+          }
+        }
+        CommaSeparatedExpressions.push_back(
+            ClauseValue.slice(ExprStart, ClauseValue.size() - ExprStart));
+
+        // Parse expressions
+
+        TileSizeExpr.reserve(CommaSeparatedExpressions.size());
+        for (auto ExprToks : CommaSeparatedExpressions) {
+          PP.EnterTokenStream(ExprToks, /*DisableMacroExpansion=*/false);
+		 	 ConsumeAnnotationToken(); // consume mulytiple???
+
+		  // FIXME: How does ParseConstantExpression() report an error for whatever is following ExprToks (e.g. if ExprToks is empty)
+          ExprResult R = ParseConstantExpression();
+          assert(!R.isInvalid());
+          auto Val = R.get();
+          TileSizeExpr.push_back(Val);
+        }
+#endif
+
+        for (auto TileSize : TileSizeExpr)
+          ArgHints.push_back(TileSize);
+
+        continue;
+      }
+      llvm_unreachable("unknown clause");
+    }
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));
     i += 1;
 
     assert(Toks.size() == i); // Nothing following
-    ConsumeAnnotationToken();
+    PP.Lex(Tok);
     return true;
   }
 
