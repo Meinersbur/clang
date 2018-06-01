@@ -119,8 +119,21 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
+
+
+
+  SmallVector<MDNode*,4> AdditionalTransforms;
+  SmallVector<Metadata *, 8> AllTransforms;
+  auto FuncMD = F->getMetadata("looptransform");
+  if (FuncMD) {
+	  for (auto &X : FuncMD->operands()) {
+		  auto Op = cast<MDNode>( X.get());
+		  AllTransforms.push_back(Op);
+	  }
+  }
+
   auto TopLoopId = LoopID;
-  for (auto &Transform : reverse(Attrs.TransformationStack)) {
+  for (auto &Transform : Attrs.TransformationStack) {
     switch (Transform.Kind) {
     case LoopTransformation::Reversal: {
       SmallVector<Metadata *, 4> TransformArgs;
@@ -140,9 +153,10 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
 
-      auto Transforms =
-          MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-      F->addMetadata("looptransform", *Transforms);
+      //auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+     // F->addMetadata("looptransform", *Transforms);
+	  AdditionalTransforms.push_back(MDTransform);
+	  AllTransforms.push_back(MDTransform);
 
       // TODO: Different scheme for transformations that output more than one
       TopLoopId = MDTransform;
@@ -151,12 +165,18 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       SmallVector<Metadata *, 4> TransformArgs;
       TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
 
-      SmallVector<Metadata *, 4> ApplyOnArgs;
+	      SmallVector<Metadata *, 4> ApplyOnArgs;
+	  if (Transform.ApplyOns.empty()) {
+		  // Apply on top loop
+		  assert(TopLoopId);
+		  ApplyOnArgs.push_back(TopLoopId);
+          } else {
       for (auto ApplyOn : Transform.ApplyOns) {
         assert(!ApplyOn.empty() && "Must specify loops to tile");
         ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
       }
-      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+          }
+	        TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
       SmallVector<Metadata *, 4> TileSizeArgs;
       for (auto TileSize : Transform.TileSizes) {
@@ -166,14 +186,21 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       }
       TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
 
+	  assert(TileSizeArgs.empty() ||( TileSizeArgs.size() == ApplyOnArgs.size()));
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      auto Transforms =
-          MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-      F->addMetadata("looptransform", *Transforms);
-      TopLoopId = nullptr; // No unique follow-up node
+      //auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
+     // F->addMetadata("looptransform", *Transforms);
+	  AdditionalTransforms.push_back(MDTransform);
+	    AllTransforms.push_back(MDTransform);
 
+      TopLoopId = nullptr; // No unique follow-up node
     } break;
     }
+  }
+
+  if (!AdditionalTransforms.empty()) {
+	  auto AllTransformsMD =  MDNode::get(Ctx, AllTransforms); 
+		 F->setMetadata("looptransform", AllTransformsMD);
   }
 
   return LoopID;

@@ -84,7 +84,7 @@ static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
   // <loopname> as in #pragma clang loop id(<loopname>)
   auto LoopIdLoc = A.getArgAsIdent(0);
 
-  return LoopIdAttr ::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
+  return LoopIdAttr::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
                                      A.getRange());
 }
 
@@ -124,11 +124,15 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
     Sizes.push_back(Expr);
   }
 
-  assert(ApplyOns.size() == Sizes.size());
+  if (ApplyOns.empty()) {
+	  // Apply on following loop
+	  // support only one loop in this case (stripmining)
+	    assert( Sizes.size()<=1);
+	    return LoopTilingAttr::CreateImplicit(S.Context, nullptr,  0, Sizes.data(),  Sizes.size(), A.getRange());
+  }
 
-  return LoopTilingAttr ::CreateImplicit(S.Context, ApplyOns.data(),
-                                         ApplyOns.size(), Sizes.data(),
-                                         Sizes.size(), A.getRange());
+  assert(ApplyOns.size() == Sizes.size());
+  return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),  ApplyOns.size(), Sizes.data(),   Sizes.size(), A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
