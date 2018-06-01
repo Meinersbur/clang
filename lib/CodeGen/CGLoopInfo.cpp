@@ -226,21 +226,21 @@ void LoopAttributes::clear() {
   TransformationStack.clear();
 }
 
-LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
+LoopInfo::LoopInfo(BasicBlock *Header, Function *F,const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), Header->getParent(), Attrs,
+  LoopID = createMetadata(Header->getContext(), F, Attrs,
                           StartLoc, EndLoc);
 }
 
-void LoopInfoStack::push(BasicBlock *Header, const llvm::DebugLoc &StartLoc,
+void LoopInfoStack::push(BasicBlock *Header, Function *F,const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
-  Active.push_back(LoopInfo(Header, StagedAttrs, StartLoc, EndLoc));
+  Active.push_back(LoopInfo(Header, F, StagedAttrs, StartLoc, EndLoc));
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
 }
 
-void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
+void LoopInfoStack::push(BasicBlock *Header,Function *F, clang::ASTContext &Ctx,
                          ArrayRef<const clang::Attr *> Attrs,
                          const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
@@ -408,7 +408,7 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
   }
 
   /// Stage the attributes.
-  push(Header, StartLoc, EndLoc);
+  push(Header, F, StartLoc, EndLoc);
 }
 
 void LoopInfoStack::pop() {
