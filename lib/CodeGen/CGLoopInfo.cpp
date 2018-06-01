@@ -119,17 +119,14 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
-
-
-
-  SmallVector<MDNode*,4> AdditionalTransforms;
+  SmallVector<MDNode *, 4> AdditionalTransforms;
   SmallVector<Metadata *, 8> AllTransforms;
   auto FuncMD = F->getMetadata("looptransform");
   if (FuncMD) {
-	  for (auto &X : FuncMD->operands()) {
-		  auto Op = cast<MDNode>( X.get());
-		  AllTransforms.push_back(Op);
-	  }
+    for (auto &X : FuncMD->operands()) {
+      auto Op = cast<MDNode>(X.get());
+      AllTransforms.push_back(Op);
+    }
   }
 
   auto TopLoopId = LoopID;
@@ -153,10 +150,11 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
 
-      //auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-     // F->addMetadata("looptransform", *Transforms);
-	  AdditionalTransforms.push_back(MDTransform);
-	  AllTransforms.push_back(MDTransform);
+      // auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow
+      // multiple transformation
+      // F->addMetadata("looptransform", *Transforms);
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
 
       // TODO: Different scheme for transformations that output more than one
       TopLoopId = MDTransform;
@@ -165,18 +163,18 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       SmallVector<Metadata *, 4> TransformArgs;
       TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
 
-	      SmallVector<Metadata *, 4> ApplyOnArgs;
-	  if (Transform.ApplyOns.empty()) {
-		  // Apply on top loop
-		  assert(TopLoopId);
-		  ApplyOnArgs.push_back(TopLoopId);
-          } else {
-      for (auto ApplyOn : Transform.ApplyOns) {
-        assert(!ApplyOn.empty() && "Must specify loops to tile");
-        ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+      SmallVector<Metadata *, 4> ApplyOnArgs;
+      if (Transform.ApplyOns.empty()) {
+        // Apply on top loop
+        assert(TopLoopId);
+        ApplyOnArgs.push_back(TopLoopId);
+      } else {
+        for (auto ApplyOn : Transform.ApplyOns) {
+          assert(!ApplyOn.empty() && "Must specify loops to tile");
+          ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+        }
       }
-          }
-	        TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
       SmallVector<Metadata *, 4> TileSizeArgs;
       for (auto TileSize : Transform.TileSizes) {
@@ -186,12 +184,14 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       }
       TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
 
-	  assert(TileSizeArgs.empty() ||( TileSizeArgs.size() == ApplyOnArgs.size()));
+      assert(TileSizeArgs.empty() ||
+             (TileSizeArgs.size() == ApplyOnArgs.size()));
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      //auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow multiple transformation
-     // F->addMetadata("looptransform", *Transforms);
-	  AdditionalTransforms.push_back(MDTransform);
-	    AllTransforms.push_back(MDTransform);
+      // auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow
+      // multiple transformation
+      // F->addMetadata("looptransform", *Transforms);
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
 
       TopLoopId = nullptr; // No unique follow-up node
     } break;
@@ -199,8 +199,8 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   }
 
   if (!AdditionalTransforms.empty()) {
-	  auto AllTransformsMD =  MDNode::get(Ctx, AllTransforms); 
-		 F->setMetadata("looptransform", AllTransformsMD);
+    auto AllTransformsMD = MDNode::get(Ctx, AllTransforms);
+    F->setMetadata("looptransform", AllTransformsMD);
   }
 
   return LoopID;
@@ -226,21 +226,22 @@ void LoopAttributes::clear() {
   TransformationStack.clear();
 }
 
-LoopInfo::LoopInfo(BasicBlock *Header, Function *F,const LoopAttributes &Attrs,
+LoopInfo::LoopInfo(BasicBlock *Header, Function *F, const LoopAttributes &Attrs,
                    const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), F, Attrs,
-                          StartLoc, EndLoc);
+  LoopID = createMetadata(Header->getContext(), F, Attrs, StartLoc, EndLoc);
 }
 
-void LoopInfoStack::push(BasicBlock *Header, Function *F,const llvm::DebugLoc &StartLoc,
+void LoopInfoStack::push(BasicBlock *Header, Function *F,
+                         const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
   Active.push_back(LoopInfo(Header, F, StagedAttrs, StartLoc, EndLoc));
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
 }
 
-void LoopInfoStack::push(BasicBlock *Header,Function *F, clang::ASTContext &Ctx,
+void LoopInfoStack::push(BasicBlock *Header, Function *F,
+                         clang::ASTContext &Ctx,
                          ArrayRef<const clang::Attr *> Attrs,
                          const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {

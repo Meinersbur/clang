@@ -107,8 +107,9 @@ struct LoopAttributes {
 class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
-  LoopInfo(llvm::BasicBlock *Header,llvm:: Function *F, const LoopAttributes &Attrs,
-           const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
+  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+           const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
+           const llvm::DebugLoc &EndLoc);
 
   /// Get the loop id metadata for this loop.
   llvm::MDNode *getLoopID() const { return LoopID; }
@@ -140,12 +141,12 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F,const llvm::DebugLoc &StartLoc,
-            const llvm::DebugLoc &EndLoc);
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header,llvm::Function *F,clang::ASTContext &Ctx,
+  void push(llvm::BasicBlock *Header, llvm::Function *F, clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 

@@ -1034,11 +1034,12 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
     SourceLocation StateLoc = Toks[0].getLocation();
     IdentifierInfo *StateInfo = Toks[0].getIdentifierInfo();
 
-    bool Valid = StateInfo && llvm::StringSwitch<bool>(StateInfo->getName())
-                                  .Cases("enable", "disable", true)
-                                  .Case("full", OptionUnroll)
-                                  .Case("assume_safety", AssumeSafetyArg)
-                                  .Default(false);
+    bool Valid = StateInfo &&
+                 llvm::StringSwitch<bool>(StateInfo->getName())
+                     .Cases("enable", "disable", true)
+                     .Case("full", OptionUnroll)
+                     .Case("assume_safety", AssumeSafetyArg)
+                     .Default(false);
     if (!Valid) {
       Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
           << /*FullKeyword=*/OptionUnroll
@@ -2389,11 +2390,10 @@ void PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   auto Toks = llvm::make_unique<Token[]>(
       Pragma.size()); // Why not using ArrayRef<Token>
   std::copy(Pragma.begin(), Pragma.end(), Toks.get());
-  PP.EnterTokenStream(
-      std::move(Toks), Pragma.size(),
-      /*DisableMacroExpansion=*/false); // Isn't adding a single
-                                        // tok::annot_pragma_openmp token with
-                                        // setAnnotationValue preferable?
+  PP.EnterTokenStream(std::move(Toks), Pragma.size(),
+                      /*DisableMacroExpansion=*/false); // Isn't adding a single
+  // tok::annot_pragma_openmp token with
+  // setAnnotationValue preferable?
 }
 
 /// Handle '#pragma pointers_to_members'

@@ -85,7 +85,7 @@ static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
   auto LoopIdLoc = A.getArgAsIdent(0);
 
   return LoopIdAttr::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
-                                     A.getRange());
+                                    A.getRange());
 }
 
 static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A,
@@ -125,14 +125,17 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
   }
 
   if (ApplyOns.empty()) {
-	  // Apply on following loop
-	  // support only one loop in this case (stripmining)
-	    assert( Sizes.size()<=1);
-	    return LoopTilingAttr::CreateImplicit(S.Context, nullptr,  0, Sizes.data(),  Sizes.size(), A.getRange());
+    // Apply on following loop
+    // support only one loop in this case (stripmining)
+    assert(Sizes.size() <= 1);
+    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(),
+                                          Sizes.size(), A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());
-  return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),  ApplyOns.size(), Sizes.data(),   Sizes.size(), A.getRange());
+  return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),
+                                        ApplyOns.size(), Sizes.data(),
+                                        Sizes.size(), A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
@@ -331,8 +334,8 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const AttributeList &A,
   unsigned NumArgs = A.getNumArgs();
 
   if (NumArgs > 1) {
-    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments)
-        << A.getName() << 1;
+    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments) << A.getName()
+                                                               << 1;
     return nullptr;
   }
 
