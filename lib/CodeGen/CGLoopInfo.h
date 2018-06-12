@@ -32,6 +32,22 @@ class Attr;
 class ASTContext;
 namespace CodeGen {
 
+struct LoopTransformation {
+  enum TransformKind { Reverse };
+
+  // TODO: If ApplyOn is set, should not appear in the transformation stack
+llvm::  StringRef ApplyOn;
+
+  TransformKind Kind;
+
+  static LoopTransformation createReversal( llvm::StringRef ApplyOn =  llvm::StringRef()) {
+    LoopTransformation Result;
+    Result.ApplyOn = ApplyOn;
+    Result.Kind = Reverse;
+    return Result;
+  }
+};
+
 /// Attributes that may be specified on loops.
 struct LoopAttributes {
   explicit LoopAttributes(bool IsParallel = false);
@@ -60,6 +76,11 @@ struct LoopAttributes {
 
   /// Value for llvm.loop.distribute.enable metadata.
   LVEnableState DistributeEnable;
+
+  LVEnableState ReverseEnable;
+
+  llvm::StringRef LoopId;
+  std::vector<LoopTransformation> TransformationStack;
 };
 
 /// Information used when generating a structured loop.
@@ -151,6 +172,17 @@ public:
 
   /// Set the unroll count for the next loop pushed.
   void setUnrollCount(unsigned C) { StagedAttrs.UnrollCount = C; }
+
+  void setReverseEnable(bool Enable) {
+    StagedAttrs.ReverseEnable =
+        Enable ? LoopAttributes::Enable : LoopAttributes::Disable;
+  }
+
+  void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
+
+  void addTransformation(LoopTransformation Transform) {
+	  StagedAttrs.TransformationStack.push_back(Transform);
+  }
 
 private:
   /// Returns true if there is LoopInfo on the stack.
