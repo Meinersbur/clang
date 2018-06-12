@@ -33,17 +33,37 @@ class ASTContext;
 namespace CodeGen {
 
 struct LoopTransformation {
-  enum TransformKind { Reverse };
-
-  // TODO: If ApplyOn is set, should not appear in the transformation stack
-llvm::  StringRef ApplyOn;
-
+  enum TransformKind { Reversal, Tiling };
   TransformKind Kind;
 
-  static LoopTransformation createReversal( llvm::StringRef ApplyOn =  llvm::StringRef()) {
+  // TODO: If ApplyOn is set, should not appear in the transformation stack
+  llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
+  llvm::SmallVector<int64_t, 4> TileSizes;
+
+  llvm::StringRef getApplyOn() const {
+    assert(ApplyOns.size() == 1);
+    return ApplyOns[0];
+  }
+
+  static LoopTransformation
+  createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
     LoopTransformation Result;
-    Result.ApplyOn = ApplyOn;
-    Result.Kind = Reverse;
+    Result.Kind = Reversal;
+    Result.ApplyOns.push_back(ApplyOn);
+
+    return Result;
+  }
+
+  static LoopTransformation
+  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+               llvm::ArrayRef<int64_t> TileSizes) {
+    LoopTransformation Result;
+    Result.Kind = Tiling;
+    // TODO: list-intialize
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
+    for (auto TileSize : TileSizes)
+      Result.TileSizes.push_back(TileSize);
     return Result;
   }
 };
@@ -87,8 +107,9 @@ struct LoopAttributes {
 class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
-  LoopInfo(llvm::BasicBlock *Header, const LoopAttributes &Attrs,
-           const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
+  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+           const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
+           const llvm::DebugLoc &EndLoc);
 
   /// Get the loop id metadata for this loop.
   llvm::MDNode *getLoopID() const { return LoopID; }
@@ -120,12 +141,12 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, const llvm::DebugLoc &StartLoc,
-            const llvm::DebugLoc &EndLoc);
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, clang::ASTContext &Ctx,
+  void push(llvm::BasicBlock *Header, llvm::Function *F, clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 
@@ -181,7 +202,7 @@ public:
   void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
 
   void addTransformation(LoopTransformation Transform) {
-	  StagedAttrs.TransformationStack.push_back(Transform);
+    StagedAttrs.TransformationStack.push_back(Transform);
   }
 
 private:

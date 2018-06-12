@@ -3,10 +3,10 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
 
 extern "C" void pragma_id_reverse(double *A, int N) {
-  #pragma clang loop(myloop) reverse
-  #pragma clang loop id(myloop)
-  for (int i=N-1; i>=0; i--)
-	  A[i] = A[i] + 1;
+#pragma clang loop(myloop) reverse
+#pragma clang loop id(myloop)
+  for (int i = N - 1; i >= 0; i--)
+    A[i] = A[i] + 1;
 }
 
 // FIXME: #pragmas printed in reverse
@@ -17,7 +17,7 @@ extern "C" void pragma_id_reverse(double *A, int N) {
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }
 
-// IR-LABEL: define void @pragma_id_reverse(double* %A, i32 %N) !looptransform !2
+// IR-LABEL: define dso_local void @pragma_id_reverse(double* %A, i32 %N) #0 !looptransform !2 {
 // IR:         br label %for.cond, !llvm.loop !4
 //
 // IR: !2 = !{!3}
@@ -25,16 +25,15 @@ extern "C" void pragma_id_reverse(double *A, int N) {
 // IR: !4 = distinct !{!4, !5}
 // IR: !5 = !{!"llvm.loop.id", !"myloop"}
 
-
 // TRANS: define dso_local void @pragma_id_reverse(double* nocapture %A, i32 %N) local_unnamed_addr #0 !looptransform !2 {
 // TRANS: entry:
 // TRANS:   %0 = sext i32 %N to i64
 // TRANS:   %polly.loop_guard = icmp sgt i32 %N, 0
 // TRANS:   br i1 %polly.loop_guard, label %polly.loop_preheader, label %polly.exiting
-// TRANS: 
+//
 // TRANS: polly.exiting:                                    ; preds = %polly.loop_header, %entry
 // TRANS:   ret void
-// TRANS: 
+//
 // TRANS: polly.loop_header:                                ; preds = %polly.loop_header, %polly.loop_preheader
 // TRANS:   %polly.indvar = phi i64 [ %1, %polly.loop_preheader ], [ %polly.indvar_next, %polly.loop_header ]
 // TRANS:   %scevgep11 = getelementptr double, double* %scevgep, i64 %polly.indvar

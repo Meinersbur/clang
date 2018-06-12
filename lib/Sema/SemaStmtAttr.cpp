@@ -77,21 +77,65 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const AttributeList &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
-static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-	assert(A.getNumArgs() == 1);
+static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
+                          SourceRange) {
+  assert(A.getNumArgs() == 1);
 
-		// <loopname> as in #pragma clang loop id(<loopname>)
-    auto LoopIdLoc = A.getArgAsIdent(0); 
+  // <loopname> as in #pragma clang loop id(<loopname>)
+  auto LoopIdLoc = A.getArgAsIdent(0);
 
-    return LoopIdAttr ::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(), A.getRange());
+  return LoopIdAttr::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
+                                    A.getRange());
 }
 
-static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A, SourceRange) {
-    assert(A.getNumArgs() == 1);
+static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A,
+                                SourceRange) {
+  assert(A.getNumArgs() == 1);
 
-		// <loopname> as in #pragma clang loop(<loopname>) <transform>
-    IdentifierLoc *ApplyOnLoc = A.getArgAsIdent( 0); 
-    return LoopReversalAttr::CreateImplicit(        S.Context, ApplyOnLoc->Ident->getName(),        A.getRange());
+  // <loopname> as in #pragma clang loop(<loopname>) <transform>
+  IdentifierLoc *ApplyOnLoc = A.getArgAsIdent(0);
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
+}
+
+static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
+                              SourceRange) {
+  assert(A.getNumArgs() >= 1);
+
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  unsigned i = 0;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
+
+  SmallVector<Expr *, 4> Sizes;
+  while (i < NumArgs) {
+    auto Expr = A.getArgAsExpr(i);
+    assert(Expr);
+    i += 1;
+    Sizes.push_back(Expr);
+  }
+
+  if (ApplyOns.empty()) {
+    // Apply on following loop
+    // support only one loop in this case (stripmining)
+    assert(Sizes.size() <= 1);
+    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(),
+                                          Sizes.size(), A.getRange());
+  }
+
+  assert(ApplyOns.size() == Sizes.size());
+  return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),
+                                        ApplyOns.size(), Sizes.data(),
+                                        Sizes.size(), A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
@@ -290,8 +334,8 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const AttributeList &A,
   unsigned NumArgs = A.getNumArgs();
 
   if (NumArgs > 1) {
-    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments)
-        << A.getName() << 1;
+    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments) << A.getName()
+                                                               << 1;
     return nullptr;
   }
 
@@ -335,9 +379,11 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
   case AttributeList::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
   case AttributeList::AT_LoopId:
-	    return handleLoopId(S,St,A,Range);
+    return handleLoopId(S, St, A, Range);
   case AttributeList::AT_LoopReversal:
-	  return handleLoopReversal(S,St,A,Range);
+    return handleLoopReversal(S, St, A, Range);
+  case AttributeList::AT_LoopTiling:
+    return handleLoopTiling(S, St, A, Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

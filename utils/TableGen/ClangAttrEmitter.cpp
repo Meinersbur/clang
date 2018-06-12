@@ -1173,10 +1173,9 @@ public:
           "        char *Mem = new (Ctx, 1) char[Ref.size()];\n"
           "        std::memcpy(Mem, Ref.data(), Ref.size());\n"
           "        "
-       << getArgName()
-       << "[I] = StringRef(Mem, Ref.size());\n"
-          "      }\n"
-          "    }\n";
+       << getArgName() << "[I] = StringRef(Mem, Ref.size());\n"
+                          "      }\n"
+                          "    }\n";
   }
 
   void writeValueImpl(raw_ostream &OS) const override {
@@ -1324,9 +1323,8 @@ static void writeGetSpellingFunction(Record &R, raw_ostream &OS) {
         "    return \"(No spelling)\";\n";
 
   for (unsigned I = 0; I < Spellings.size(); ++I)
-    OS << "  case " << I
-       << ":\n"
-          "    return \""
+    OS << "  case " << I << ":\n"
+                            "    return \""
        << Spellings[I].name() << "\";\n";
   // End of the switch statement.
   OS << "  }\n";
@@ -1399,9 +1397,9 @@ writePrettyPrintFunction(Record &R,
     OS << "  case " << I << " : {\n";
 
     if (Variety == "Pragma") {
-	  OS << "    OS << \"" << Prefix ;
-		if (PrettyPrintSpelling)
-			OS << Spelling;
+      OS << "    OS << \"" << Prefix;
+      if (PrettyPrintSpelling)
+        OS << Spelling;
       OS << "\";\n";
       OS << "    printPrettyPragma(OS, Policy);\n";
       OS << "    OS << \"\\n\";";
@@ -1410,7 +1408,7 @@ writePrettyPrintFunction(Record &R,
       continue;
     }
 
-	 OS <<  "    OS << \"" << Prefix << Spelling;
+    OS << "    OS << \"" << Prefix << Spelling;
 
     if (Spelling == "availability") {
       OS << "(";
@@ -2382,7 +2380,7 @@ void EmitClangAttrImpl(RecordKeeper &Records, raw_ostream &OS) {
     OS << "  A->Implicit = Implicit;\n";
     OS << "  return A;\n}\n\n";
 
-	auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
+    auto PrettyPrintSpelling = Attr->getValueAsBit("PrettyPrintSpelling");
     writePrettyPrintFunction(R, Args, OS, PrettyPrintSpelling);
     writeGetSpellingFunction(R, OS);
   }

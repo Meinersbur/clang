@@ -44,7 +44,9 @@ struct LoopHint {
   Expr *ValueExpr;
 
   LoopHint()
-      : PragmaNameLoc(nullptr),  ApplyOnLoc(nullptr) ,OptionLoc(nullptr), StateLoc(nullptr), IdLoc(nullptr), ValueExpr(nullptr), LoopIdLoc(nullptr) {}
+      : PragmaNameLoc(nullptr), ApplyOnLoc(nullptr), OptionLoc(nullptr),
+        StateLoc(nullptr), IdLoc(nullptr), ValueExpr(nullptr),
+        LoopIdLoc(nullptr) {}
 };
 
 } // end namespace clang
