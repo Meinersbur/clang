@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++11 -verify %s
+// expected-no-diagnostics
 
 // Note that this puts the expected lines before the directives to work around
 // limitations in the -verify mode.
@@ -16,6 +17,7 @@ void test_nontype_template_param(int *List, int Length) {
   }
 }
 
+#if 0
 template <int V>
 void test_nontype_template_vectorize(int *List, int Length) {
   /* expected-error {{invalid value '-1'; must be positive}} */ #pragma clang loop vectorize_width(V)
@@ -75,6 +77,7 @@ void test_type_template_vectorize(int *List, int Length) {
     List[i] = i;
   }
 }
+#endif
 
 void test(int *List, int Length) {
   int i = 0;
@@ -128,6 +131,7 @@ void test(int *List, int Length) {
 
   test_nontype_template_param<4, 8>(List, Length);
 
+#if 0
 /* expected-error {{expected '('}} */ #pragma clang loop vectorize
 /* expected-error {{expected '('}} */ #pragma clang loop interleave
 /* expected-error {{expected '('}} */ #pragma clang loop unroll
@@ -281,4 +285,6 @@ const int VV = 4;
   }
 
 #pragma clang loop interleave(enable)
-/* expected-error {{expected statement}} */ }
+/* expected-error {{expected statement}} */
+#endif
+}
