@@ -2747,12 +2747,56 @@ def LoopTiling : Attr {
 			OS << " tile";
 
 			if (tileSizes_size()) {
-				OS << " sizes("; bool First=true;
+				OS << " sizes("; 
+				bool First=true;
 				for (auto Size : tileSizes()) {
 				  if (!First)
 					  OS << ", ";
-          Size->printPretty(OS, nullptr, Policy);
-					First = false;
+                  Size->printPretty(OS, nullptr, Policy);
+				  First = false;
+				}
+				OS << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopInterchange : Attr {
+  // #pragma clang loop interchange
+  // #pragma clang loop(loopname1, loopname2, ...) interchange
+
+  let Spellings = [Pragma<"", "interchange">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, VariadicStringArgument<"Permutation">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First)
+							OS << ", ";
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			}
+
+			OS << " interchange";
+
+			if (permutation_size()) {
+				OS << " permutation("; 
+				bool First=true;
+				for (auto PermId : permutation()) {
+				  if (!First)
+					  OS << ", ";
+				  OS << PermId;
+				  First = false;
 				}
 				OS << ")";
 			}

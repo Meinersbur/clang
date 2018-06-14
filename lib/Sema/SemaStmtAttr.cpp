@@ -117,12 +117,16 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
   }
 
   SmallVector<Expr *, 4> Sizes;
-  while (i < NumArgs) {
+  while (true) {
     auto Expr = A.getArgAsExpr(i);
-    assert(Expr);
-    i += 1;
+        i += 1;
+        if (!Expr)
+      break;
+
     Sizes.push_back(Expr);
   }
+
+  assert(i==NumArgs && "Must consume all args");
 
   if (ApplyOns.empty()) {
     // Apply on following loop
@@ -136,6 +140,40 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
   return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),
                                         ApplyOns.size(), Sizes.data(),
                                         Sizes.size(), A.getRange());
+}
+
+
+static Attr *handleLoopInterchange(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
+  assert(A.getNumArgs() >= 1);
+
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) interchange
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  unsigned i = 0;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
+
+  SmallVector<IdentifierLoc *, 4> PermutationLocs;
+  SmallVector<StringRef, 4> Permutation;
+    while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    PermutationLocs.push_back(Ident);
+    Permutation.push_back(Ident->Ident->getName());
+  }
+    assert(NumArgs==i && "Must consume all args");
+ assert(ApplyOns.size() >= 2);
+  assert(ApplyOns.size() == Permutation.size());
+  return LoopInterchangeAttr::CreateImplicit(S.Context, ApplyOns.data(),  ApplyOns.size(),Permutation.data(), Permutation.size(),    A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
@@ -384,6 +422,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
     return handleLoopReversal(S, St, A, Range);
   case AttributeList::AT_LoopTiling:
     return handleLoopTiling(S, St, A, Range);
+  case AttributeList::AT_LoopInterchange:
+    return handleLoopInterchange(S, St, A, Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

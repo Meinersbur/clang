@@ -195,6 +195,27 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       TopLoopId = nullptr; // No unique follow-up node
     } break;
+         case LoopTransformation::Interchange : {
+            SmallVector<Metadata *, 4> TransformArgs;
+            TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
+
+                  SmallVector<Metadata *, 4> ApplyOnArgs;
+                  assert(!Transform.ApplyOns.empty());
+                  assert(Transform.ApplyOns.size() == Transform.Permutation.size() );
+
+        for (auto ApplyOn : Transform.ApplyOns) {
+          assert(!ApplyOn.empty() && "Must specify loops to tile");
+          ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+        }
+      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+
+           SmallVector<Metadata *, 4> PermutationArgs;
+             for (auto PermuteItem : Transform.Permutation ) {
+                    assert(!PermuteItem.empty() && "Must specify loop id");
+                  ApplyOnArgs.push_back(MDString::get(Ctx, PermuteItem));
+             }
+             TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
+         }
     }
   }
 
@@ -263,6 +284,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       addTransformation(LoopTransformation::createReversal(ApplyOn));
       continue;
     }
+
     if (auto LTiling = dyn_cast<LoopTilingAttr>(Attr)) {
       SmallVector<int64_t, 4> TileSizes;
       for (auto TileSizeExpr : LTiling->tileSizes()) {
@@ -276,6 +298,14 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           TileSizes));
       continue;
     }
+
+        if (auto LInterchange = dyn_cast<LoopInterchangeAttr>(Attr)) {
+                  addTransformation(LoopTransformation::createInterchange(
+                      makeArrayRef(LInterchange->applyOn_begin(), LInterchange->applyOn_size()),   
+                      makeArrayRef(LInterchange->permutation_begin(), LInterchange->permutation_size()) 
+                      ));
+      continue;
+        }
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =

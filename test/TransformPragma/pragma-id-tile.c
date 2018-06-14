@@ -94,7 +94,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // TRANS:   %16 = trunc i64 %15 to i32
 // TRANS:   %17 = add i32 %16, %14
 // TRANS:   %p_conv.us.us.us = sitofp i32 %17 to double
-// TRANS:   %18 = mul i64 %15, %20
+// TRANS:   %18 = mul nuw i64 %15, %20
 // TRANS:   %19 = add nuw i64 %18, %13
 // TRANS:   %scevgep.us.us = getelementptr double, double* %C, i64 %19
 // TRANS:   store double %p_conv.us.us.us, double* %scevgep.us.us, align 8, !alias.scope !6, !noalias !8

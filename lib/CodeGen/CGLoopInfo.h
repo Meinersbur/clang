@@ -33,12 +33,13 @@ class ASTContext;
 namespace CodeGen {
 
 struct LoopTransformation {
-  enum TransformKind { Reversal, Tiling };
+  enum TransformKind { Reversal, Tiling, Interchange };
   TransformKind Kind;
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
   llvm::SmallVector<int64_t, 4> TileSizes;
+   llvm::SmallVector<llvm::StringRef, 4> Permutation;
 
   llvm::StringRef getApplyOn() const {
     assert(ApplyOns.size() == 1);
@@ -50,7 +51,6 @@ struct LoopTransformation {
     LoopTransformation Result;
     Result.Kind = Reversal;
     Result.ApplyOns.push_back(ApplyOn);
-
     return Result;
   }
 
@@ -64,6 +64,18 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     for (auto TileSize : TileSizes)
       Result.TileSizes.push_back(TileSize);
+    return Result;
+  }
+
+    static LoopTransformation
+  createInterchange (llvm::ArrayRef<llvm::StringRef> ApplyOns, llvm::ArrayRef<llvm::StringRef> Permutation) {
+    LoopTransformation Result;
+    Result.Kind = Interchange;
+
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
+    for (auto P : Permutation)
+      Result.Permutation.push_back(P);
     return Result;
   }
 };
