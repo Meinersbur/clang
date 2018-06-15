@@ -132,6 +132,8 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   auto TopLoopId = LoopID;
   for (auto &Transform : Attrs.TransformationStack) {
     switch (Transform.Kind) {
+    default:
+        llvm_unreachable("unexpected transformation");
     case LoopTransformation::Reversal: {
       SmallVector<Metadata *, 4> TransformArgs;
       TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
@@ -212,9 +214,15 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
            SmallVector<Metadata *, 4> PermutationArgs;
              for (auto PermuteItem : Transform.Permutation ) {
                     assert(!PermuteItem.empty() && "Must specify loop id");
-                  ApplyOnArgs.push_back(MDString::get(Ctx, PermuteItem));
+                  PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
              }
              TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
+
+                                                                   auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
+
+      TopLoopId = nullptr; // No unique follow-up node
          }
     }
   }
