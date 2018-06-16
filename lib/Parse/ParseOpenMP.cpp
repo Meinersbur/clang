@@ -1326,8 +1326,10 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
 
     Clause = ParseOpenMPClause(CKind, WrongDirective);
     break;
-  case OMPC_private:
+
   case OMPC_firstprivate:
+            llvm_unreachable("test here");
+              case OMPC_private:
   case OMPC_lastprivate:
   case OMPC_shared:
   case OMPC_reduction:
@@ -1344,6 +1346,7 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_from:
   case OMPC_use_device_ptr:
   case OMPC_is_device_ptr:
+
     Clause = ParseOpenMPVarListClause(DKind, CKind, WrongDirective);
     break;
   case OMPC_unknown:

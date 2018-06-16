@@ -2807,6 +2807,34 @@ def LoopInterchange : Attr {
 }
 
 
+def Pack : Attr {
+  // #pragma clang loop pack array(arrayname)
+  // #pragma clang loop(loopname) pack array(arrayname)
+
+  let Spellings = [Pragma<"", "pack">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, StringArgument<"Array">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+ 
+			if (!getApplyOn().empty())
+						OS << "(" << getApplyOn() << ")";
+
+			OS << " pack";
+
+				if (!getArray().empty())
+						OS << " array(" << getArray() << ")";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+
 def LoopHint : Attr {
   /// #pragma clang loop <option> directive
   /// vectorize: vectorizes loop operations if State == Enable.

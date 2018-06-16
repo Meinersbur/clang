@@ -11,13 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/LoopHint.h"
 #include "clang/Sema/ScopeInfo.h"
-#include "clang/Sema/SemaInternal.h"
 #include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
@@ -45,7 +45,8 @@ static Attr *handleFallThroughAttr(Sema &S, Stmt *St, const AttributeList &A,
 
   // If this is spelled as the standard C++17 attribute, but not in C++17, warn
   // about using it as an extension.
-  if (!S.getLangOpts().CPlusPlus17 && A.isCXX11Attribute() && !A.getScopeName())
+  if (!S.getLangOpts().CPlusPlus17 && A.isCXX11Attribute() &&
+      !A.getScopeName())
     S.Diag(A.getLoc(), diag::ext_cxx17_attr) << A.getName();
 
   FnScope->setHasFallthroughStmt();
@@ -170,14 +171,25 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const AttributeList &A,  S
     PermutationLocs.push_back(Ident);
     Permutation.push_back(Ident->Ident->getName());
   }
-    assert(NumArgs==i && "Must consume all args");
- assert(ApplyOns.size() >= 2);
+  assert(NumArgs==i && "Must consume all args");
+  assert(ApplyOns.size() >= 2);
   assert(ApplyOns.size() == Permutation.size());
   return LoopInterchangeAttr::CreateImplicit(S.Context, ApplyOns.data(),  ApplyOns.size(),Permutation.data(), Permutation.size(),    A.getRange());
 }
 
-static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
-                                SourceRange) {
+
+static Attr *handlePack(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
+  assert(A.getNumArgs() == 3);
+
+  IdentifierLoc *ApplyOn = A.getArgAsIdent(1);
+  IdentifierLoc *ArrayLoc = A.getArgAsIdent(2);
+
+  return PackAttr::CreateImplicit(S.Context , ApplyOn->Ident->getName(), ArrayLoc->Ident->getName(),    A.getRange());
+}
+
+
+
+static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
   IdentifierLoc *OptionLoc = A.getArgAsIdent(1);
   IdentifierLoc *StateLoc = A.getArgAsIdent(2);
@@ -199,8 +211,7 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
     return nullptr;
   }
 
-  LoopHintAttr::Spelling Spelling =
-      LoopHintAttr::Spelling(A.getAttributeSpellingListIndex());
+  LoopHintAttr::Spelling Spelling = LoopHintAttr::Spelling(A.getAttributeSpellingListIndex());
   LoopHintAttr::OptionType Option;
   LoopHintAttr::LoopHintState State;
   if (PragmaNoUnroll) {
@@ -424,6 +435,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
     return handleLoopTiling(S, St, A, Range);
   case AttributeList::AT_LoopInterchange:
     return handleLoopInterchange(S, St, A, Range);
+  case AttributeList::AT_Pack:
+         return handlePack(S, St, A, Range);
   case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
   case AttributeList::AT_Suppress:

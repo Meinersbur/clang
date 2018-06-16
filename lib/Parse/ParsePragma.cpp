@@ -1095,7 +1095,8 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 enum class   TransformClauseKind {
     None,
     Sizes,
-    Permutation
+    Permutation,
+    Array
 };
 
 // TODO: Introduce enum for clause names
@@ -1107,7 +1108,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse, Toke
       assert(ClauseTok.is(tok::identifier));
     auto   ClauseName = ClauseTok.getIdentifierInfo()->getName();
 
-    auto Kind = llvm::StringSwitch<TransformClauseKind>(ClauseName).Case("sizes",TransformClauseKind::Sizes ).Case("permutation",TransformClauseKind::Permutation ).Default(TransformClauseKind::None);
+    auto Kind = llvm::StringSwitch<TransformClauseKind>(ClauseName).Case("sizes",TransformClauseKind::Sizes ).Case("permutation",TransformClauseKind::Permutation ).Case("array", TransformClauseKind::Array).     
+        Default(TransformClauseKind::None);
 
 switch (Kind){
 case TransformClauseKind::Sizes:{
@@ -1176,6 +1178,20 @@ case TransformClauseKind::Sizes:{
                 }
                 return TransformClauseKind::Permutation;
          } break;
+
+                case TransformClauseKind::Array :{
+                 assert(Toks[i + 1].is(tok::l_paren));
+                 assert(Toks[i + 2].is(tok::identifier));
+                  assert(Toks[i + 3].is(tok::r_paren));
+                i += 4;
+
+                   auto ArrInfo = Toks[i+2].getIdentifierInfo();
+                         auto LoopIdStr = ArrInfo->getName();
+                 Args.push_back(IdentifierLoc::create( Parse.getActions().getASTContext(),  Toks[i+2].getLocation(), ArrInfo));
+
+                return TransformClauseKind::Array;
+         } break;
+
       case TransformClauseKind::None:
         llvm_unreachable("Unknown clause");
 }
@@ -1323,7 +1339,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     if (IdTok.getIdentifierInfo()->getName() == "interchange") {
             Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-    assert(ApplyOnLocs.size() != 1 && "only single loop supported for reverse");
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
     ArgHints.push_back((IdentifierLoc *)nullptr);
@@ -1348,6 +1363,44 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     for (auto PermuteId : Permutation)
        ArgHints.push_back(PermuteId);
     ArgHints.push_back((IdentifierLoc *)nullptr);
+
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    ConsumeAnnotationToken();
+    return true;
+  }
+
+
+    
+    if (IdTok.getIdentifierInfo()->getName() == "pack") {
+            Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() != 1 && "only single loop supported for pack");
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    
+    IdentifierLoc * Array=nullptr;
+    while (true) {
+        SmallVector<ArgsUnion, 4> ClauseArgs;
+                auto Kind = parseNextClause(PP, *this, Tok, Toks, i,  ClauseArgs);
+                if (Kind == TransformClauseKind::None)
+                    break;
+        switch (Kind)       {
+             default:
+          llvm_unreachable("unsupported clause for interchange");
+        case TransformClauseKind::Array:
+            assert(ClauseArgs.size()==1);
+            assert(!Array);
+            Array =  ClauseArgs[0].get<IdentifierLoc *>();
+            break;
+        }
+    }
+
+          ArgHints.push_back(Array);
 
 
     auto &EofTok = Toks[i];

@@ -224,6 +224,33 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       TopLoopId = nullptr; // No unique follow-up node
          }
+         case LoopTransformation::Pack: {
+           SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(MDString::get(Ctx, "llvm.data.pack"));
+
+      auto ApplyOn = Transform.getApplyOn();
+
+      if (ApplyOn.empty()) {
+        // Apply on TopLoopId
+        assert(TopLoopId);
+        TransformArgs.push_back(TopLoopId);
+      } else {
+        // Apply on Transform.ApplyOn
+        // TODO: Search for LoopID instead of using the name?
+        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
+
+      
+
+      TransformArgs.push_back(MDString::get(Ctx, Transform.Array) );
+
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
+
+      // Follow-ups use this one
+      TopLoopId = MDTransform;
+    } break;
     }
   }
 
@@ -312,6 +339,11 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
                       makeArrayRef(LInterchange->applyOn_begin(), LInterchange->applyOn_size()),   
                       makeArrayRef(LInterchange->permutation_begin(), LInterchange->permutation_size()) 
                       ));
+      continue;
+        }
+
+                if (auto Pack = dyn_cast<PackAttr>(Attr)) {
+                   addTransformation(LoopTransformation::createPack(Pack->getApplyOn(), Pack->getArray()));
       continue;
         }
 
