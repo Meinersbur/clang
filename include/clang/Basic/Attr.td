@@ -2814,7 +2814,7 @@ def Pack : Attr {
   let Spellings = [Pragma<"", "pack">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [StringArgument<"ApplyOn">, StringArgument<"Array">];
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2825,8 +2825,11 @@ def Pack : Attr {
 
 			OS << " pack";
 
-				if (!getArray().empty())
-						OS << " array(" << getArray() << ")";
+				if (getArray()) {
+						OS << " array(";
+						getArray()->printPretty(OS, nullptr, Policy);
+						OS << ")";
+				}
 		}
   }];
 

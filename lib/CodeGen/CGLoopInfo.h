@@ -20,6 +20,7 @@
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Compiler.h"
+#include "clang/AST/Expr.h"
 
 namespace llvm {
 class BasicBlock;
@@ -31,6 +32,7 @@ namespace clang {
 class Attr;
 class ASTContext;
 namespace CodeGen {
+    class CodeGenFunction;
 
 struct LoopTransformation {
   enum TransformKind { Reversal, Tiling, Interchange ,Pack};
@@ -41,10 +43,12 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
   llvm::SmallVector<int64_t, 4> TileSizes;
    llvm::SmallVector<llvm::StringRef, 4> Permutation;
-   llvm::StringRef Array;
+clang::DeclRefExpr*  Array;
 
   llvm::StringRef getApplyOn() const {
-    assert(ApplyOns.size() == 1);
+    assert(ApplyOns.size() <= 1);
+    if (ApplyOns.empty())
+        return {};
     return ApplyOns[0];
   }
 
@@ -82,13 +86,10 @@ struct LoopTransformation {
   }
 
         static LoopTransformation
-  createPack (llvm::StringRef ApplyOn, llvm::StringRef Array) {
+  createPack (llvm::StringRef ApplyOn, clang::DeclRefExpr*  Array) {
     LoopTransformation Result;
     Result.Kind = Pack;
-
-
       Result.ApplyOns.push_back(ApplyOn);
-
       Result.Array = Array;
     return Result;
   }
@@ -133,7 +134,7 @@ struct LoopAttributes {
 class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
-  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F, clang::CodeGen::CodeGenFunction *CGF,
            const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
            const llvm::DebugLoc &EndLoc);
 
@@ -167,12 +168,12 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F,
+  void push(llvm::BasicBlock *Header, llvm::Function *F,clang::CodeGen::CodeGenFunction *CGF,
             const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F, clang::ASTContext &Ctx,
+  void push(llvm::BasicBlock *Header, llvm::Function *F,clang::CodeGen::CodeGenFunction *CGF, clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 

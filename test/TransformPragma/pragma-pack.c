@@ -16,18 +16,15 @@ void pragma_pack(int n, int m, double C[m][n], double A[m][n]) {
 // PRINT-NEXT:              C[i][j] = A[j][i] + i + j;
 // PRINT-NEXT:  }
 
-// IR-LABEL: define dso_local void @pragma_id_interchange(i32 %n, i32 %m, double* %C, double* %A) #0 !looptransform !2 {
-// IR:         br label %for.cond1, !llvm.loop !6
-// IR:         br label %for.cond, !llvm.loop !8
+
+// IR-LABEL: define dso_local void @pragma_pack(i32 %n, i32 %m, double* %C, double* %A) #0 !looptransform !2 {
 //
-// IR: !2 = !{!3}
-// IR: !3 = !{!"llvm.loop.interchange", !4, !5}
-// IR: !4 = !{!"i", !"j"}
-// IR: !5 = !{!"j", !"i"}
-// IR: !6 = distinct !{!6, !7}
-// IR: !7 = !{!"llvm.loop.id", !"j"}
-// IR: !8 = distinct !{!8, !9}
-// IR: !9 = !{!"llvm.loop.id", !"i"}
+// IR:         %A.addr = alloca double*, align 8
+//
+// IR:       !2 = !{!3}
+// IR:       !3 = !{!"llvm.data.pack", !4, double** %A.addr}
+// IR:       !4 = distinct !{!4}
+
 
 // TRANS: define dso_local void @pragma_id_interchange(i32 %n, i32 %m, double* nocapture %C, double* nocapture readonly %A) local_unnamed_addr #0 !looptransform !2 {
 // TRANS: entry:

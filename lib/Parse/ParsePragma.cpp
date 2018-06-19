@@ -1117,6 +1117,7 @@ case TransformClauseKind::Sizes:{
         i += 2;
 
         // Get option value
+        //TODO: Use BalancedDelimiterTracker
         auto NumOpenParens = 1;
         auto StartInner = i;
         while (NumOpenParens > 0) {
@@ -1132,11 +1133,10 @@ case TransformClauseKind::Sizes:{
         auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
 
         // Push back the tokens on the stack so we can parse them
-        PP.EnterTokenStream(ClauseParens.slice(1),
-                            /*DisableMacroExpansion=*/false);
+        PP.EnterTokenStream(ClauseParens.slice(1),        /*DisableMacroExpansion=*/false);
 
         // Update token stream; current token could be an annotation token or a
-        // closing parent.
+        // closing paren.
         PP.Lex(Tok);
 
 
@@ -1149,8 +1149,7 @@ case TransformClauseKind::Sizes:{
             PP.Lex(Tok);
             continue;
           }
-          if (Tok.is(tok::r_paren)) // FIXME: Mabe use eod token to be sure the
-                                    // we don't hit a nested rparen
+          if (Tok.is(tok::r_paren)) // FIXME: Maybe use eod token to be sure the we don't hit a nested rparen
             break;
           llvm_unreachable("Unexpected token");
         }
@@ -1183,12 +1182,26 @@ case TransformClauseKind::Sizes:{
                  assert(Toks[i + 1].is(tok::l_paren));
                  assert(Toks[i + 2].is(tok::identifier));
                   assert(Toks[i + 3].is(tok::r_paren));
+                  auto ClauseSlice = Toks.slice(i, 4);
                 i += 4;
 
-                   auto ArrInfo = Toks[i+2].getIdentifierInfo();
-                         auto LoopIdStr = ArrInfo->getName();
-                 Args.push_back(IdentifierLoc::create( Parse.getActions().getASTContext(),  Toks[i+2].getLocation(), ArrInfo));
+                // Push identifer on main stack to be parsed
+                PP.EnterTokenStream(ClauseSlice.slice(2), /*DisableMacroExpansion=*/false);
 
+                // Push an end marker to the token stream
+                //Token EndMarker;
+                //  EndMarker.startToken();
+                //EndMarker.setKind(tok::eod);
+                //  PP.EnterTokenStream(EndMarker,false);
+                
+                          // Update token stream; current token could be an annotation token from when the #pragma started or a closing paren from the previous clause
+        PP.Lex(Tok);
+
+        ExprResult VarExpr =  Parse.getActions().CorrectDelayedTyposInExpr( Parse.  ParseAssignmentExpression());
+        assert(VarExpr.isUsable());
+        auto V = cast<DeclRefExpr>(VarExpr.get());
+
+        Args.push_back(V);
                 return TransformClauseKind::Array;
          } break;
 
@@ -1379,11 +1392,14 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     if (IdTok.getIdentifierInfo()->getName() == "pack") {
             Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-    assert(ApplyOnLocs.size() != 1 && "only single loop supported for pack");
+    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for pack");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
       ArgHints.push_back(ApplyOnLocs[0]);
 
-    
-    IdentifierLoc * Array=nullptr;
+    DeclRefExpr * Array=nullptr;
     while (true) {
         SmallVector<ArgsUnion, 4> ClauseArgs;
                 auto Kind = parseNextClause(PP, *this, Tok, Toks, i,  ClauseArgs);
@@ -1395,7 +1411,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         case TransformClauseKind::Array:
             assert(ClauseArgs.size()==1);
             assert(!Array);
-            Array =  ClauseArgs[0].get<IdentifierLoc *>();
+            Array =  cast<DeclRefExpr>( ClauseArgs[0].get<Expr *>());
             break;
         }
     }
@@ -1408,7 +1424,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     i += 1;
 
     assert(Toks.size() == i); // Nothing following
-    ConsumeAnnotationToken();
+     PP.Lex(Tok); // ConsumeAnnotationToken(); or rparen
     return true;
   }
 

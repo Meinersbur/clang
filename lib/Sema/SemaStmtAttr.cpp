@@ -179,12 +179,13 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const AttributeList &A,  S
 
 
 static Attr *handlePack(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
-  assert(A.getNumArgs() == 3);
+  assert(A.getNumArgs() == 2);
 
-  IdentifierLoc *ApplyOn = A.getArgAsIdent(1);
-  IdentifierLoc *ArrayLoc = A.getArgAsIdent(2);
+auto ApplyOnLoc = A.getArgAsIdent(0);
+ auto ArrayLoc = A.getArgAsExpr(1);
 
-  return PackAttr::CreateImplicit(S.Context , ApplyOn->Ident->getName(), ArrayLoc->Ident->getName(),    A.getRange());
+   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return PackAttr::CreateImplicit(S.Context , ApplyOn, ArrayLoc,    A.getRange());
 }
 
 
