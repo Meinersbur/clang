@@ -2908,6 +2908,8 @@ def LoopHint : Attr {
   /// interleave_count: interleaves 'Value' loop iterations.
   /// unroll: fully unroll loop if State == Enable.
   /// unroll_count: unrolls loop 'Value' times.
+  /// unroll_and_jam: attempt to unroll and jam loop if State == Enable.
+  /// unroll_and_jam_count: unroll and jams loop 'Value' times.
   /// distribute: attempt to distribute loop if State == Enable
 
   /// #pragma unroll <argument> directive
@@ -2916,15 +2918,18 @@ def LoopHint : Attr {
   /// expression: unrolls loop 'Value' times.
 
   let Spellings = [Pragma<"clang", "loop">, Pragma<"", "unroll">,
-                   Pragma<"", "nounroll">];
+                   Pragma<"", "nounroll">, Pragma<"", "unroll_and_jam">,
+                   Pragma<"", "nounroll_and_jam">];
   let PrettyPrintSpelling = 0;
 
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",
                           ["vectorize", "vectorize_width", "interleave", "interleave_count",
-                           "unroll", "unroll_count", "distribute"],
+                           "unroll", "unroll_count", "unroll_and_jam", "unroll_and_jam_count",
+                           "distribute"],
                           ["Vectorize", "VectorizeWidth", "Interleave", "InterleaveCount",
-                           "Unroll", "UnrollCount", "Distribute"]>,
+                           "Unroll", "UnrollCount", "UnrollAndJam", "UnrollAndJamCount",
+                           "Distribute"]>,
               EnumArgument<"State", "LoopHintState",
                            ["enable", "disable", "numeric", "assume_safety", "full"],
                            ["Enable", "Disable", "Numeric", "AssumeSafety", "Full"]>,
@@ -2939,6 +2944,8 @@ def LoopHint : Attr {
     case InterleaveCount: return "interleave_count";
     case Unroll: return "unroll";
     case UnrollCount: return "unroll_count";
+    case UnrollAndJam: return "unroll_and_jam";
+    case UnrollAndJamCount: return "unroll_and_jam_count";
     case Distribute: return "distribute";
     }
     llvm_unreachable("Unhandled LoopHint option.");
@@ -2950,11 +2957,19 @@ def LoopHint : Attr {
       OS << "nounroll";
       return;
     }
+    else if (SpellingIndex == Pragma_nounroll_and_jam) {
+      OS << "nounroll_and_jam";
+      return;
+    }
     else if (SpellingIndex == Pragma_unroll) {
       OS << "unroll " << getValueString(Policy);
       return;
     }
-
+    else if (SpellingIndex == Pragma_unroll_and_jam) {
+      OS << "unroll_and_jam " << getValueString(Policy);
+      return;
+    }
+    
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
     OS << "clang loop " << getOptionName(option) << getValueString(Policy);
   }
@@ -2986,6 +3001,11 @@ def LoopHint : Attr {
       return "#pragma nounroll";
     else if (SpellingIndex == Pragma_unroll)
       return "#pragma unroll" + (option == UnrollCount ? getValueString(Policy) : "");
+    else if (SpellingIndex == Pragma_nounroll_and_jam)
+      return "#pragma nounroll_and_jam";
+    else if (SpellingIndex == Pragma_unroll_and_jam)
+      return "#pragma unroll_and_jam" +
+        (option == UnrollAndJamCount ? getValueString(Policy) : "");
 
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
     return getOptionName(option) + getValueString(Policy);
