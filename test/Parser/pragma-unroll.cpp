@@ -1,5 +1,4 @@
 // RUN: %clang_cc1 -std=c++11 -verify %s
-// expected-no-diagnostics
 
 // Note that this puts the expected lines before the directives to work around
 // limitations in the -verify mode.
@@ -27,7 +26,6 @@ void test(int *List, int Length) {
     List[i] = i;
   }
 
-#if 0
 /* expected-error {{expected ')'}} */ #pragma unroll(4
 /* expected-error {{missing argument; expected an integer value}} */ #pragma unroll()
 /* expected-warning {{extra tokens at end of '#pragma unroll'}} */ #pragma unroll 1 2
@@ -112,6 +110,4 @@ void test(int *List, int Length) {
   }
 
 #pragma unroll
-/* expected-error {{expected statement}} */
-#endif
-}
+/* expected-error {{expected statement}} */ }

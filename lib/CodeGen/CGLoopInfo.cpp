@@ -31,8 +31,8 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CG
       Attrs.VectorizeEnable == LoopAttributes::Unspecified &&
       Attrs.UnrollEnable == LoopAttributes::Unspecified &&
       Attrs.DistributeEnable == LoopAttributes::Unspecified &&
-      Attrs.ReverseEnable == LoopAttributes::Unspecified && !StartLoc &&
-      Attrs.LoopId.empty() && Attrs.TransformationStack.empty() && !EndLoc)
+      Attrs.LoopId.empty() &&
+      !StartLoc && !EndLoc)
     return nullptr;
 
   SmallVector<Metadata *, 4> Args;
@@ -100,14 +100,6 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CG
                         ConstantAsMetadata::get(ConstantInt::get(
                             Type::getInt1Ty(Ctx), (Attrs.DistributeEnable ==
                                                    LoopAttributes::Enable)))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  if (Attrs.ReverseEnable != LoopAttributes::Unspecified) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.reverse.enable"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt1Ty(Ctx),
-                            (Attrs.ReverseEnable == LoopAttributes::Enable)))};
     Args.push_back(MDNode::get(Ctx, Vals));
   }
 
@@ -267,8 +259,7 @@ LoopAttributes::LoopAttributes(bool IsParallel)
     : IsParallel(IsParallel), VectorizeEnable(LoopAttributes::Unspecified),
       UnrollEnable(LoopAttributes::Unspecified), VectorizeWidth(0),
       InterleaveCount(0), UnrollCount(0),
-      DistributeEnable(LoopAttributes::Unspecified),
-      ReverseEnable(LoopAttributes::Unspecified) {}
+      DistributeEnable(LoopAttributes::Unspecified) {}
 
 void LoopAttributes::clear() {
   IsParallel = false;
@@ -278,7 +269,6 @@ void LoopAttributes::clear() {
   VectorizeEnable = LoopAttributes::Unspecified;
   UnrollEnable = LoopAttributes::Unspecified;
   DistributeEnable = LoopAttributes::Unspecified;
-  ReverseEnable = LoopAttributes::Unspecified;
   LoopId = StringRef();
   TransformationStack.clear();
 }
@@ -384,7 +374,6 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       Option = LH->getOption();
       State = LH->getState();
     }
-
     switch (State) {
     case LoopHintAttr::Disable:
       switch (Option) {
@@ -402,10 +391,9 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       case LoopHintAttr::Distribute:
         setDistributeState(false);
         break;
-      case LoopHintAttr::Reverse:
-        setReverseEnable(false);
-        break;
-      default:
+      case LoopHintAttr::UnrollCount:
+      case LoopHintAttr::VectorizeWidth:
+      case LoopHintAttr::InterleaveCount:
         llvm_unreachable("Options cannot be disabled.");
         break;
       }
@@ -422,11 +410,10 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       case LoopHintAttr::Distribute:
         setDistributeState(true);
         break;
-      case LoopHintAttr::Reverse:
-        setReverseEnable(true);
-        break;
-      default:
-        llvm_unreachable("Options cannot be enabled.");
+      case LoopHintAttr::UnrollCount:
+      case LoopHintAttr::VectorizeWidth:
+      case LoopHintAttr::InterleaveCount:
+        llvm_unreachable("Options cannot enabled.");
         break;
       }
       break;
@@ -438,11 +425,11 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
         setParallel(true);
         setVectorizeEnable(true);
         break;
-      case LoopHintAttr::Reverse:
-        setParallel(true);
-        setReverseEnable(true);
-        break;
-      default:
+      case LoopHintAttr::Unroll:
+      case LoopHintAttr::UnrollCount:
+      case LoopHintAttr::VectorizeWidth:
+      case LoopHintAttr::InterleaveCount:
+      case LoopHintAttr::Distribute:
         llvm_unreachable("Options cannot be used to assume mem safety.");
         break;
       }
@@ -452,7 +439,12 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       case LoopHintAttr::Unroll:
         setUnrollState(LoopAttributes::Full);
         break;
-      default:
+      case LoopHintAttr::Vectorize:
+      case LoopHintAttr::Interleave:
+      case LoopHintAttr::UnrollCount:
+      case LoopHintAttr::VectorizeWidth:
+      case LoopHintAttr::InterleaveCount:
+      case LoopHintAttr::Distribute:
         llvm_unreachable("Options cannot be used with 'full' hint.");
         break;
       }
@@ -468,13 +460,13 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       case LoopHintAttr::UnrollCount:
         setUnrollCount(ValueInt);
         break;
-      default:
+      case LoopHintAttr::Unroll:
+      case LoopHintAttr::Vectorize:
+      case LoopHintAttr::Interleave:
+      case LoopHintAttr::Distribute:
         llvm_unreachable("Options cannot be assigned a value.");
         break;
       }
-      break;
-    case LoopHintAttr::Name:
-      // Already handled
       break;
     }
   }

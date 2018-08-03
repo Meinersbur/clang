@@ -124,8 +124,6 @@ struct LoopAttributes {
   /// Value for llvm.loop.distribute.enable metadata.
   LVEnableState DistributeEnable;
 
-  LVEnableState ReverseEnable;
-
   llvm::StringRef LoopId;
   std::vector<LoopTransformation> TransformationStack;
 };

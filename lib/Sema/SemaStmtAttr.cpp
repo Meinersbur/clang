@@ -190,12 +190,12 @@ auto ApplyOnLoc = A.getArgAsIdent(0);
 
 
 
-static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
+static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
+                                SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
   IdentifierLoc *OptionLoc = A.getArgAsIdent(1);
   IdentifierLoc *StateLoc = A.getArgAsIdent(2);
   Expr *ValueExpr = A.getArgAsExpr(3);
-  IdentifierLoc *IdLoc = A.getArgAsIdent(4);
 
   bool PragmaUnroll = PragmaNameLoc->Ident->getName() == "unroll";
   bool PragmaNoUnroll = PragmaNameLoc->Ident->getName() == "nounroll";
@@ -212,7 +212,8 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  Sour
     return nullptr;
   }
 
-  LoopHintAttr::Spelling Spelling = LoopHintAttr::Spelling(A.getAttributeSpellingListIndex());
+  LoopHintAttr::Spelling Spelling =
+      LoopHintAttr::Spelling(A.getAttributeSpellingListIndex());
   LoopHintAttr::OptionType Option;
   LoopHintAttr::LoopHintState State;
   if (PragmaNoUnroll) {
@@ -242,8 +243,7 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  Sour
                  .Case("unroll", LoopHintAttr::Unroll)
                  .Case("unroll_count", LoopHintAttr::UnrollCount)
                  .Case("distribute", LoopHintAttr::Distribute)
-                 .Case("reverse", LoopHintAttr::Reverse)
-                 .Case("id", LoopHintAttr::Id);
+                 .Default(LoopHintAttr::Vectorize);
     if (Option == LoopHintAttr::VectorizeWidth ||
         Option == LoopHintAttr::InterleaveCount ||
         Option == LoopHintAttr::UnrollCount) {
@@ -254,8 +254,7 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  Sour
     } else if (Option == LoopHintAttr::Vectorize ||
                Option == LoopHintAttr::Interleave ||
                Option == LoopHintAttr::Unroll ||
-               Option == LoopHintAttr::Distribute ||
-               Option == LoopHintAttr::Reverse) {
+               Option == LoopHintAttr::Distribute) {
       assert(StateLoc && StateLoc->Ident && "Loop hint must have an argument");
       if (StateLoc->Ident->isStr("disable"))
         State = LoopHintAttr::Disable;
@@ -267,23 +266,17 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,  Sour
         State = LoopHintAttr::Enable;
       else
         llvm_unreachable("bad loop hint argument");
-    } else if (Option == LoopHintAttr::Id) {
-      assert(IdLoc && "Attribute must have an identifier expression.");
-      // Any restrictions on identifier names?
-      auto Name = IdLoc->Ident->getName();
     } else
       llvm_unreachable("bad loop hint");
   }
 
-  return LoopHintAttr::CreateImplicit(S.Context, Spelling, StringRef(), Option,
-                                      State, ValueExpr, StringRef(),
-                                      A.getRange());
+  return LoopHintAttr::CreateImplicit(S.Context, Spelling, Option, State,
+                                      ValueExpr, A.getRange());
 }
 
 static void
 CheckForIncompatibleAttributes(Sema &S,
                                const SmallVectorImpl<const Attr *> &Attrs) {
-#if 0
   // There are 4 categories of loop hints attributes: vectorize, interleave,
   // unroll and distribute. Except for distribute they come in two variants: a
   // state form and a numeric form.  The state form selectively
@@ -298,11 +291,8 @@ CheckForIncompatibleAttributes(Sema &S,
   } HintAttrs[] = {{nullptr, nullptr},
                    {nullptr, nullptr},
                    {nullptr, nullptr},
-                   {nullptr, nullptr},
                    {nullptr, nullptr}};
 
-  // TODO: Check consistent loop pragmas globally, not just per loop (with loop
-  // naming)
   for (const auto *I : Attrs) {
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(I);
 
@@ -311,7 +301,7 @@ CheckForIncompatibleAttributes(Sema &S,
       continue;
 
     LoopHintAttr::OptionType Option = LH->getOption();
-    enum { Vectorize, Interleave, Unroll, Distribute, Reverse } Category;
+    enum { Vectorize, Interleave, Unroll, Distribute } Category;
     switch (Option) {
     case LoopHintAttr::Vectorize:
     case LoopHintAttr::VectorizeWidth:
@@ -329,16 +319,13 @@ CheckForIncompatibleAttributes(Sema &S,
       // Perform the check for duplicated 'distribute' hints.
       Category = Distribute;
       break;
-    case LoopHintAttr::Reverse:
-      Category = Reverse;
-      break;
     };
 
     auto &CategoryState = HintAttrs[Category];
     const LoopHintAttr *PrevAttr;
     if (Option == LoopHintAttr::Vectorize ||
         Option == LoopHintAttr::Interleave || Option == LoopHintAttr::Unroll ||
-        Option == LoopHintAttr::Distribute || Option == LoopHintAttr::Reverse) {
+        Option == LoopHintAttr::Distribute) {
       // Enable|Disable|AssumeSafety hint.  For example, vectorize(enable).
       PrevAttr = CategoryState.StateAttr;
       CategoryState.StateAttr = LH;
@@ -352,7 +339,6 @@ CheckForIncompatibleAttributes(Sema &S,
     SourceLocation OptionLoc = LH->getRange().getBegin();
     if (PrevAttr)
       // Cannot specify same type of attribute twice.
-      // FIXME: With Polly, we can and have to.
       S.Diag(OptionLoc, diag::err_pragma_loop_compatibility)
           << /*Duplicate=*/true << PrevAttr->getDiagnosticName(Policy)
           << LH->getDiagnosticName(Policy);
@@ -370,7 +356,6 @@ CheckForIncompatibleAttributes(Sema &S,
           << CategoryState.NumericAttr->getDiagnosticName(Policy);
     }
   }
-#endif
 }
 
 static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const AttributeList &A,
@@ -419,10 +404,9 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
                                   SourceRange Range) {
   switch (A.getKind()) {
   case AttributeList::UnknownAttribute:
-    S.Diag(A.getLoc(), A.isDeclspecAttribute()
-                           ? diag::warn_unhandled_ms_attribute_ignored
-                           : diag::warn_unknown_attribute_ignored)
-        << A.getName();
+    S.Diag(A.getLoc(), A.isDeclspecAttribute() ?
+           diag::warn_unhandled_ms_attribute_ignored :
+           diag::warn_unknown_attribute_ignored) << A.getName();
     return nullptr;
   case AttributeList::AT_FallThrough:
     return handleFallThroughAttr(S, St, A, Range);
@@ -453,10 +437,10 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
 
 StmtResult Sema::ProcessStmtAttributes(Stmt *S, AttributeList *AttrList,
                                        SourceRange Range) {
-  SmallVector<const Attr *, 8> Attrs;
-  for (const AttributeList *l = AttrList; l; l = l->getNext()) {
+  SmallVector<const Attr*, 8> Attrs;
+  for (const AttributeList* l = AttrList; l; l = l->getNext()) {
     if (Attr *a = ProcessStmtAttribute(*this, S, *l, Range))
-      Attrs.push_back(a); // In what order are these added?
+      Attrs.push_back(a);
   }
 
   CheckForIncompatibleAttributes(*this, Attrs);

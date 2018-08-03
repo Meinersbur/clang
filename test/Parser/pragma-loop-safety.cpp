@@ -1,5 +1,4 @@
 // RUN: %clang_cc1 -std=c++11 -verify %s
-// expected-no-diagnostics
 
 // Note that this puts the expected lines before the directives to work around
 // limitations in the -verify mode.
@@ -13,7 +12,6 @@ void test(int *List, int Length) {
     List[i] = i;
   }
 
-#if 0
 /* expected-error {{expected ')'}} */ #pragma clang loop vectorize(assume_safety
 /* expected-error {{expected ')'}} */ #pragma clang loop interleave(assume_safety
 
@@ -34,5 +32,4 @@ void test(int *List, int Length) {
   while (i-9 < Length) {
     List[i] = i;
   }
-#endif
 }
