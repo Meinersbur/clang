@@ -219,11 +219,6 @@ public:
   /// Set the unroll count for the next loop pushed.
   void setUnrollCount(unsigned C) { StagedAttrs.UnrollCount = C; }
 
-  void setReverseEnable(bool Enable) {
-    StagedAttrs.ReverseEnable =
-        Enable ? LoopAttributes::Enable : LoopAttributes::Disable;
-  }
-
   void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
 
   void addTransformation(LoopTransformation Transform) {

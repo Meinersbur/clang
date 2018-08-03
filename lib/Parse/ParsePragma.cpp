@@ -3236,7 +3236,6 @@ void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP,
   // Add all tokens for later parsing
   auto StartLoc = Tok.getLocation();
   auto *Info = new (PP.getPreprocessorAllocator()) PragmaLoopHintInfo;
-  Info->NewSyntax = true;
 
   SmallVector<Token, 4> ValueList;
   while (Tok.isNot(tok::eod)) {

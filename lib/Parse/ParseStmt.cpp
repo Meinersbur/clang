@@ -1933,19 +1933,17 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
 
   // Get loop hints and consume annotated token.
   while (true) {
-    if (Tok.is(tok::annot_pragma_loop_hint)) {
-      LoopHint Hint;
-      if (!HandlePragmaLoopHint(Hint))
-        continue;
+      if (Tok.is(tok::annot_pragma_loop_hint)) {
+    LoopHint Hint;
+    if (!HandlePragmaLoopHint(Hint))
+      continue;
 
-      ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc,
-                              Hint.StateLoc,      ArgsUnion(Hint.ValueExpr),
-                              Hint.IdLoc,         Hint.LoopIdLoc,
-                              Hint.ApplyOnLoc};
-      TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
-                       Hint.PragmaNameLoc->Loc, ArgHints,
-                       sizeof(ArgHints) / sizeof(ArgHints[0]),
-                       AttributeList::AS_Pragma);
+    ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
+                            ArgsUnion(Hint.ValueExpr)};
+    TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
+                     Hint.PragmaNameLoc->Loc, ArgHints, 4,
+                     AttributeList::AS_Pragma);
+
       continue;
     }
 
