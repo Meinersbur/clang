@@ -23,7 +23,7 @@
 using namespace clang;
 using namespace sema;
 
-static Attr *handleFallThroughAttr(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleFallThroughAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                    SourceRange Range) {
   FallThroughAttr Attr(A.getRange(), S.Context,
                        A.getAttributeSpellingListIndex());
@@ -53,7 +53,7 @@ static Attr *handleFallThroughAttr(Sema &S, Stmt *St, const AttributeList &A,
   return ::new (S.Context) auto(Attr);
 }
 
-static Attr *handleSuppressAttr(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleSuppressAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange Range) {
   if (A.getNumArgs() < 1) {
     S.Diag(A.getLoc(), diag::err_attribute_too_few_arguments)
@@ -190,7 +190,7 @@ auto ApplyOnLoc = A.getArgAsIdent(0);
 
 
 
-static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
   IdentifierLoc *OptionLoc = A.getArgAsIdent(1);
@@ -358,7 +358,7 @@ CheckForIncompatibleAttributes(Sema &S,
   }
 }
 
-static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const ParsedAttr &A,
                                     SourceRange Range) {
   // Although the feature was introduced only in OpenCL C v2.0 s6.11.5, it's
   // useful for OpenCL 1.x too and doesn't require HW support.
@@ -400,31 +400,30 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const AttributeList &A,
   return OpenCLUnrollHintAttr::CreateImplicit(S.Context, UnrollFactor);
 }
 
-static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
                                   SourceRange Range) {
   switch (A.getKind()) {
-  case AttributeList::UnknownAttribute:
+  case ParsedAttr::UnknownAttribute:
     S.Diag(A.getLoc(), A.isDeclspecAttribute() ?
            diag::warn_unhandled_ms_attribute_ignored :
            diag::warn_unknown_attribute_ignored) << A.getName();
     return nullptr;
-  case AttributeList::AT_FallThrough:
+  case ParsedAttr::AT_FallThrough:
     return handleFallThroughAttr(S, St, A, Range);
-  case AttributeList::AT_LoopHint:
+  case ParsedAttr::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
-  case AttributeList::AT_LoopId:
+  case ParsedAttr::AT_LoopId:
     return handleLoopId(S, St, A, Range);
-  case AttributeList::AT_LoopReversal:
+  case ParsedAttr::AT_LoopReversal:
     return handleLoopReversal(S, St, A, Range);
-  case AttributeList::AT_LoopTiling:
+  case ParsedAttr::AT_LoopTiling:
     return handleLoopTiling(S, St, A, Range);
-  case AttributeList::AT_LoopInterchange:
+  case ParsedAttr::AT_LoopInterchange:
     return handleLoopInterchange(S, St, A, Range);
-  case AttributeList::AT_Pack:
+  case ParsedAttr::AT_Pack:
          return handlePack(S, St, A, Range);
-  case AttributeList::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
-  case AttributeList::AT_Suppress:
+  case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   default:
     // if we're here, then we parsed a known attribute, but didn't recognize
@@ -435,11 +434,12 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
   }
 }
 
-StmtResult Sema::ProcessStmtAttributes(Stmt *S, AttributeList *AttrList,
+StmtResult Sema::ProcessStmtAttributes(Stmt *S,
+                                       const ParsedAttributesView &AttrList,
                                        SourceRange Range) {
   SmallVector<const Attr*, 8> Attrs;
-  for (const AttributeList* l = AttrList; l; l = l->getNext()) {
-    if (Attr *a = ProcessStmtAttribute(*this, S, *l, Range))
+  for (const ParsedAttr &AL : AttrList) {
+    if (Attr *a = ProcessStmtAttribute(*this, S, AL, Range))
       Attrs.push_back(a);
   }
 
