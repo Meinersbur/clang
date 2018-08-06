@@ -1946,7 +1946,7 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
 
       TempAttrs.addNew(PragmaNameLoc->Ident, Range, nullptr, SourceLocation(),
                        ArgHints.data(), ArgHints.size(),
-                       AttributeList::AS_Pragma);
+                       ParsedAttr::AS_Pragma);
       continue;
     }
 

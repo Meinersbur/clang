@@ -78,7 +78,7 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const ParsedAttr &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
-static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleLoopId(Sema &S, Stmt *St, const ParsedAttr &A,
                           SourceRange) {
   assert(A.getNumArgs() == 1);
 
@@ -89,7 +89,7 @@ static Attr *handleLoopId(Sema &S, Stmt *St, const AttributeList &A,
                                     A.getRange());
 }
 
-static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleLoopReversal(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
   assert(A.getNumArgs() == 1);
 
@@ -99,7 +99,7 @@ static Attr *handleLoopReversal(Sema &S, Stmt *St, const AttributeList &A,
   return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
 }
 
-static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
+static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
                               SourceRange) {
   assert(A.getNumArgs() >= 1);
 
@@ -144,7 +144,7 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const AttributeList &A,
 }
 
 
-static Attr *handleLoopInterchange(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
+static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,  SourceRange) {
   assert(A.getNumArgs() >= 1);
 
   // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) interchange
@@ -178,7 +178,7 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const AttributeList &A,  S
 }
 
 
-static Attr *handlePack(Sema &S, Stmt *St, const AttributeList &A,  SourceRange) {
+static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A,  SourceRange) {
   assert(A.getNumArgs() == 2);
 
 auto ApplyOnLoc = A.getArgAsIdent(0);
