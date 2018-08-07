@@ -439,6 +439,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleFallThroughAttr(S, St, A, Range);
   case ParsedAttr::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
+  case ParsedAttr::AT_OpenCLUnrollHint:
+    return handleOpenCLUnrollHint(S, St, A, Range);
   case ParsedAttr::AT_LoopId:
     return handleLoopId(S, St, A, Range);
   case ParsedAttr::AT_LoopReversal:
@@ -448,8 +450,7 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
   case ParsedAttr::AT_LoopInterchange:
     return handleLoopInterchange(S, St, A, Range);
   case ParsedAttr::AT_Pack:
-         return handlePack(S, St, A, Range);
-    return handleOpenCLUnrollHint(S, St, A, Range);
+    return handlePack(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   default:
