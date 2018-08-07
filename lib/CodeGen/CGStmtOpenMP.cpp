@@ -1333,7 +1333,7 @@ void CodeGenFunction::EmitOMPInnerLoop(
   auto CondBlock = createBasicBlock("omp.inner.for.cond");
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
-  LoopStack.push(CondBlock, CurFn,this,  SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(CondBlock, CurFn, this, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
   // If there are any cleanups between here and the loop-exit scope,

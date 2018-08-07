@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGLoopInfo.h"
+#include "CodeGenFunction.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/Sema/LoopHint.h"
@@ -16,13 +17,12 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
-#include "CodeGenFunction.h"
 
 using namespace clang::CodeGen;
 using namespace llvm;
 
-static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CGF,
-                              const LoopAttributes &Attrs,
+static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
+                              CodeGenFunction *CGF, const LoopAttributes &Attrs,
                               const llvm::DebugLoc &StartLoc,
                               const llvm::DebugLoc &EndLoc) {
 
@@ -149,7 +149,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CG
   for (auto &Transform : Attrs.TransformationStack) {
     switch (Transform.Kind) {
     default:
-        llvm_unreachable("unexpected transformation");
+      llvm_unreachable("unexpected transformation");
     case LoopTransformation::Reversal: {
       SmallVector<Metadata *, 4> TransformArgs;
       TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
@@ -212,35 +212,35 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CG
 
       TopLoopId = nullptr; // No unique follow-up node
     } break;
-         case LoopTransformation::Interchange : {
-            SmallVector<Metadata *, 4> TransformArgs;
-            TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
+    case LoopTransformation::Interchange: {
+      SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
 
-                  SmallVector<Metadata *, 4> ApplyOnArgs;
-                  assert(!Transform.ApplyOns.empty());
-                  assert(Transform.ApplyOns.size() == Transform.Permutation.size() );
+      SmallVector<Metadata *, 4> ApplyOnArgs;
+      assert(!Transform.ApplyOns.empty());
+      assert(Transform.ApplyOns.size() == Transform.Permutation.size());
 
-        for (auto ApplyOn : Transform.ApplyOns) {
-          assert(!ApplyOn.empty() && "Must specify loops to tile");
-          ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-        }
+      for (auto ApplyOn : Transform.ApplyOns) {
+        assert(!ApplyOn.empty() && "Must specify loops to tile");
+        ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
       TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
-           SmallVector<Metadata *, 4> PermutationArgs;
-             for (auto PermuteItem : Transform.Permutation ) {
-                    assert(!PermuteItem.empty() && "Must specify loop id");
-                  PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
-             }
-             TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
+      SmallVector<Metadata *, 4> PermutationArgs;
+      for (auto PermuteItem : Transform.Permutation) {
+        assert(!PermuteItem.empty() && "Must specify loop id");
+        PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
+      }
+      TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
 
-                                                                   auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
       AdditionalTransforms.push_back(MDTransform);
       AllTransforms.push_back(MDTransform);
 
       TopLoopId = nullptr; // No unique follow-up node
-         } break;
-         case LoopTransformation::Pack: {
-           SmallVector<Metadata *, 4> TransformArgs;
+    } break;
+    case LoopTransformation::Pack: {
+      SmallVector<Metadata *, 4> TransformArgs;
       TransformArgs.push_back(MDString::get(Ctx, "llvm.data.pack"));
 
       auto ApplyOn = Transform.getApplyOn();
@@ -254,9 +254,9 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F, CodeGenFunction *CG
         TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
       }
 
-    auto Var = Transform.Array->getDecl();
-    auto LVar = CGF-> EmitLValue(Transform.Array);
-    auto Addr = LVar.getPointer();
+      auto Var = Transform.Array->getDecl();
+      auto LVar = CGF->EmitLValue(Transform.Array);
+      auto Addr = LVar.getPointer();
       TransformArgs.push_back(LocalAsMetadata::get(Addr));
 
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
@@ -298,13 +298,17 @@ void LoopAttributes::clear() {
   TransformationStack.clear();
 }
 
-LoopInfo::LoopInfo(BasicBlock *Header, Function *F, clang::CodeGen::CodeGenFunction *CGF, const LoopAttributes &Attrs,
-                   const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc)
+LoopInfo::LoopInfo(BasicBlock *Header, Function *F,
+                   clang::CodeGen::CodeGenFunction *CGF,
+                   const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
+                   const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), F, CGF, Attrs, StartLoc, EndLoc);
+  LoopID =
+      createMetadata(Header->getContext(), F, CGF, Attrs, StartLoc, EndLoc);
 }
 
-void LoopInfoStack::push(BasicBlock *Header, Function *F, clang::CodeGen::CodeGenFunction *CGF,
+void LoopInfoStack::push(BasicBlock *Header, Function *F,
+                         clang::CodeGen::CodeGenFunction *CGF,
                          const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
   Active.push_back(LoopInfo(Header, F, CGF, StagedAttrs, StartLoc, EndLoc));
@@ -312,7 +316,8 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F, clang::CodeGen::CodeGe
   StagedAttrs.clear();
 }
 
-void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGenFunction *CGF,
+void LoopInfoStack::push(BasicBlock *Header, Function *F,
+                         clang::CodeGen::CodeGenFunction *CGF,
                          clang::ASTContext &Ctx,
                          ArrayRef<const clang::Attr *> Attrs,
                          const llvm::DebugLoc &StartLoc,
@@ -350,18 +355,20 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,clang::CodeGen::CodeGen
       continue;
     }
 
-        if (auto LInterchange = dyn_cast<LoopInterchangeAttr>(Attr)) {
-                  addTransformation(LoopTransformation::createInterchange(
-                      makeArrayRef(LInterchange->applyOn_begin(), LInterchange->applyOn_size()),   
-                      makeArrayRef(LInterchange->permutation_begin(), LInterchange->permutation_size()) 
-                      ));
+    if (auto LInterchange = dyn_cast<LoopInterchangeAttr>(Attr)) {
+      addTransformation(LoopTransformation::createInterchange(
+          makeArrayRef(LInterchange->applyOn_begin(),
+                       LInterchange->applyOn_size()),
+          makeArrayRef(LInterchange->permutation_begin(),
+                       LInterchange->permutation_size())));
       continue;
-        }
+    }
 
-                if (auto Pack = dyn_cast<PackAttr>(Attr)) {
-                   addTransformation(LoopTransformation::createPack(Pack->getApplyOn(), cast<DeclRefExpr>( Pack->getArray())));
+    if (auto Pack = dyn_cast<PackAttr>(Attr)) {
+      addTransformation(LoopTransformation::createPack(
+          Pack->getApplyOn(), cast<DeclRefExpr>(Pack->getArray())));
       continue;
-        }
+    }
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =

@@ -78,8 +78,7 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const ParsedAttr &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
-static Attr *handleLoopId(Sema &S, Stmt *St, const ParsedAttr &A,
-                          SourceRange) {
+static Attr *handleLoopId(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
   assert(A.getNumArgs() == 1);
 
   // <loopname> as in #pragma clang loop id(<loopname>)
@@ -120,14 +119,14 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
   SmallVector<Expr *, 4> Sizes;
   while (true) {
     auto Expr = A.getArgAsExpr(i);
-        i += 1;
-        if (!Expr)
+    i += 1;
+    if (!Expr)
       break;
 
     Sizes.push_back(Expr);
   }
 
-  assert(i==NumArgs && "Must consume all args");
+  assert(i == NumArgs && "Must consume all args");
 
   if (ApplyOns.empty()) {
     // Apply on following loop
@@ -143,8 +142,8 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
                                         Sizes.size(), A.getRange());
 }
 
-
-static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,  SourceRange) {
+static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
+                                   SourceRange) {
   assert(A.getNumArgs() >= 1);
 
   // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) interchange
@@ -163,7 +162,7 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,  Sour
 
   SmallVector<IdentifierLoc *, 4> PermutationLocs;
   SmallVector<StringRef, 4> Permutation;
-    while (true) {
+  while (true) {
     auto Ident = A.getArgAsIdent(i);
     i += 1;
     if (!Ident)
@@ -171,24 +170,23 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,  Sour
     PermutationLocs.push_back(Ident);
     Permutation.push_back(Ident->Ident->getName());
   }
-  assert(NumArgs==i && "Must consume all args");
+  assert(NumArgs == i && "Must consume all args");
   assert(ApplyOns.size() >= 2);
   assert(ApplyOns.size() == Permutation.size());
-  return LoopInterchangeAttr::CreateImplicit(S.Context, ApplyOns.data(),  ApplyOns.size(),Permutation.data(), Permutation.size(),    A.getRange());
+  return LoopInterchangeAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), Permutation.data(),
+      Permutation.size(), A.getRange());
 }
 
-
-static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A,  SourceRange) {
+static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
   assert(A.getNumArgs() == 2);
 
-auto ApplyOnLoc = A.getArgAsIdent(0);
- auto ArrayLoc = A.getArgAsExpr(1);
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+  auto ArrayLoc = A.getArgAsExpr(1);
 
-   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return PackAttr::CreateImplicit(S.Context , ApplyOn, ArrayLoc,    A.getRange());
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc, A.getRange());
 }
-
-
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {

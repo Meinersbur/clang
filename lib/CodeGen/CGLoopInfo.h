@@ -15,12 +15,12 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 #define LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 
+#include "clang/AST/Expr.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Compiler.h"
-#include "clang/AST/Expr.h"
 
 namespace llvm {
 class BasicBlock;
@@ -32,23 +32,23 @@ namespace clang {
 class Attr;
 class ASTContext;
 namespace CodeGen {
-    class CodeGenFunction;
+class CodeGenFunction;
 
 struct LoopTransformation {
-  enum TransformKind { Reversal, Tiling, Interchange ,Pack};
+  enum TransformKind { Reversal, Tiling, Interchange, Pack };
   TransformKind Kind;
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   // TODO: Make a union or class hierachy
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
   llvm::SmallVector<int64_t, 4> TileSizes;
-   llvm::SmallVector<llvm::StringRef, 4> Permutation;
-clang::DeclRefExpr*  Array;
+  llvm::SmallVector<llvm::StringRef, 4> Permutation;
+  clang::DeclRefExpr *Array;
 
   llvm::StringRef getApplyOn() const {
     assert(ApplyOns.size() <= 1);
     if (ApplyOns.empty())
-        return {};
+      return {};
     return ApplyOns[0];
   }
 
@@ -73,8 +73,9 @@ clang::DeclRefExpr*  Array;
     return Result;
   }
 
-    static LoopTransformation
-  createInterchange (llvm::ArrayRef<llvm::StringRef> ApplyOns, llvm::ArrayRef<llvm::StringRef> Permutation) {
+  static LoopTransformation
+  createInterchange(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+                    llvm::ArrayRef<llvm::StringRef> Permutation) {
     LoopTransformation Result;
     Result.Kind = Interchange;
 
@@ -85,12 +86,12 @@ clang::DeclRefExpr*  Array;
     return Result;
   }
 
-        static LoopTransformation
-  createPack (llvm::StringRef ApplyOn, clang::DeclRefExpr*  Array) {
+  static LoopTransformation createPack(llvm::StringRef ApplyOn,
+                                       clang::DeclRefExpr *Array) {
     LoopTransformation Result;
     Result.Kind = Pack;
-      Result.ApplyOns.push_back(ApplyOn);
-      Result.Array = Array;
+    Result.ApplyOns.push_back(ApplyOn);
+    Result.Array = Array;
     return Result;
   }
 };
@@ -138,9 +139,9 @@ struct LoopAttributes {
 class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
-  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F, clang::CodeGen::CodeGenFunction *CGF,
-           const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
-           const llvm::DebugLoc &EndLoc);
+  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+           clang::CodeGen::CodeGenFunction *CGF, const LoopAttributes &Attrs,
+           const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Get the loop id metadata for this loop.
   llvm::MDNode *getLoopID() const { return LoopID; }
@@ -172,12 +173,14 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F,clang::CodeGen::CodeGenFunction *CGF,
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            clang::CodeGen::CodeGenFunction *CGF,
             const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F,clang::CodeGen::CodeGenFunction *CGF, clang::ASTContext &Ctx,
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            clang::CodeGen::CodeGenFunction *CGF, clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 
@@ -232,7 +235,7 @@ public:
 
   /// \brief Set the unroll count for the next loop pushed.
   void setUnrollAndJamCount(unsigned C) { StagedAttrs.UnrollAndJamCount = C; }
-  
+
   void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
 
   void addTransformation(LoopTransformation Transform) {

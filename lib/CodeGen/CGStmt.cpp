@@ -684,8 +684,8 @@ void CodeGenFunction::EmitWhileStmt(const WhileStmt &S,
   EmitBlock(LoopHeader.getBlock());
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(LoopHeader.getBlock(), CurFn,this, CGM.getContext(), WhileAttrs,
-                 SourceLocToDebugLoc(R.getBegin()),
+  LoopStack.push(LoopHeader.getBlock(), CurFn, this, CGM.getContext(),
+                 WhileAttrs, SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
   // Create an exit block for when the condition fails, which will
@@ -844,7 +844,7 @@ void CodeGenFunction::EmitForStmt(const ForStmt &S,
   EmitBlock(CondBlock);
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CurFn,this, CGM.getContext(), ForAttrs,
+  LoopStack.push(CondBlock, CurFn, this, CGM.getContext(), ForAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
@@ -943,7 +943,7 @@ CodeGenFunction::EmitCXXForRangeStmt(const CXXForRangeStmt &S,
   EmitBlock(CondBlock);
 
   const SourceRange &R = S.getSourceRange();
-  LoopStack.push(CondBlock, CurFn,this, CGM.getContext(), ForAttrs,
+  LoopStack.push(CondBlock, CurFn, this, CGM.getContext(), ForAttrs,
                  SourceLocToDebugLoc(R.getBegin()),
                  SourceLocToDebugLoc(R.getEnd()));
 
