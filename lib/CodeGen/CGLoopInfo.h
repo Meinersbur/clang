@@ -26,6 +26,7 @@ namespace llvm {
 class BasicBlock;
 class Instruction;
 class MDNode;
+class AllocaInst;
 } // end namespace llvm
 
 namespace clang {
@@ -44,6 +45,11 @@ struct LoopTransformation {
   llvm::SmallVector<int64_t, 4> TileSizes;
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
+
+  // FIXME: This is set later at CGLoopInfo and forces the emission of this pointer before its first use/even if it is not used. Maybe better hook into  CGF->EmitLValue when the array pointer is emited.
+   llvm::AllocaInst *ArrayBasePtr=nullptr;
+
+   llvm:: MDNode *TransformMD = nullptr;
 
   llvm::StringRef getApplyOn() const {
     assert(ApplyOns.size() <= 1);
