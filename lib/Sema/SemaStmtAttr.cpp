@@ -56,8 +56,7 @@ static Attr *handleFallThroughAttr(Sema &S, Stmt *St, const ParsedAttr &A,
 static Attr *handleSuppressAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange Range) {
   if (A.getNumArgs() < 1) {
-    S.Diag(A.getLoc(), diag::err_attribute_too_few_arguments)
-        << A.getName() << 1;
+    S.Diag(A.getLoc(), diag::err_attribute_too_few_arguments) << A << 1;
     return nullptr;
   }
 
@@ -394,8 +393,7 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const ParsedAttr &A,
   unsigned NumArgs = A.getNumArgs();
 
   if (NumArgs > 1) {
-    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments) << A.getName()
-                                                               << 1;
+    S.Diag(A.getLoc(), diag::err_attribute_too_many_arguments) << A << 1;
     return nullptr;
   }
 
@@ -407,7 +405,7 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const ParsedAttr &A,
 
     if (!E->isIntegerConstantExpr(ArgVal, S.Context)) {
       S.Diag(A.getLoc(), diag::err_attribute_argument_type)
-          << A.getName() << AANT_ArgumentIntegerConstant << E->getSourceRange();
+          << A << AANT_ArgumentIntegerConstant << E->getSourceRange();
       return nullptr;
     }
 
@@ -416,7 +414,7 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const ParsedAttr &A,
     if (Val <= 0) {
       S.Diag(A.getRange().getBegin(),
              diag::err_attribute_requires_positive_integer)
-          << A.getName();
+          << A;
       return nullptr;
     }
     UnrollFactor = Val;

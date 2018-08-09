@@ -553,6 +553,14 @@ TEST_P(ImportExpr, ImportFloatinglLiteralExpr) {
           floatLiteral(equals(1.0e-5f), hasType(asString("float"))))));
 }
 
+TEST_P(ImportExpr, ImportImaginaryLiteralExpr) {
+  MatchVerifier<Decl> Verifier;
+  testImport(
+      "void declToImport() { (void)1.0i; }",
+      Lang_CXX14, "", Lang_CXX14, Verifier,
+      functionDecl(hasDescendant(imaginaryLiteral())));
+}
+
 TEST_P(ImportExpr, ImportCompoundLiteralExpr) {
   MatchVerifier<Decl> Verifier;
   testImport(
@@ -2639,6 +2647,40 @@ TEST_P(ASTImporterTestBase, ImportUnnamedStructsWithRecursingField) {
       R0, recordDecl(has(fieldDecl(hasName("next"))))));
   EXPECT_TRUE(MatchVerifier<RecordDecl>().match(
       R1, recordDecl(has(fieldDecl(hasName("next"))))));
+}
+
+TEST_P(ASTImporterTestBase, ImportUnnamedFieldsInCorrectOrder) {
+  Decl *FromTU = getTuDecl(
+      R"(
+      void f(int X, int Y, bool Z) {
+        (void)[X, Y, Z] { (void)Z; };
+      }
+      )",
+      Lang_CXX11, "input0.cc");
+  auto *FromF = FirstDeclMatcher<FunctionDecl>().match(
+      FromTU, functionDecl(hasName("f")));
+  auto *ToF = cast_or_null<FunctionDecl>(Import(FromF, Lang_CXX11));
+  EXPECT_TRUE(ToF);
+
+  CXXRecordDecl *FromLambda =
+      cast<LambdaExpr>(cast<CStyleCastExpr>(cast<CompoundStmt>(
+          FromF->getBody())->body_front())->getSubExpr())->getLambdaClass();
+
+  auto *ToLambda = cast_or_null<CXXRecordDecl>(Import(FromLambda, Lang_CXX11));
+  EXPECT_TRUE(ToLambda);
+
+  // Check if the fields of the lambda class are imported in correct order.
+  unsigned FromIndex = 0u;
+  for (auto *FromField : FromLambda->fields()) {
+    ASSERT_FALSE(FromField->getDeclName());
+    auto *ToField = cast_or_null<FieldDecl>(Import(FromField, Lang_CXX11));
+    EXPECT_TRUE(ToField);
+    unsigned ToIndex = ASTImporter::getFieldIndex(ToField);
+    EXPECT_EQ(ToIndex, FromIndex + 1);
+    ++FromIndex;
+  }
+
+  EXPECT_EQ(FromIndex, 3u);
 }
 
 struct DeclContextTest : ASTImporterTestBase {};

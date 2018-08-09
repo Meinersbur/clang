@@ -16,6 +16,7 @@
 #define LLVM_CLANG_SEMA_ATTRIBUTELIST_H
 
 #include "clang/Basic/AttrSubjectMatchRules.h"
+#include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/Ownership.h"
@@ -102,7 +103,7 @@ using ArgsVector = llvm::SmallVector<ArgsUnion, 12U>;
 /// 3: __attribute__(( format(printf, 1, 2) )). ParmName/Args/NumArgs all used.
 /// 4: __attribute__(( aligned(16) )). ParmName is unused, Args/Num used.
 ///
-class ParsedAttr { // TODO: This should really be called ParsedAttribute
+class ParsedAttr {
 public:
   /// The style used to specify an attribute.
   enum Syntax {
@@ -938,6 +939,34 @@ enum AttributeDeclKind {
   ExpectedKernelFunction,
   ExpectedFunctionWithProtoType,
 };
+
+inline const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
+                                           const ParsedAttr &At) {
+  DB.AddTaggedVal(reinterpret_cast<intptr_t>(At.getName()),
+                  DiagnosticsEngine::ak_identifierinfo);
+  return DB;
+}
+
+inline const PartialDiagnostic &operator<<(const PartialDiagnostic &PD,
+                                           const ParsedAttr &At) {
+  PD.AddTaggedVal(reinterpret_cast<intptr_t>(At.getName()),
+                  DiagnosticsEngine::ak_identifierinfo);
+  return PD;
+}
+
+inline const DiagnosticBuilder &operator<<(const DiagnosticBuilder &DB,
+                                           const ParsedAttr *At) {
+  DB.AddTaggedVal(reinterpret_cast<intptr_t>(At->getName()),
+                  DiagnosticsEngine::ak_identifierinfo);
+  return DB;
+}
+
+inline const PartialDiagnostic &operator<<(const PartialDiagnostic &PD,
+                                           const ParsedAttr *At) {
+  PD.AddTaggedVal(reinterpret_cast<intptr_t>(At->getName()),
+                  DiagnosticsEngine::ak_identifierinfo);
+  return PD;
+}
 
 } // namespace clang
 
