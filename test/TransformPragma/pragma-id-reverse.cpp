@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
 
 extern "C" void pragma_id_reverse(double *A, int N) {
@@ -9,10 +10,9 @@ extern "C" void pragma_id_reverse(double *A, int N) {
     A[i] = A[i] + 1;
 }
 
-// FIXME: #pragmas printed in reverse
 // PRINT-LABEL: extern "C" void pragma_id_reverse(double *A, int N) {
-// PRINT-DAG:   #pragma clang loop(myloop) reverse
-// PRINT-DAG:   #pragma clang loop id(myloop)
+// PRINT-NEXT:   #pragma clang loop(myloop) reverse
+// PRINT-NEXT:   #pragma clang loop id(myloop)
 // PRINT-NEXT:    for (int i = N - 1; i >= 0; i--)
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }
@@ -24,6 +24,14 @@ extern "C" void pragma_id_reverse(double *A, int N) {
 // IR: !3 = !{!"llvm.loop.reverse", !"myloop"}
 // IR: !4 = distinct !{!4, !5}
 // IR: !5 = !{!"llvm.loop.id", !"myloop"}
+
+// AST: if (1)
+//
+// AST:          // reversed
+// AST-NEXT:     for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
+// AST-NEXT:       Stmt2(-c0);
+//
+// AST: else
 
 // TRANS: define dso_local void @pragma_id_reverse(double* nocapture %A, i32 %N) local_unnamed_addr #0 !looptransform !2 {
 // TRANS: entry:

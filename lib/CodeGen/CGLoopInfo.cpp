@@ -33,7 +33,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       Attrs.UnrollEnable == LoopAttributes::Unspecified &&
       Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
       Attrs.DistributeEnable == LoopAttributes::Unspecified && !StartLoc &&
-      !EndLoc && !Attrs.LoopId.empty() && !Attrs.TransformationStack.empty())
+      !EndLoc && Attrs.LoopId.empty() && Attrs.TransformationStack.empty())
     return nullptr;
 
   SmallVector<Metadata *, 4> Args;
