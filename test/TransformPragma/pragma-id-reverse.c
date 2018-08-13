@@ -1,18 +1,18 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
 
-extern "C" void pragma_id_reverse(double *A, int N) {
+void pragma_id_reverse(double *A, int N) {
 #pragma clang loop(myloop) reverse
 #pragma clang loop id(myloop)
   for (int i = N - 1; i >= 0; i--)
     A[i] = A[i] + 1;
 }
 
-// PRINT-LABEL: extern "C" void pragma_id_reverse(double *A, int N) {
-// PRINT-NEXT:   #pragma clang loop(myloop) reverse
-// PRINT-NEXT:   #pragma clang loop id(myloop)
+// PRINT-LABEL: void pragma_id_reverse(double *A, int N) {
+// PRINT-NEXT:  #pragma clang loop(myloop) reverse
+// PRINT-NEXT:  #pragma clang loop id(myloop)
 // PRINT-NEXT:    for (int i = N - 1; i >= 0; i--)
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }

@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
 
 void pragma_id_tile(int m, int n, double C[m][n]) {
@@ -33,6 +34,12 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // IR: !7 = !{!"llvm.loop.id", !"j"}
 // IR: !8 = distinct !{!8, !9}
 // IR: !9 = !{!"llvm.loop.id", !"i"}
+
+// AST:         for (int c0 = 0; c0 <= floord(p_1 - 1, 32); c0 += 1)
+// AST-NEXT:       for (int c1 = 0; c1 <= floord(p_0 - 1, 32); c1 += 1)
+// AST-NEXT:         for (int c2 = 0; c2 <= min(31, p_1 - 32 * c0 - 1); c2 += 1)
+// AST-NEXT:           for (int c3 = 0; c3 <= min(31, p_0 - 32 * c1 - 1); c3 += 1)
+// AST-NEXT:             Stmt3(32 * c1 + c3, 32 * c0 + c2);
 
 // TRANS: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* nocapture %C) local_unnamed_addr #0 !looptransform !2 {
 // TRANS: entry:
