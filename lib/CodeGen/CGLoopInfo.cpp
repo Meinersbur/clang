@@ -146,7 +146,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   }
 
   auto TopLoopId = LoopID;
-  for (auto &Transform : Attrs.TransformationStack) {
+  for (auto &Transform : reverse(Attrs.TransformationStack)) {
     switch (Transform.Kind) {
     default:
       llvm_unreachable("unexpected transformation");

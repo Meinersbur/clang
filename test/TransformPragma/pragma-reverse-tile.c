@@ -10,8 +10,8 @@ void pragma_reverse(int n, double A[n]) {
 }
 
 // PRINT-LABEL: void pragma_reverse(int n, double A[n]) {
-// PRINT-NEXT:   #pragma clang loop reverse
 // PRINT-NEXT:   #pragma clang loop tile sizes(128)
+// PRINT-NEXT:   #pragma clang loop reverse
 // PRINT-NEXT:    for (int i = n - 1; i >= 0; i--)
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }

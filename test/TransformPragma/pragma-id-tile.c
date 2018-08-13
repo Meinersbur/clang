@@ -62,8 +62,8 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 //
 // TRANS: polly.loop_header35.preheader:                    ; preds = %polly.loop_header
 // TRANS:   %3 = shl nsw i64 %polly.indvar, 5
-// TRANS:   %4 = sub nsw i64 %0, %3
-// TRANS:   %5 = add nsw i64 %4, -1
+// TRANS:   %4 = xor i64 %3, -1
+// TRANS:   %5 = add nsw i64 %4, %0
 // TRANS:   %6 = icmp slt i64 %5, 31
 // TRANS:   %7 = select i1 %6, i64 %5, i64 31
 // TRANS:   %polly.loop_guard46 = icmp sgt i64 %7, -1
@@ -72,8 +72,8 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // TRANS: polly.loop_header35.us:                           ; preds = %polly.loop_header35.preheader, %polly.loop_exit45.us
 // TRANS:   %polly.indvar39.us = phi i64 [ %polly.indvar_next40.us, %polly.loop_exit45.us ], [ 0, %polly.loop_header35.preheader ]
 // TRANS:   %8 = shl nsw i64 %polly.indvar39.us, 5
-// TRANS:   %9 = sub nsw i64 %21, %8
-// TRANS:   %10 = add nsw i64 %9, -1
+// TRANS:   %9 = xor i64 %8, -1
+// TRANS:   %10 = add nsw i64 %9, %21
 // TRANS:   %11 = icmp slt i64 %10, 31
 // TRANS:   %12 = select i1 %11, i64 %10, i64 31
 // TRANS:   %polly.loop_guard54.us = icmp sgt i64 %12, -1
