@@ -256,10 +256,10 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       auto Var = Transform.Array->getDecl();
       auto LVar = CGF->EmitLValue(Transform.Array);
-      auto Addr = cast<AllocaInst>( LVar.getPointer());
-      assert(! Transform.ArrayBasePtr );
+      auto Addr = cast<AllocaInst>(LVar.getPointer());
+      assert(!Transform.ArrayBasePtr);
       Transform.ArrayBasePtr = Addr;
-     // TransformArgs.push_back(LocalAsMetadata::get(Addr));
+      // TransformArgs.push_back(LocalAsMetadata::get(Addr));
 
       auto Accesses = MDNode::get(Ctx, {});
       TransformArgs.push_back(Accesses);
@@ -309,7 +309,8 @@ LoopInfo::LoopInfo(BasicBlock *Header, Function *F,
                    const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
                    const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), F, CGF, this->Attrs, StartLoc, EndLoc);
+  LoopID = createMetadata(Header->getContext(), F, CGF, this->Attrs, StartLoc,
+                          EndLoc);
 }
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
@@ -535,81 +536,81 @@ void LoopInfoStack::pop() {
   Active.pop_back();
 }
 
-static bool mayUseArray(AllocaInst *BasePtrAlloca, Value * PtrArg) {
-    DenseSet<PHINode*> Closed;
-    SmallVector<Value*, 16> Worklist;
+static bool mayUseArray(AllocaInst *BasePtrAlloca, Value *PtrArg) {
+  DenseSet<PHINode *> Closed;
+  SmallVector<Value *, 16> Worklist;
 
-        if (auto CurL = dyn_cast<LoadInst>(PtrArg)) {
-            Worklist.push_back(CurL->getPointerOperand());
-        } else if (auto CurS = dyn_cast<StoreInst>(PtrArg)) {
-            Worklist.push_back(CurS->getPointerOperand());
-        } else {
-        // TODO: Support memcpy, memset, memmove
-        }
+  if (auto CurL = dyn_cast<LoadInst>(PtrArg)) {
+    Worklist.push_back(CurL->getPointerOperand());
+  } else if (auto CurS = dyn_cast<StoreInst>(PtrArg)) {
+    Worklist.push_back(CurS->getPointerOperand());
+  } else {
+    // TODO: Support memcpy, memset, memmove
+  }
 
-    while (true) {
-        if (Worklist.empty()) break;
-        auto Cur = Worklist.pop_back_val();
+  while (true) {
+    if (Worklist.empty())
+      break;
+    auto Cur = Worklist.pop_back_val();
 
-        if (auto CurPhi = dyn_cast<PHINode>(Cur)) {
-        auto It = Closed.insert(CurPhi);
-        if (!It.second)
-            continue;
-        }
+    if (auto CurPhi = dyn_cast<PHINode>(Cur)) {
+      auto It = Closed.insert(CurPhi);
+      if (!It.second)
+        continue;
+    }
 
-          if (auto CurAlloca= dyn_cast< AllocaInst>(Cur)) {
-              continue;
-          }
+    if (auto CurAlloca = dyn_cast<AllocaInst>(Cur)) {
+      continue;
+    }
 
-          auto Ty = Cur->getType();
-          if (  !isa<PointerType>(Ty))
-              continue;
+    auto Ty = Cur->getType();
+    if (!isa<PointerType>(Ty))
+      continue;
 
 #if 0
         if (auto CurGEP = dyn_cast< GetElementPtrInst>(Cur)) {
             // Fallback instead into the llvm::Operator case to also traverse indices?
             Worklist.push_back(CurGEP->getPointerOperand());
             continue;
-        } 
+        }
 #endif
 
-        if (auto CurL = dyn_cast<LoadInst>(Cur)) {
-            if (CurL->getPointerOperand()==BasePtrAlloca)
-                return true;
-            continue;
-        }
-
-        if (auto CurInst = dyn_cast<Operator>(Cur)) {
-            for (auto &Op : CurInst->operands()) {
-                Worklist.push_back( Op.get());
-            }
-            continue;
-        }
-
+    if (auto CurL = dyn_cast<LoadInst>(Cur)) {
+      if (CurL->getPointerOperand() == BasePtrAlloca)
+        return true;
+      continue;
     }
 
-    return false;
+    if (auto CurInst = dyn_cast<Operator>(Cur)) {
+      for (auto &Op : CurInst->operands()) {
+        Worklist.push_back(Op.get());
+      }
+      continue;
+    }
+  }
+
+  return false;
 }
 
+static void addArrayTransformUse(const LoopTransformation &Trans,
+                                 Instruction *MemAcc) {
+  auto AccessMD = MemAcc->getMetadata("llvm.access");
+  if (!AccessMD) {
+    AccessMD = MDNode::getDistinct(MemAcc->getContext(), {});
+    MemAcc->setMetadata("llvm.access", AccessMD);
+  }
+  assert(AccessMD->isDistinct() && AccessMD->getNumOperands() == 0);
 
-static void addArrayTransformUse(const LoopTransformation &Trans, Instruction *MemAcc) {
-   auto AccessMD =  MemAcc->getMetadata("llvm.access");
-   if (!AccessMD) {
-       AccessMD =  MDNode::getDistinct(MemAcc->getContext(), {});
-       MemAcc->setMetadata("llvm.access", AccessMD);
-   }
-   assert(AccessMD->isDistinct() && AccessMD->getNumOperands()==0);
+  auto PackMD = Trans.TransformMD;
+  auto ListMD = cast<MDNode>(PackMD->getOperand(2).get());
 
-   auto PackMD = Trans.TransformMD;
-   auto ListMD = cast<MDNode>( PackMD->getOperand(2).get());
+  SmallVector<Metadata *, 8> NewList;
+  NewList.reserve(ListMD->getNumOperands() + 1);
+  NewList.append(ListMD->op_begin(), ListMD->op_end());
+  NewList.push_back(AccessMD);
 
-   SmallVector<Metadata*,8> NewList;
-   NewList.reserve(ListMD->getNumOperands()+1);
-   NewList.append(ListMD->op_begin(), ListMD->op_end());
-   NewList.push_back(AccessMD);
-
-   auto NewListMD = MDNode::get(MemAcc->getContext(),NewList);
-   PackMD->replaceOperandWith(2, NewListMD);
+  auto NewListMD = MDNode::get(MemAcc->getContext(), NewList);
+  PackMD->replaceOperandWith(2, NewListMD);
 }
 
 void LoopInfoStack::InsertHelper(Instruction *I) const {
@@ -631,21 +632,21 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
 
   if (I->mayReadOrWriteMemory()) {
     SmallVector<Metadata *, 2> ParallelLoopIDs;
-    for (const LoopInfo &AL : Active) { 
-        
+    for (const LoopInfo &AL : Active) {
+
       if (AL.getAttributes().IsParallel)
         ParallelLoopIDs.push_back(AL.getLoopID());
 
-    for ( auto &Trans : AL.getAttributes().TransformationStack) {
+      for (auto &Trans : AL.getAttributes().TransformationStack) {
         if (Trans.Kind == LoopTransformation::Pack) {
-          auto BasePtr =  Trans.ArrayBasePtr;
+          auto BasePtr = Trans.ArrayBasePtr;
           auto MNode = Trans.TransformMD;
           assert(BasePtr && MNode);
-          
-          if (mayUseArray(BasePtr, I)) 
-              addArrayTransformUse(Trans, I);
+
+          if (mayUseArray(BasePtr, I))
+            addArrayTransformUse(Trans, I);
         }
-    }
+      }
     }
 
     MDNode *ParallelMD = nullptr;

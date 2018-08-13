@@ -3117,25 +3117,29 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
   Token HintToken;
   PP.Lex(HintToken);
 
-   if (HintToken.is(tok::l_paren)) {
-       // New Syntax:
-       // #pragma clang loop(loopname) ...
-        PP.EnterTokenStream(HintToken, true);
-         return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
-   }
-
-  if (HintToken.is(tok::identifier) &&  llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName() ).Cases("vectorize", "vectorize_width", "interleave", "interleave_count", "unroll", "unroll_count", "distribute", "unrollandjam", "unrollandjam_count", true).Default(false)) {
-        // Know legacy keywords, not (yet) supported by new syntax
-       // #pragma clang loop <keyword>(<option>)
-        PP.EnterTokenStream(HintToken, true);
-       return HandleLegacySyntax(PP, Introducer, Tok);
+  if (HintToken.is(tok::l_paren)) {
+    // New Syntax:
+    // #pragma clang loop(loopname) ...
+    PP.EnterTokenStream(HintToken, true);
+    return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
 
+  if (HintToken.is(tok::identifier) &&
+      llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
+          .Cases("vectorize", "vectorize_width", "interleave",
+                 "interleave_count", "unroll", "unroll_count", "distribute",
+                 "unrollandjam", "unrollandjam_count", true)
+          .Default(false)) {
+    // Know legacy keywords, not (yet) supported by new syntax
+    // #pragma clang loop <keyword>(<option>)
+    PP.EnterTokenStream(HintToken, true);
+    return HandleLegacySyntax(PP, Introducer, Tok);
+  }
 
   if (HintToken.is(tok::identifier) &&
       HintToken.getIdentifierInfo()->getName() == "id") {
-               // New keyword
-       // #pragma clang loop id(loopname)
+    // New keyword
+    // #pragma clang loop id(loopname)
     PP.EnterTokenStream(HintToken, true);
     return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
@@ -3143,15 +3147,14 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
   Token LParToken;
   PP.Lex(LParToken);
 
-
-    if (!LParToken.is(tok::l_paren)) {
-        // New syntax has no direct option after <keyword>
-        PP.EnterTokenStream({HintToken, LParToken}, true);
-        return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
-    }
-
+  if (!LParToken.is(tok::l_paren)) {
+    // New syntax has no direct option after <keyword>
     PP.EnterTokenStream({HintToken, LParToken}, true);
-    return HandleLegacySyntax(PP, Introducer, Tok);
+    return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
+  }
+
+  PP.EnterTokenStream({HintToken, LParToken}, true);
+  return HandleLegacySyntax(PP, Introducer, Tok);
 }
 
 /// Handle the \#pragma clang loop directive.
