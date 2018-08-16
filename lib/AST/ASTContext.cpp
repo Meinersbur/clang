@@ -4136,8 +4136,10 @@ QualType ASTContext::getElaboratedType(ElaboratedTypeKeyword Keyword,
     (void)CheckT;
   }
 
-  T = new (*this, TypeAlignment)
-      ElaboratedType(Keyword, NNS, NamedType, Canon, OwnedTagDecl);
+  void *Mem = Allocate(ElaboratedType::totalSizeToAlloc<TagDecl *>(!!OwnedTagDecl),
+                       TypeAlignment);
+  T = new (Mem) ElaboratedType(Keyword, NNS, NamedType, Canon, OwnedTagDecl);
+
   Types.push_back(T);
   ElaboratedTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
@@ -9774,6 +9776,12 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
   const auto *VD = cast<VarDecl>(D);
   assert(VD->isFileVarDecl() && "Expected file scoped var");
 
+  // If the decl is marked as `declare target to`, it should be emitted for the
+  // host and for the device.
+  if (LangOpts.OpenMP &&
+      OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD))
+    return true;
+
   if (VD->isThisDeclarationADefinition() == VarDecl::DeclarationOnly &&
       !isMSStaticDataMemberInlineDefinition(VD))
     return false;
@@ -9805,21 +9813,12 @@ bool ASTContext::DeclMustBeEmitted(const Decl *D) {
         if (DeclMustBeEmitted(BindingVD))
           return true;
 
-  // If the decl is marked as `declare target`, it should be emitted.
-  for (const auto *Decl : D->redecls()) {
-    if (!Decl->hasAttrs())
-      continue;
-    if (const auto *Attr = Decl->getAttr<OMPDeclareTargetDeclAttr>())
-      if (Attr->getMapType() != OMPDeclareTargetDeclAttr::MT_Link)
-        return true;
-  }
-
   return false;
 }
 
 void ASTContext::forEachMultiversionedFunctionVersion(
     const FunctionDecl *FD,
-    llvm::function_ref<void(const FunctionDecl *)> Pred) const {
+    llvm::function_ref<void(FunctionDecl *)> Pred) const {
   assert(FD->isMultiVersion() && "Only valid for multiversioned functions");
   llvm::SmallDenseSet<const FunctionDecl*, 4> SeenDecls;
   FD = FD->getCanonicalDecl();
