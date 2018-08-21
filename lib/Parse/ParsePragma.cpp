@@ -3159,12 +3159,13 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
     return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
 
-  if (HintToken.is(tok::eof) ||( HintToken.is(tok::identifier) &&
-      llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
-          .Cases("vectorize", "vectorize_width", "interleave",
-                 "interleave_count", "unroll", "unroll_count", "distribute",
-                 "unrollandjam", "unrollandjam_count", "badkeyword", true)
-          .Default(false))) {
+  if (HintToken.is(tok::eof) ||
+      (HintToken.is(tok::identifier) &&
+       llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
+           .Cases("vectorize", "vectorize_width", "interleave",
+                  "interleave_count", "unroll", "unroll_count", "distribute",
+                  "unrollandjam", "unrollandjam_count", "badkeyword", true)
+           .Default(false))) {
     // Know legacy keywords, not (yet) supported by new syntax
     // #pragma clang loop <keyword>(<option>)
     PP.EnterTokenStream(HintToken, true);
