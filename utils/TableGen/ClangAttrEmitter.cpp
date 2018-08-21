@@ -2474,8 +2474,10 @@ namespace {
 
 static const AttrClassDescriptor AttrClassDescriptors[] = {
   { "ATTR", "Attr" },
+  { "TYPE_ATTR", "TypeAttr" },
   { "STMT_ATTR", "StmtAttr" },
   { "INHERITABLE_ATTR", "InheritableAttr" },
+  { "DECL_OR_TYPE_ATTR", "DeclOrTypeAttr" },
   { "INHERITABLE_PARAM_ATTR", "InheritableParamAttr" },
   { "PARAMETER_ABI_ATTR", "ParameterABIAttr" }
 };
