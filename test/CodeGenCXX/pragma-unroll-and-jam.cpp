@@ -1,8 +1,5 @@
 // RUN: %clang_cc1 -triple arm-none-eabi -std=c++11 -emit-llvm -o - %s | FileCheck %s
 
-// Changes because renamed metadata nodes 
-// XFAIL: *
-
 void unroll_and_jam(int *List, int Length, int Value) {
   // CHECK-LABEL: define {{.*}} @_Z14unroll_and_jam
 #pragma unroll_and_jam
