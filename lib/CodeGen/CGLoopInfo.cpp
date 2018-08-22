@@ -201,12 +201,20 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       }
       TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
 
+       SmallVector<Metadata *, 4> PitIdArgs;
+         for (auto PitId : Transform.TilePitIds) 
+             PitIdArgs.push_back(  MDString::get(Ctx, PitId));
+          TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
+
+       SmallVector<Metadata *, 4> TileIdArgs;
+         for (auto TileId : Transform.TileTileIds) 
+             TileIdArgs.push_back(  MDString::get(Ctx, TileId) );
+          TransformArgs.push_back(MDNode::get(Ctx, TileIdArgs));
+
       assert(TileSizeArgs.empty() ||
              (TileSizeArgs.size() == ApplyOnArgs.size()));
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      // auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow
-      // multiple transformation
-      // F->addMetadata("looptransform", *Transforms);
+
       AdditionalTransforms.push_back(MDTransform);
       AllTransforms.push_back(MDTransform);
 
@@ -357,7 +365,10 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
 
       addTransformation(LoopTransformation::createTiling(
           makeArrayRef(LTiling->applyOn_begin(), LTiling->applyOn_size()),
-          TileSizes));
+          TileSizes, 
+          makeArrayRef(LTiling->pitIds_begin(), LTiling->pitIds_size()),
+          makeArrayRef(LTiling->tileIds_begin(), LTiling->tileIds_size())
+          ));
       continue;
     }
 

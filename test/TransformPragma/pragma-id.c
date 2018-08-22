@@ -1,13 +1,13 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c++11 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
 
-extern "C" void pragma_id(double *A, int N) {
+void pragma_id(double *A, int N) {
 #pragma clang loop id(myloop)
   for (int i = 0; i < N; i += 1)
     A[i] = A[i] + 1;
 }
 
-// PRINT-LABEL: extern "C" void pragma_id(double *A, int N) {
+// PRINT-LABEL: void pragma_id(double *A, int N) {
 // PRINT-NEXT:  #pragma clang loop id(myloop)
 // PRINT-NEXT:    for (int i = 0; i < N; i += 1)
 // PRINT-NEXT:      A[i] = A[i] + 1;

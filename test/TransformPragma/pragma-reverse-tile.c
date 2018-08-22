@@ -22,9 +22,10 @@ void pragma_reverse(int n, double A[n]) {
 // IR: !2 = !{!3, !5}
 // IR: !3 = !{!"llvm.loop.reverse", !4}
 // IR: !4 = distinct !{!4}
-// IR: !5 = !{!"llvm.loop.tile", !6, !7}
+// IR: !5 = !{!"llvm.loop.tile", !6, !7, !8, !8}
 // IR: !6 = !{!3}
 // IR: !7 = !{i64 128}
+// IT: !8 = !{}
 
 // TRANS: define dso_local void @pragma_reverse(i32 %n, double* nocapture %A) local_unnamed_addr #0 !looptransform !2 {
 // TRANS: entry:
@@ -63,9 +64,9 @@ void pragma_reverse(int n, double A[n]) {
 // TRANS:   %polly.indvar17 = phi i64 [ %polly.indvar_next18, %polly.loop_header13 ], [ %5, %polly.loop_header ]
 // TRANS:   %10 = sub i64 %polly.indvar17, %6
 // TRANS:   %scevgep20 = getelementptr double, double* %scevgep, i64 %10
-// TRANS:   %_p_scalar_ = load double, double* %scevgep20, align 8, !alias.scope !8, !noalias !10
+// TRANS:   %_p_scalar_ = load double, double* %scevgep20, align 8
 // TRANS:   %p_add = fadd double %_p_scalar_, 1.000000e+00
-// TRANS:   store double %p_add, double* %scevgep20, align 8, !alias.scope !8, !noalias !10
+// TRANS:   store double %p_add, double* %scevgep20, align 8
 // TRANS:   %polly.indvar_next18 = add nuw nsw i64 %polly.indvar17, 1
 // TRANS:   %polly.loop_cond19 = icmp slt i64 %polly.indvar17, %8
 // TRANS:   br i1 %polly.loop_cond19, label %polly.loop_header13, label %polly.loop_exit15

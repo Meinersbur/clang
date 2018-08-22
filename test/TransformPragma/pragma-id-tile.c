@@ -23,17 +23,18 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // PRINT-NEXT:  }
 
 // IR-LABEL: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* %C) #0 !looptransform !2 {
-// IR:         br label %for.cond1, !llvm.loop !6
-// IR:         br label %for.cond, !llvm.loop !8
+// IR:         br label %for.cond1, !llvm.loop !7
+// IR:         br label %for.cond, !llvm.loop !9
 //
 // IR: !2 = !{!3}
-// IR: !3 = !{!"llvm.loop.tile", !4, !5}
+// IR: !3 = !{!"llvm.loop.tile", !4, !5, !6, !6}
 // IR: !4 = !{!"i", !"j"}
 // IR: !5 = !{i64 32, i64 32}
-// IR: !6 = distinct !{!6, !7}
-// IR: !7 = !{!"llvm.loop.id", !"j"}
-// IR: !8 = distinct !{!8, !9}
-// IR: !9 = !{!"llvm.loop.id", !"i"}
+// IR: !6 = !{}
+// IR: !7 = distinct !{!7, !8}
+// IR: !8 = !{!"llvm.loop.id", !"j"}
+// IR: !9 = distinct !{!9, !10}
+// IR: !10 = !{!"llvm.loop.id", !"i"}
 
 // AST:         for (int c0 = 0; c0 <= floord(p_1 - 1, 32); c0 += 1)
 // AST-NEXT:       for (int c1 = 0; c1 <= floord(p_0 - 1, 32); c1 += 1)
@@ -104,7 +105,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // TRANS:   %18 = mul nuw i64 %15, %20
 // TRANS:   %19 = add nuw i64 %18, %13
 // TRANS:   %scevgep.us.us = getelementptr double, double* %C, i64 %19
-// TRANS:   store double %p_conv.us.us.us, double* %scevgep.us.us, align 8, !alias.scope !6, !noalias !8
+// TRANS:   store double %p_conv.us.us.us, double* %scevgep.us.us, align 8
 // TRANS:   %polly.indvar_next56.us.us = add nuw nsw i64 %polly.indvar55.us.us, 1
 // TRANS:   %polly.loop_cond57.us.us = icmp slt i64 %polly.indvar55.us.us, %12
 // TRANS:   br i1 %polly.loop_cond57.us.us, label %polly.loop_header51.us.us, label %polly.loop_exit53.us.us

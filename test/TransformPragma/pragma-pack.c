@@ -1,5 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
 // RUN: %clang -DMAIN -std=c99 -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
@@ -45,6 +46,18 @@ int main() {
 // IR:       !4 = distinct !{!4}
 // IR:       !5 = !{!6}
 // IR:       !6 = distinct !{}
+
+
+// AST:     for (int c0 = 0; c0 <= 255; c0 += 1) {
+// AST:      {
+// AST-NEXT:        for (int c2 = 0; c2 <= 127; c2 += 1)
+// AST-NEXT:           CopyStmt_0(c0, c2, 0);
+// AST-NEXT:         for (int c1 = 0; c1 <= 127; c1 += 1)
+// AST-NEXT:           Stmt_for_body4(c0, c1);
+// AST-NEXT:         for (int c2 = 0; c2 <= 127; c2 += 1)
+// AST-NEXT:           CopyStmt_1(c0, c2, 0);
+// AST-NEXT:       }
+// AST-NEXT:     }
 
 
 // TRANS-LABEL: @pragma_pack
