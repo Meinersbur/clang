@@ -44,8 +44,8 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
   llvm::SmallVector<int64_t, 4> TileSizes;
-   llvm::SmallVector<llvm:: StringRef, 4> TilePitIds;
-     llvm::SmallVector <llvm::  StringRef, 4> TileTileIds;
+  llvm::SmallVector<llvm::StringRef, 4> TilePitIds;
+  llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
 
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
@@ -74,7 +74,9 @@ struct LoopTransformation {
 
   static LoopTransformation
   createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns,
-               llvm::ArrayRef<int64_t> TileSizes, llvm::ArrayRef<StringRef> PitIds,  llvm::ArrayRef<StringRef> TileIds) {
+               llvm::ArrayRef<int64_t> TileSizes,
+               llvm::ArrayRef<StringRef> PitIds,
+               llvm::ArrayRef<StringRef> TileIds) {
     LoopTransformation Result;
     Result.Kind = Tiling;
     // TODO: list-intialize
@@ -82,9 +84,9 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     for (auto TileSize : TileSizes)
       Result.TileSizes.push_back(TileSize);
-        for (auto PitId : PitIds)
+    for (auto PitId : PitIds)
       Result.TilePitIds.push_back(PitId);
-                for (auto TileId : TileIds)
+    for (auto TileId : TileIds)
       Result.TileTileIds.push_back(TileId);
 
     return Result;

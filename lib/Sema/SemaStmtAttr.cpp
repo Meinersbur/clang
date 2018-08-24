@@ -101,7 +101,8 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
                               SourceRange) {
   assert(A.getNumArgs() >= 1);
 
-  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile pit_ids(<pitid1>, <pitid2>) tile_ids(<tileid1>, <tileid2>)
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
+  // pit_ids(<pitid1>, <pitid2>) tile_ids(<tileid1>, <tileid2>)
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
   SmallVector<StringRef, 4> ApplyOns;
   auto NumArgs = A.getNumArgs();
@@ -125,10 +126,10 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     Sizes.push_back(Expr);
   }
 
-   SmallVector<IdentifierLoc *, 4> PitIds;
-   SmallVector<StringRef, 4> PitIdNames;
-     while (true) {
-    auto Id = A.getArgAsIdent (i);
+  SmallVector<IdentifierLoc *, 4> PitIds;
+  SmallVector<StringRef, 4> PitIdNames;
+  while (true) {
+    auto Id = A.getArgAsIdent(i);
     i += 1;
     if (!Id)
       break;
@@ -137,16 +138,16 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     PitIdNames.push_back(Id->Ident->getName());
   }
 
-        SmallVector<IdentifierLoc *, 4> TileIds;
-           SmallVector<StringRef, 4> TileIdNames;
-     while (true) {
-    auto Id = A.getArgAsIdent (i);
+  SmallVector<IdentifierLoc *, 4> TileIds;
+  SmallVector<StringRef, 4> TileIdNames;
+  while (true) {
+    auto Id = A.getArgAsIdent(i);
     i += 1;
     if (!Id)
       break;
 
     TileIds.push_back(Id);
-     TileIdNames.push_back(Id->Ident->getName());
+    TileIdNames.push_back(Id->Ident->getName());
   }
 
   assert(i == NumArgs && "Must consume all args");
@@ -154,15 +155,19 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
   if (ApplyOns.empty()) {
     // Apply on following loop
     // support only one loop in this case (stripmining)
-      // TODO: Support arbitrary many nested (vertical) loops
+    // TODO: Support arbitrary many nested (vertical) loops
     assert(Sizes.size() <= 1);
-    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(), Sizes.size(), PitIdNames.data(), PitIdNames.size(), TileIdNames.data(), TileIdNames.size() , A.getRange() );
+    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(),
+                                          Sizes.size(), PitIdNames.data(),
+                                          PitIdNames.size(), TileIdNames.data(),
+                                          TileIdNames.size(), A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());
-  return LoopTilingAttr::CreateImplicit(S.Context, ApplyOns.data(),
-                                        ApplyOns.size(), Sizes.data(),
-                                        Sizes.size(), PitIdNames.data(), PitIdNames.size(), TileIdNames.data(), TileIdNames.size() , A.getRange());
+  return LoopTilingAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), Sizes.data(), Sizes.size(),
+      PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
+      TileIdNames.size(), A.getRange());
 }
 
 static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,

@@ -1136,7 +1136,14 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   return true;
 }
 
-enum class TransformClauseKind { None, Sizes, Permutation, Array, PitIds, TileIds };
+enum class TransformClauseKind {
+  None,
+  Sizes,
+  Permutation,
+  Array,
+  PitIds,
+  TileIds
+};
 
 // TODO: Introduce enum for clause names
 static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
@@ -1154,8 +1161,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("sizes", TransformClauseKind::Sizes)
                   .Case("permutation", TransformClauseKind::Permutation)
                   .Case("array", TransformClauseKind::Array)
-           .Case("pit_ids", TransformClauseKind::PitIds)
-      .Case("tile_ids", TransformClauseKind::TileIds)
+                  .Case("pit_ids", TransformClauseKind::PitIds)
+                  .Case("tile_ids", TransformClauseKind::TileIds)
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
@@ -1204,7 +1211,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   } break;
 
   case TransformClauseKind::PitIds:
-  case TransformClauseKind::TileIds: 
+  case TransformClauseKind::TileIds:
   case TransformClauseKind::Permutation: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
@@ -1256,9 +1263,6 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     Args.push_back(V);
     return TransformClauseKind::Array;
   } break;
-
-
-
 
   case TransformClauseKind::None:
     llvm_unreachable("Unknown clause");
@@ -1391,28 +1395,28 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         assert(TileSizes.empty());
         TileSizes = std::move(ClauseArgs);
         break;
-        case TransformClauseKind::PitIds:
-               assert(!ClauseArgs.empty());
+      case TransformClauseKind::PitIds:
+        assert(!ClauseArgs.empty());
         assert(PitIds.empty());
-                      PitIds =  std::move(ClauseArgs);
-              break;
-  case TransformClauseKind::TileIds: 
-            assert(!ClauseArgs.empty());
+        PitIds = std::move(ClauseArgs);
+        break;
+      case TransformClauseKind::TileIds:
+        assert(!ClauseArgs.empty());
         assert(TileIds.empty());
-         TileIds =  std::move(ClauseArgs);
-      break;
+        TileIds = std::move(ClauseArgs);
+        break;
       }
     }
 
     for (auto TileSize : TileSizes)
       ArgHints.push_back(TileSize);
     ArgHints.push_back((Expr *)nullptr);
-        for (auto PitId : PitIds)
+    for (auto PitId : PitIds)
       ArgHints.push_back(PitId);
-         ArgHints.push_back((IdentifierLoc  *)nullptr);
-                 for (auto TileId : TileIds)
+    ArgHints.push_back((IdentifierLoc *)nullptr);
+    for (auto TileId : TileIds)
       ArgHints.push_back(TileId);
-         ArgHints.push_back((IdentifierLoc  *)nullptr);
+    ArgHints.push_back((IdentifierLoc *)nullptr);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));
