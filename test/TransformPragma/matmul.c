@@ -6,7 +6,7 @@
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
-void matmul(int M, int N, int K, double C[restrict M][N], double A[restrict M][K], double B[restrict K][N]) {
+void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) {
   // #pragma clang loop(i2,i2) vectorize 
   #pragma clang loop(j2/*,k2*/) pack array(B)
   #pragma clang loop(i2/*,k2*/) pack array(A)
@@ -37,13 +37,13 @@ int main() {
   B[2][4] = 5;
   B[3][4] = 7;
   matmul(16,32,64,C,A,B);
-  printf("(%0.0f)\n", C[1][4]);
+  printf("(%0.0f)\n", C[1][4]); // C[1][4] = A[1][2]*B[2][4] + A[1][3]*B[3][4] = 2*5 + 3*7 = 10 + 21 = 31
   return 0;
 }
 #endif
 
 
-// PRINT-LABEL: void matmul(int M, int N, int K, double C[restrict M][N], double A[restrict M][K], double B[restrict K][N]) __attribute__((noinline)) {
+// PRINT-LABEL: void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) __attribute__((noinline)) {
 // PRINT-NEXT: #pragma clang loop(j2) pack array(B)
 // PRINT-NEXT: #pragma clang loop(i2) pack array(A)
 // PRINT-NEXT: #pragma clang loop(i1, j1, k1, i2, j2) interchange permutation(j1, k1, i1, j2, i2)
@@ -58,10 +58,50 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias %C, double* noalias %A, double* noalias %B) #0 !looptransform !2 {
+// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias nonnull %C, double* noalias nonnull %A, double* noalias nonnull %B) #0 !looptransform !2 {
 // IR: !"llvm.loop.tile"
 // IR: !"llvm.loop.interchange"
 // IR: !"llvm.data.pack"
 // IR: !"llvm.data.pack"
 
-// RESULT: (41)
+
+// AST: if (1
+// AST:     // Loop_j1
+// AST:     for (int c0 = 0; c0 <= floord(N - 1, 2048); c0 += 1) {
+// AST:       // Loop_k1
+// AST:       for (int c1 = 0; c1 <= floord(M - 1, 96); c1 += 1) {
+// AST:         // Loop_i1
+// AST:         for (int c2 = 0; c2 <= floord(K - 1, 256); c2 += 1) {
+// AST:           for (int c6 = 0; c6 <= min(255, K - 256 * c2 - 1); c6 += 1)
+// AST:             for (int c7 = 0; c7 <= min(2047, N - 2048 * c0 - 1); c7 += 1)
+// AST:               CopyStmt_2(c0, c1, c2, c6, c7);
+// AST:           // Loop_j2
+// AST:           for (int c3 = 0; c3 <= min(2047, N - 2048 * c0 - 1); c3 += 1) {
+// AST:             for (int c8 = 0; c8 <= min(95, M - 96 * c1 - 1); c8 += 1)
+// AST:               for (int c9 = 0; c9 <= min(255, K - 256 * c2 - 1); c9 += 1)
+// AST:                 CopyStmt_0(c0, c1, c2, c3, c8, c9);
+// AST:             // Loop_i2
+// AST:             for (int c4 = 0; c4 <= min(255, K - 256 * c2 - 1); c4 += 1) {
+// AST:               // Loop_k2
+// AST:               for (int c5 = 0; c5 <= min(95, M - 96 * c1 - 1); c5 += 1)
+// AST:                 Stmt_for_body8_us_us(96 * c1 + c5, 2048 * c0 + c3, 256 * c2 + c4);
+// AST:             }
+// AST:             for (int c8 = 0; c8 <= min(95, M - 96 * c1 - 1); c8 += 1)
+// AST:               for (int c9 = 0; c9 <= min(255, K - 256 * c2 - 1); c9 += 1)
+// AST:                 CopyStmt_1(c0, c1, c2, c3, c8, c9);
+// AST:           }
+// AST:           for (int c6 = 0; c6 <= min(255, K - 256 * c2 - 1); c6 += 1)
+// AST:             for (int c7 = 0; c7 <= min(2047, N - 2048 * c0 - 1); c7 += 1)
+// AST:               CopyStmt_3(c0, c1, c2, c6, c7);
+// AST:         }
+// AST:       }
+// AST:     }
+// AST: else
+// AST:     {  /* original code */ }
+
+
+// TRANS-DAG: Packed_MemRef_A
+// TRANS-DAG: Packed_MemRef_B
+
+
+// RESULT: (31)

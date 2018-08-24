@@ -6,7 +6,7 @@
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
-void pragma_pack(double C[256][128], double A[128][256]) {
+void pragma_pack(double C[const restrict static 256][128], double A[const restrict static 128][256]) {
   for (int i = 0; i < 256; i += 1)
     #pragma clang loop pack array(A)
     for (int j = 0; j < 128; j += 1)
@@ -28,7 +28,7 @@ int main() {
 #endif
 
 
-// PRINT-LABEL: void pragma_pack(double C[256][128], double A[128][256]) __attribute__((noinline)) {
+// PRINT-LABEL: void pragma_pack(double C[const restrict static 256][128], double A[const restrict static 128][256]) __attribute__((noinline)) {
 // PRINT-NEXT:     for (int i = 0; i < 256; i += 1)
 // PRINT-NEXT: #pragma clang loop pack array(A)
 // PRINT-NEXT:         for (int j = 0; j < 128; j += 1)
@@ -36,7 +36,7 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_pack([128 x double]* %C, [256 x double]* %A) #0 !looptransform !2 {
+// IR-LABEL: define dso_local void @pragma_pack([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 !looptransform !2 {
 //
 // IR:         %A.addr = alloca [256 x double]*, align 8
 // IR:         load double, double* %arrayidx5, align 8, !llvm.access !6
@@ -47,17 +47,17 @@ int main() {
 // IR:       !5 = !{!6}
 // IR:       !6 = distinct !{}
 
-
+// AST: if (1
 // AST:     for (int c0 = 0; c0 <= 255; c0 += 1) {
-// AST:      {
-// AST-NEXT:        for (int c2 = 0; c2 <= 127; c2 += 1)
-// AST-NEXT:           CopyStmt_0(c0, c2, 0);
-// AST-NEXT:         for (int c1 = 0; c1 <= 127; c1 += 1)
-// AST-NEXT:           Stmt_for_body4(c0, c1);
-// AST-NEXT:         for (int c2 = 0; c2 <= 127; c2 += 1)
-// AST-NEXT:           CopyStmt_1(c0, c2, 0);
-// AST-NEXT:       }
-// AST-NEXT:     }
+// AST:       for (int c2 = 0; c2 <= 127; c2 += 1)
+// AST:         CopyStmt_0(c0, c2, 0);
+// AST:       for (int c1 = 0; c1 <= 127; c1 += 1)
+// AST:         Stmt_for_body4(c0, c1);
+// AST:       for (int c2 = 0; c2 <= 127; c2 += 1)
+// AST:         CopyStmt_1(c0, c2, 0);
+// AST:     }
+// AST: else
+// AST:    {  /* original code */ }
 
 
 // TRANS-LABEL: @pragma_pack
