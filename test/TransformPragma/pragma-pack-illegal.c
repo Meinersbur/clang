@@ -41,7 +41,7 @@ int main() {
 // IR:         load double, double* %arrayidx5, align 8, !llvm.access !6
 //
 // IR:       !2 = !{!3}
-// IR:       !3 = !{!"llvm.data.pack", !4, !5}
+// IR:       !3 = !{!"llvm.data.pack", !4, !5, !"alloca"}
 // IR:       !4 = distinct !{!4}
 // IR:       !5 = !{!6}
 // IR:       !6 = distinct !{}

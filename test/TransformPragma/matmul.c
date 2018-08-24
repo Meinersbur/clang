@@ -8,8 +8,8 @@
 __attribute__((noinline))
 void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) {
   // #pragma clang loop(i2,i2) vectorize 
-  #pragma clang loop(j2/*,k2*/) pack array(B)
-  #pragma clang loop(i2/*,k2*/) pack array(A)
+  #pragma clang loop(j2/*,k2*/) pack array(B) allocate(malloc)
+  #pragma clang loop(i2/*,k2*/) pack array(A) allocate(malloc)
   #pragma clang loop(i1,j1,k1,i2,j2) interchange permutation(j1,k1,i1,j2,i2)
   #pragma clang loop(i,j,k) tile sizes(96,2048,256) pit_ids(i1,j1,k1) tile_ids(i2,j2,k2)
   #pragma clang loop id(i)
@@ -44,8 +44,8 @@ int main() {
 
 
 // PRINT-LABEL: void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) __attribute__((noinline)) {
-// PRINT-NEXT: #pragma clang loop(j2) pack array(B)
-// PRINT-NEXT: #pragma clang loop(i2) pack array(A)
+// PRINT-NEXT: #pragma clang loop(j2) pack array(B) allocate(malloc)
+// PRINT-NEXT: #pragma clang loop(i2) pack array(A) allocate(malloc)
 // PRINT-NEXT: #pragma clang loop(i1, j1, k1, i2, j2) interchange permutation(j1, k1, i1, j2, i2)
 // PRINT-NEXT: #pragma clang loop(i, j, k) tile sizes(96, 2048, 256) pit_ids(i1, j1, k1) tile_ids(i2, j2, k2)
 // PRINT-NEXT: #pragma clang loop id(i)
@@ -100,6 +100,10 @@ int main() {
 // AST:     {  /* original code */ }
 
 
+// TRANS: %malloccall = tail call i8* @malloc(i64 196608)
+// TRANS: %malloccall84 = tail call i8* @malloc(i64 4194304)
+// TRANS: tail call void @free(i8* %malloccall)
+// TRANS: tail call void @free(i8* %malloccall84)
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
 

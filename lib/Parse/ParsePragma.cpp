@@ -1142,7 +1142,8 @@ enum class TransformClauseKind {
   Permutation,
   Array,
   PitIds,
-  TileIds
+  TileIds,
+  Allocate
 };
 
 // TODO: Introduce enum for clause names
@@ -1163,6 +1164,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("array", TransformClauseKind::Array)
                   .Case("pit_ids", TransformClauseKind::PitIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
+      .Case("allocate", TransformClauseKind::Allocate)
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
@@ -1262,6 +1264,21 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
     Args.push_back(V);
     return TransformClauseKind::Array;
+  } break;
+
+  case TransformClauseKind::Allocate: {
+    assert(Toks[i + 1].is(tok::l_paren));
+    assert(Toks[i + 2].is(tok::identifier));
+    assert(Toks[i + 3].is(tok::r_paren));
+
+          auto OptionInfo = Toks[i+2].getIdentifierInfo();
+      auto OptionStr = OptionInfo->getName();
+      assert(OptionStr == "malloc");
+         Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                           Toks[i].getLocation(), OptionInfo));
+
+    i+=4;
+    return TransformClauseKind::Allocate;
   } break;
 
   case TransformClauseKind::None:
@@ -1475,6 +1492,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
       ArgHints.push_back(ApplyOnLocs[0]);
 
     DeclRefExpr *Array = nullptr;
+    ArgsUnion  OnHeap = (IdentifierLoc*) nullptr;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -1482,7 +1500,12 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         break;
       switch (Kind) {
       default:
-        llvm_unreachable("unsupported clause for interchange");
+        llvm_unreachable("unsupported clause for pack");
+      case TransformClauseKind::Allocate:
+          assert(ClauseArgs.size()==1);
+          assert(!OnHeap);
+          OnHeap = ClauseArgs[0];
+          break;
       case TransformClauseKind::Array:
         assert(ClauseArgs.size() == 1);
         assert(!Array);
@@ -1492,6 +1515,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     }
 
     ArgHints.push_back(Array);
+    ArgHints.push_back(OnHeap);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));

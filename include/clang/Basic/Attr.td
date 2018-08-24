@@ -2914,13 +2914,13 @@ def LoopInterchange : Attr {
 
 
 def Pack : Attr {
-  // #pragma clang loop pack array(arrayname)
-  // #pragma clang loop(loopname) pack array(arrayname)
+  // #pragma clang loop           pack array(arrayname) [allocate(malloc)]
+  // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)]
 
   let Spellings = [Pragma<"", "pack">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">];
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2935,6 +2935,10 @@ def Pack : Attr {
 						OS << " array(";
 						getArray()->printPretty(OS, nullptr, Policy);
 						OS << ")";
+				}
+
+				if (getOnHeap()) {
+				OS << " allocate(malloc)";
 				}
 		}
   }];

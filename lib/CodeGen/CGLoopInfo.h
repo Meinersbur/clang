@@ -49,6 +49,7 @@ struct LoopTransformation {
 
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
+  bool OnHeap = false;
 
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
@@ -106,11 +107,12 @@ struct LoopTransformation {
   }
 
   static LoopTransformation createPack(llvm::StringRef ApplyOn,
-                                       clang::DeclRefExpr *Array) {
+                                       clang::DeclRefExpr *Array, bool OnHeap) {
     LoopTransformation Result;
     Result.Kind = Pack;
     Result.ApplyOns.push_back(ApplyOn);
     Result.Array = Array;
+    Result.OnHeap = OnHeap;
     return Result;
   }
 };

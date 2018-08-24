@@ -207,13 +207,14 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
 }
 
 static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
-  assert(A.getNumArgs() == 2);
+  assert(A.getNumArgs() == 3);
 
   auto ApplyOnLoc = A.getArgAsIdent(0);
   auto ArrayLoc = A.getArgAsExpr(1);
+  auto AllocateLoc = A.getArgAsIdent(2);
 
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc, A.getRange());
+  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc,  AllocateLoc!=nullptr, A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
