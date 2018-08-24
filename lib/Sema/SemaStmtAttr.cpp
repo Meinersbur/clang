@@ -214,7 +214,8 @@ static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
   auto AllocateLoc = A.getArgAsIdent(2);
 
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc,  AllocateLoc!=nullptr, A.getRange());
+  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc,
+                                  AllocateLoc != nullptr, A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,

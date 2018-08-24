@@ -272,7 +272,8 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       auto Accesses = MDNode::get(Ctx, {});
       TransformArgs.push_back(Accesses);
 
-      TransformArgs.push_back( Transform.OnHeap ? MDString::get(Ctx, "malloc") : MDString::get(Ctx, "alloca") );
+      TransformArgs.push_back(Transform.OnHeap ? MDString::get(Ctx, "malloc")
+                                               : MDString::get(Ctx, "alloca"));
 
       auto MDTransform = MDNode::get(Ctx, TransformArgs);
       Transform.TransformMD = MDTransform;
@@ -383,7 +384,9 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
     }
 
     if (auto Pack = dyn_cast<PackAttr>(Attr)) {
-      addTransformation(LoopTransformation::createPack(Pack->getApplyOn(), cast<DeclRefExpr>(Pack->getArray()),  Pack->getOnHeap() ));
+      addTransformation(LoopTransformation::createPack(
+          Pack->getApplyOn(), cast<DeclRefExpr>(Pack->getArray()),
+          Pack->getOnHeap()));
       continue;
     }
 
