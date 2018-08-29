@@ -2,6 +2,8 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
+// RUN: %clang -DMAIN -std=c99 -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
+// RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 void pragma_id_tile(int m, int n, double C[m][n]) {
 #pragma clang loop(i, j) tile sizes(32, 32)
@@ -12,6 +14,20 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
       C[i][j] = i + j;
 }
 
+#ifdef MAIN
+#include <stdio.h>
+#include <string.h>
+int main() {
+  double C[256][128];
+  memset(C, 0, sizeof(C));
+  C[1][2] = 42;
+  pragma_id_tile(256,128,C);
+  printf("(%0.0f)\n", C[2][1]);
+  return 0;
+}
+#endif
+
+
 // FIXME: #pragmas printed in reverse
 // PRINT-LABEL: void pragma_id_tile(int m, int n, double C[m][n]) {
 // PRINT-DAG:   #pragma clang loop id(i)
@@ -21,6 +37,7 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // PRINT-NEXT:      for (int j = 0; j < n; j += 1)
 // PRINT-NEXT:         C[i][j] = i + j;
 // PRINT-NEXT:  }
+
 
 // IR-LABEL: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* %C) #0 !looptransform !2 {
 // IR:         br label %for.cond1, !llvm.loop !7
@@ -36,90 +53,21 @@ void pragma_id_tile(int m, int n, double C[m][n]) {
 // IR: !9 = distinct !{!9, !10}
 // IR: !10 = !{!"llvm.loop.id", !"i"}
 
-// AST:         for (int c0 = 0; c0 <= floord(p_1 - 1, 32); c0 += 1)
-// AST-NEXT:       for (int c1 = 0; c1 <= floord(p_0 - 1, 32); c1 += 1)
-// AST-NEXT:         for (int c2 = 0; c2 <= min(31, p_1 - 32 * c0 - 1); c2 += 1)
-// AST-NEXT:           for (int c3 = 0; c3 <= min(31, p_0 - 32 * c1 - 1); c3 += 1)
-// AST-NEXT:             Stmt3(32 * c1 + c3, 32 * c0 + c2);
 
-// TRANS: define dso_local void @pragma_id_tile(i32 %m, i32 %n, double* nocapture %C) local_unnamed_addr #0 !looptransform !2 {
-// TRANS: entry:
-// TRANS:   %0 = sext i32 %n to i64
-// TRANS:   %1 = icmp sgt i32 %n, -1
-// TRANS:   br i1 %1, label %polly.start, label %for.cond.cleanup
-//
-// TRANS: for.cond.cleanup:                                 ; preds = %polly.loop_exit37, %entry, %polly.start
-// TRANS:   ret void
-//
-// TRANS: polly.start:                                      ; preds = %entry
-// TRANS:   %2 = add nsw i64 %0, -1
-// TRANS:   %polly.fdiv_q.shr = ashr i64 %2, 5
-// TRANS:   %polly.loop_guard = icmp eq i32 %n, 0
-// TRANS:   br i1 %polly.loop_guard, label %for.cond.cleanup, label %polly.loop_preheader
-//
-// TRANS: polly.loop_header:                                ; preds = %polly.loop_exit37, %polly.loop_preheader
-// TRANS:   %polly.indvar = phi i64 [ 0, %polly.loop_preheader ], [ %polly.indvar_next, %polly.loop_exit37 ]
-// TRANS:   br i1 %polly.loop_guard38, label %polly.loop_header35.preheader, label %polly.loop_exit37
-//
-// TRANS: polly.loop_header35.preheader:                    ; preds = %polly.loop_header
-// TRANS:   %3 = shl nsw i64 %polly.indvar, 5
-// TRANS:   %4 = xor i64 %3, -1
-// TRANS:   %5 = add nsw i64 %4, %0
-// TRANS:   %6 = icmp slt i64 %5, 31
-// TRANS:   %7 = select i1 %6, i64 %5, i64 31
-// TRANS:   %polly.loop_guard46 = icmp sgt i64 %7, -1
-// TRANS:   br i1 %polly.loop_guard46, label %polly.loop_header35.us, label %polly.loop_exit37
-//
-// TRANS: polly.loop_header35.us:                           ; preds = %polly.loop_header35.preheader, %polly.loop_exit45.us
-// TRANS:   %polly.indvar39.us = phi i64 [ %polly.indvar_next40.us, %polly.loop_exit45.us ], [ 0, %polly.loop_header35.preheader ]
-// TRANS:   %8 = shl nsw i64 %polly.indvar39.us, 5
-// TRANS:   %9 = xor i64 %8, -1
-// TRANS:   %10 = add nsw i64 %9, %21
-// TRANS:   %11 = icmp slt i64 %10, 31
-// TRANS:   %12 = select i1 %11, i64 %10, i64 31
-// TRANS:   %polly.loop_guard54.us = icmp sgt i64 %12, -1
-// TRANS:   br i1 %polly.loop_guard54.us, label %polly.loop_header43.us.us, label %polly.loop_exit45.us
-//
-// TRANS: polly.loop_exit45.us:                             ; preds = %polly.loop_exit53.us.us, %polly.loop_header35.us
-// TRANS:   %polly.indvar_next40.us = add nuw nsw i64 %polly.indvar39.us, 1
-// TRANS:   %polly.loop_cond41.us = icmp slt i64 %polly.indvar39.us, %polly.fdiv_q.shr33
-// TRANS:   br i1 %polly.loop_cond41.us, label %polly.loop_header35.us, label %polly.loop_exit37
-//
-// TRANS: polly.loop_header43.us.us:                        ; preds = %polly.loop_header35.us, %polly.loop_exit53.us.us
-// TRANS:   %polly.indvar47.us.us = phi i64 [ %polly.indvar_next48.us.us, %polly.loop_exit53.us.us ], [ 0, %polly.loop_header35.us ]
-// TRANS:   %13 = add nuw nsw i64 %polly.indvar47.us.us, %3
-// TRANS:   %14 = trunc i64 %13 to i32
-// TRANS:   br label %polly.loop_header51.us.us
-//
-// TRANS: polly.loop_exit53.us.us:                          ; preds = %polly.loop_header51.us.us
-// TRANS:   %polly.indvar_next48.us.us = add nuw nsw i64 %polly.indvar47.us.us, 1
-// TRANS:   %polly.loop_cond49.us.us = icmp slt i64 %polly.indvar47.us.us, %7
-// TRANS:   br i1 %polly.loop_cond49.us.us, label %polly.loop_header43.us.us, label %polly.loop_exit45.us
-//
-// TRANS: polly.loop_header51.us.us:                        ; preds = %polly.loop_header51.us.us, %polly.loop_header43.us.us
-// TRANS:   %polly.indvar55.us.us = phi i64 [ %polly.indvar_next56.us.us, %polly.loop_header51.us.us ], [ 0, %polly.loop_header43.us.us ]
-// TRANS:   %15 = add nuw nsw i64 %polly.indvar55.us.us, %8
-// TRANS:   %16 = trunc i64 %15 to i32
-// TRANS:   %17 = add i32 %16, %14
-// TRANS:   %p_conv.us.us.us = sitofp i32 %17 to double
-// TRANS:   %18 = mul nuw i64 %15, %20
-// TRANS:   %19 = add nuw i64 %18, %13
-// TRANS:   %scevgep.us.us = getelementptr double, double* %C, i64 %19
-// TRANS:   store double %p_conv.us.us.us, double* %scevgep.us.us, align 8
-// TRANS:   %polly.indvar_next56.us.us = add nuw nsw i64 %polly.indvar55.us.us, 1
-// TRANS:   %polly.loop_cond57.us.us = icmp slt i64 %polly.indvar55.us.us, %12
-// TRANS:   br i1 %polly.loop_cond57.us.us, label %polly.loop_header51.us.us, label %polly.loop_exit53.us.us
-//
-// TRANS: polly.loop_exit37:                                ; preds = %polly.loop_exit45.us, %polly.loop_header35.preheader, %polly.loop_header
-// TRANS:   %polly.indvar_next = add nuw nsw i64 %polly.indvar, 1
-// TRANS:   %polly.loop_cond = icmp slt i64 %polly.indvar, %polly.fdiv_q.shr
-// TRANS:   br i1 %polly.loop_cond, label %polly.loop_header, label %for.cond.cleanup
-//
-// TRANS: polly.loop_preheader:                             ; preds = %polly.start
-// TRANS:   %20 = zext i32 %n to i64
-// TRANS:   %21 = sext i32 %m to i64
-// TRANS:   %22 = add nsw i64 %21, -1
-// TRANS:   %polly.fdiv_q.shr33 = ashr i64 %22, 5
-// TRANS:   %polly.loop_guard38 = icmp sgt i32 %m, 0
-// TRANS:   br label %polly.loop_header
-// TRANS: }
+// AST: if (1
+// AST:     for (int c0 = 0; c0 <= floord(p_0 - 1, 32); c0 += 1)
+// AST:       for (int c1 = 0; c1 <= floord(p_1 - 1, 32); c1 += 1)
+// AST:         for (int c2 = 0; c2 <= min(31, p_0 - 32 * c0 - 1); c2 += 1)
+// AST:           for (int c3 = 0; c3 <= min(31, p_1 - 32 * c1 - 1); c3 += 1)
+// AST:             Stmt3(32 * c0 + c2, 32 * c1 + c3);
+// AST: else
+// AST:     {  /* original code */ }
+
+
+// TRANS:  %polly.indvar = phi i64 [ 0, %polly.loop_preheader ], [ %polly.indvar_next, %polly.loop_exit37 ]
+// TRANS:  %polly.indvar39.us = phi i64 [ %polly.indvar_next40.us, %polly.loop_exit45.us ], [ 0, %polly.loop_header35.preheader ]
+// TRANS:  %polly.indvar47.us.us = phi i64 [ %polly.indvar_next48.us.us, %polly.loop_exit53.us.us ], [ 0, %polly.loop_header35.us ]
+// TRANS:  %polly.indvar55.us.us = phi i64 [ %polly.indvar_next56.us.us, %polly.loop_header51.us.us ], [ 0, %polly.loop_header43.us.us ]
+
+
+// RESULT: (3)
