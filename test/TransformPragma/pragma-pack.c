@@ -47,17 +47,16 @@ int main() {
 // IR:       !5 = !{!6}
 // IR:       !6 = distinct !{}
 
-// AST: if (1
+
+// AST: if (1)
 // AST:     for (int c0 = 0; c0 <= 255; c0 += 1) {
-// AST:       for (int c2 = 0; c2 <= 127; c2 += 1)
-// AST:         CopyStmt_0(c0, c2, 0);
+// AST:       for (int c3 = 0; c3 <= 127; c3 += 1)
+// AST:         CopyStmt_0(c0, 0, c3);
 // AST:       for (int c1 = 0; c1 <= 127; c1 += 1)
 // AST:         Stmt_for_body4(c0, c1);
-// AST:       for (int c2 = 0; c2 <= 127; c2 += 1)
-// AST:         CopyStmt_1(c0, c2, 0);
 // AST:     }
 // AST: else
-// AST:    {  /* original code */ }
+// AST:     {  /* original code */ }
 
 
 // TRANS-LABEL: @pragma_pack
