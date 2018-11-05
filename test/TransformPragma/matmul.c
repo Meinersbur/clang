@@ -97,9 +97,9 @@ int main() {
 
 
 // TRANS: %malloccall = tail call i8* @malloc(i64 4194304)
-// TRANS: %malloccall84 = tail call i8* @malloc(i64 196608)
+// TRANS: %malloccall87 = tail call i8* @malloc(i64 196608)
 // TRANS: tail call void @free(i8* %malloccall)
-// TRANS: tail call void @free(i8* %malloccall84)
+// TRANS: tail call void @free(i8* %malloccall87)
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
 
