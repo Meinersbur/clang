@@ -694,6 +694,10 @@ private:
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
 
+  bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                 SourceRange &Range,
+                                 SmallVectorImpl<ArgsUnion> &ArgHints);
+
   bool ParsePragmaAttributeSubjectMatchRuleSet(
       attr::ParsedSubjectMatchRuleSet &SubjectMatchRules,
       SourceLocation &AnyLoc, SourceLocation &LastMatchRuleEndLoc);

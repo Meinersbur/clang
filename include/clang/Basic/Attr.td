@@ -490,6 +490,8 @@ class Attr {
   // attribute may be documented under multiple categories, more than one
   // Documentation entry may be listed.
   list<Documentation> Documentation;
+
+  bit PrettyPrintSpelling = 1;
 }
 
 /// A type attribute is not processed on a declaration or a statement.
@@ -2819,6 +2821,192 @@ def InitSeg : Attr {
   }];
 }
 
+def LoopId : Attr {
+  // #pragma clang loop id(loopname)
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "id">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"LoopName">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop id(" << getLoopName() << ")";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopReversal : Attr {
+  // #pragma clang loop reverse
+  // #pragma clang loop(loopname) reverse
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "reverse">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty())
+						OS << "(" << getApplyOn() << ")";
+			OS << " reverse";
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopTiling : Attr {
+  // #pragma clang loop tile
+  // #pragma clang loop(loopname1, loopname2, ...) tile
+
+  let Spellings = [Pragma<"", "tile">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"PitIds">,VariadicStringArgument<"TileIds">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First)
+							OS << ", ";
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			}
+
+			OS << " tile";
+
+			if (tileSizes_size()) {
+				OS << " sizes(";
+				bool First=true;
+				for (auto Size : tileSizes()) {
+				  if (!First)
+					  OS << ", ";
+                  Size->printPretty(OS, nullptr, Policy);
+				  First = false;
+				}
+				OS << ")";
+			}
+
+			if (pitIds_size()) {
+				OS << " pit_ids(";
+				bool First=true;
+				for (auto Id : pitIds()) {
+				  if (!First)
+					  OS << ", ";
+					  OS<<Id;
+				  First = false;
+				}
+				OS << ")";
+			}
+
+			if (tileIds_size()) {
+				OS << " tile_ids(";
+				bool First=true;
+				for (auto Id : tileIds()) {
+				  if (!First)
+					  OS << ", ";
+					  OS<<Id;
+				  First = false;
+				}
+				OS << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopInterchange : Attr {
+  // #pragma clang loop interchange
+  // #pragma clang loop(loopname1, loopname2, ...) interchange
+
+  let Spellings = [Pragma<"", "interchange">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [VariadicStringArgument<"ApplyOn">, VariadicStringArgument<"Permutation">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (applyOn_size()) {
+				OS << "(";
+				bool First = true;
+					for (auto Piece : applyOn()) {
+						if (!First)
+							OS << ", ";
+						OS << Piece;
+						First = false;
+					}
+				OS << ")";
+			}
+
+			OS << " interchange";
+
+			if (permutation_size()) {
+				OS << " permutation("; 
+				bool First=true;
+				for (auto PermId : permutation()) {
+				  if (!First)
+					  OS << ", ";
+				  OS << PermId;
+				  First = false;
+				}
+				OS << ")";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+def Pack : Attr {
+  // #pragma clang loop           pack array(arrayname) [allocate(malloc)]
+  // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)]
+
+  let Spellings = [Pragma<"", "pack">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+ 
+			if (!getApplyOn().empty())
+						OS << "(" << getApplyOn() << ")";
+
+			OS << " pack";
+
+				if (getArray()) {
+						OS << " array(";
+						getArray()->printPretty(OS, nullptr, Policy);
+						OS << ")";
+				}
+
+				if (getOnHeap()) {
+				OS << " allocate(malloc)";
+				}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+
+
 def LoopHint : Attr {
   /// #pragma clang loop <option> directive
   /// vectorize: vectorizes loop operations if State == Enable.
@@ -2839,6 +3027,7 @@ def LoopHint : Attr {
   let Spellings = [Pragma<"clang", "loop">, Pragma<"", "unroll">,
                    Pragma<"", "nounroll">, Pragma<"", "unroll_and_jam">,
                    Pragma<"", "nounroll_and_jam">];
+  let PrettyPrintSpelling = 0;
 
   /// State of the loop optimization specified by the spelling.
   let Args = [EnumArgument<"Option", "OptionType",
@@ -2871,17 +3060,25 @@ def LoopHint : Attr {
 
   void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
     unsigned SpellingIndex = getSpellingListIndex();
-    // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
-    // "nounroll" is already emitted as the pragma name.
-    if (SpellingIndex == Pragma_nounroll || SpellingIndex == Pragma_nounroll_and_jam)
-      return;
-    else if (SpellingIndex == Pragma_unroll || SpellingIndex == Pragma_unroll_and_jam) {
-      OS << ' ' << getValueString(Policy);
+    if (SpellingIndex == Pragma_nounroll) {
+      OS << "nounroll";
       return;
     }
-
+    else if (SpellingIndex == Pragma_nounroll_and_jam) {
+      OS << "nounroll_and_jam";
+      return;
+    }
+    else if (SpellingIndex == Pragma_unroll) {
+      OS << "unroll " << getValueString(Policy);
+      return;
+    }
+    else if (SpellingIndex == Pragma_unroll_and_jam) {
+      OS << "unroll_and_jam " << getValueString(Policy);
+      return;
+    }
+    
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-    OS << ' ' << getOptionName(option) << getValueString(Policy);
+    OS << "clang loop " << getOptionName(option) << getValueString(Policy);
   }
 
   // Return a string containing the loop hint argument including the
