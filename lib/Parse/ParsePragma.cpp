@@ -1141,12 +1141,14 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
 enum class TransformClauseKind {
   None,
-  Sizes,
-  Permutation,
-  Array,
-  PitIds,
-  TileIds,
-  Allocate
+  Sizes, // tile
+  Permutation, // interchange
+  Array, // pack
+  PitIds, // tile
+  TileIds, // tile
+  Allocate, // pack
+  Factor, // unrolling
+  Full, // unrolling
 };
 
 // TODO: Introduce enum for clause names
@@ -1168,6 +1170,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("pit_ids", TransformClauseKind::PitIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
                   .Case("allocate", TransformClauseKind::Allocate)
+                  .Case("factor", TransformClauseKind::Factor)
+                  .Case("full", TransformClauseKind::Full)
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
@@ -1282,6 +1286,50 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
     i += 4;
     return TransformClauseKind::Allocate;
+  } break;
+
+  case TransformClauseKind::Factor: {
+    assert(Toks[i + 1].is(tok::l_paren));
+        i += 2;
+
+    // Get option value
+    auto NumOpenParens = 1;
+    auto StartInner = i;
+    while (NumOpenParens > 0) {
+      auto &Tok = Toks[i];
+      assert(Tok.isNot(tok::eof));
+      if (Tok.is(tok::l_paren))
+        NumOpenParens += 1;
+      else if (Tok.is(tok::r_paren))
+        NumOpenParens -= 1;
+      i += 1;
+    }
+    auto ClauseParens = Toks.slice(StartInner - 1, i - StartInner + 1);
+    auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
+
+    // Push back the tokens on the stack so we can parse them
+    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/false);
+
+    // Update token stream; current token could be an annotation token or a
+    // closing paren.
+    PP.Lex(Tok);
+
+    ExprResult R = Parse.ParseConstantExpression();
+    assert(!R.isInvalid());
+    assert(Tok.is(tok::r_paren)); // Closing paren of factor(
+    Args.push_back(R.get()); // The factor
+
+    return TransformClauseKind::Factor;
+  } break;
+
+  case TransformClauseKind::Full :{
+    assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
+
+    auto OptionInfo = Toks[i].getIdentifierInfo();
+    auto OptionStr = OptionInfo->getName();
+    assert(OptionStr == "full");
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
+    return TransformClauseKind::Full;
   } break;
 
   case TransformClauseKind::None:
@@ -1528,6 +1576,52 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
     return true;
   }
+
+  
+  if (IdTok.getIdentifierInfo()->getName() == "unrolling") {
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for unrolling");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
+
+    ArgsUnion Factor { (Expr*)nullptr};
+    ArgsUnion Full {(IdentifierLoc*)nullptr}; // Only presence matters
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for unrolling");
+      case TransformClauseKind::Factor:
+        assert(ClauseArgs.size() == 1);
+        Factor = ClauseArgs[0];
+        break;
+      case TransformClauseKind::Full:
+        assert(ClauseArgs.size() == 1);
+        Full=ClauseArgs[0];
+        break;
+      }
+    }
+
+    assert((!Factor || !Full) && "factor(n) and full contradicting");
+    ArgHints.push_back(Factor);
+    ArgHints.push_back(Full);
+
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
+
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
+  }
+
 
   llvm_unreachable("Unrecognized transformation");
 }

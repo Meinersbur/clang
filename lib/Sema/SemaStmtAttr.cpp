@@ -218,6 +218,17 @@ static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
                                   AllocateLoc != nullptr, A.getRange());
 }
 
+static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+  assert(A.getNumArgs() == 3);
+
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+  auto FactorLoc = A.getArgAsExpr(1);
+  auto FullLoc = A.getArgAsIdent(2);
+
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopUnrollingAttr::CreateImplicit(S.Context, ApplyOn, FactorLoc, FullLoc!=nullptr, A.getRange());
+}
+
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
@@ -478,6 +489,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLoopInterchange(S, St, A, Range);
   case ParsedAttr::AT_Pack:
     return handlePack(S, St, A, Range);
+  case ParsedAttr::AT_LoopUnrolling:
+    return handleLoopUnrolling(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   default:

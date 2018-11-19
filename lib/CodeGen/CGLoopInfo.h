@@ -36,7 +36,7 @@ namespace CodeGen {
 class CodeGenFunction;
 
 struct LoopTransformation {
-  enum TransformKind { Reversal, Tiling, Interchange, Pack };
+  enum TransformKind { Reversal, Tiling, Interchange, Pack, Unrolling };
   TransformKind Kind;
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
@@ -50,6 +50,9 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
   bool OnHeap = false;
+
+  int64_t Factor = -1;
+  bool Full = false;
 
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
@@ -113,6 +116,16 @@ struct LoopTransformation {
     Result.ApplyOns.push_back(ApplyOn);
     Result.Array = Array;
     Result.OnHeap = OnHeap;
+    return Result;
+  }
+
+  
+  static LoopTransformation createUnrolling(llvm::StringRef ApplyOn, int64_t Factor, bool Full) {
+    LoopTransformation Result;
+    Result.Kind = Unrolling;
+    Result.ApplyOns.push_back(ApplyOn);
+    Result.Factor =Factor;
+    Result.Full=Full;
     return Result;
   }
 };

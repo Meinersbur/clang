@@ -284,6 +284,41 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       // Follow-ups use this one
       TopLoopId = MDTransform;
     } break;
+
+          case LoopTransformation::Unrolling: {
+            SmallVector<Metadata *, 4> TransformArgs;
+            TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
+
+                  auto ApplyOn = Transform.getApplyOn();
+      if (ApplyOn.empty()) {
+        assert(TopLoopId);
+        TransformArgs.push_back(TopLoopId);
+      } else {
+        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
+
+      auto UnrollFactor = Transform.Factor;
+      auto IsFullUnroll = Transform.Full;
+      if (UnrollFactor && IsFullUnroll) {
+        llvm_unreachable("Contrdicting state");
+      } else if (UnrollFactor) {
+            TransformArgs.push_back(ConstantAsMetadata::get(ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)) );
+      } else if (IsFullUnroll) {
+            TransformArgs.push_back(MDString::get(Ctx, "full"));
+      } else {
+          TransformArgs.push_back(nullptr); // Determine unroll factor heuristically
+      }
+
+        auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      Transform.TransformMD = MDTransform;
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
+ 
+            // Follow-ups use this one
+      TopLoopId = MDTransform;
+
+          } break;
+
     }
   }
 
@@ -390,6 +425,14 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           Pack->getOnHeap()));
       continue;
     }
+
+        if (auto Unrolling = dyn_cast<LoopUnrollingAttr>(Attr)) {
+             llvm::APSInt FactorAPS = Unrolling->getFactor() ->EvaluateKnownConstInt(Ctx);
+             auto FactorInt = FactorAPS.getSExtValue();
+      addTransformation(LoopTransformation::createUnrolling(          Unrolling->getApplyOn(),FactorInt , Unrolling->getFull() ));
+      continue;
+    }
+
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =

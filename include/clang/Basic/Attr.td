@@ -2851,8 +2851,9 @@ def LoopReversal : Attr {
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
 			OS << "clang loop";
-			if (!getApplyOn().empty())
+			if (!getApplyOn().empty()) {
 						OS << "(" << getApplyOn() << ")";
+			}
 			OS << " reverse";
 		}
   }];
@@ -2876,8 +2877,9 @@ def LoopTiling : Attr {
 				OS << "(";
 				bool First = true;
 					for (auto Piece : applyOn()) {
-						if (!First)
+						if (!First) {
 							OS << ", ";
+						}
 						OS << Piece;
 						First = false;
 					}
@@ -2890,8 +2892,9 @@ def LoopTiling : Attr {
 				OS << " sizes(";
 				bool First=true;
 				for (auto Size : tileSizes()) {
-				  if (!First)
+				  if (!First) {
 					  OS << ", ";
+				  }
                   Size->printPretty(OS, nullptr, Policy);
 				  First = false;
 				}
@@ -2902,8 +2905,9 @@ def LoopTiling : Attr {
 				OS << " pit_ids(";
 				bool First=true;
 				for (auto Id : pitIds()) {
-				  if (!First)
+				  if (!First) {
 					  OS << ", ";
+				  }
 					  OS<<Id;
 				  First = false;
 				}
@@ -2914,8 +2918,9 @@ def LoopTiling : Attr {
 				OS << " tile_ids(";
 				bool First=true;
 				for (auto Id : tileIds()) {
-				  if (!First)
-					  OS << ", ";
+				  if (!First) {
+					  OS << ", "; 
+					}
 					  OS<<Id;
 				  First = false;
 				}
@@ -2943,8 +2948,8 @@ def LoopInterchange : Attr {
 				OS << "(";
 				bool First = true;
 					for (auto Piece : applyOn()) {
-						if (!First)
-							OS << ", ";
+						if (!First) {
+							OS << ", ";}
 						OS << Piece;
 						First = false;
 					}
@@ -2954,11 +2959,11 @@ def LoopInterchange : Attr {
 			OS << " interchange";
 
 			if (permutation_size()) {
-				OS << " permutation("; 
+				OS << " permutation(";
 				bool First=true;
 				for (auto PermId : permutation()) {
-				  if (!First)
-					  OS << ", ";
+				  if (!First) {
+					  OS << ", ";}
 				  OS << PermId;
 				  First = false;
 				}
@@ -2984,8 +2989,9 @@ def Pack : Attr {
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
 			OS << "clang loop";
  
-			if (!getApplyOn().empty())
-						OS << "(" << getApplyOn() << ")";
+			if (!getApplyOn().empty()) {
+				OS << "(" << getApplyOn() << ")";
+            }
 
 			OS << " pack";
 
@@ -2996,7 +3002,7 @@ def Pack : Attr {
 				}
 
 				if (getOnHeap()) {
-				OS << " allocate(malloc)";
+					OS << " allocate(malloc)";
 				}
 		}
   }];
@@ -3004,6 +3010,41 @@ def Pack : Attr {
   let Documentation = [];
 }
 
+
+def LoopUnrolling : Attr {
+  // FIXME: Replace by #pragma clang loop unroll, which current emits different metadata
+  // #pragma clang loop unrolling [factor(n)] [full]
+  // #pragma clang loop(loopname) unrolling [factor(n)] [full]
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "unrolling">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " unrolling";
+
+			if (getFactor()) {
+				OS << " factor(";
+				getFactor()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			if (getFull()) {
+				OS << " full";
+			}
+		}
+  }];
+
+  let Documentation = [];
+}
 
 
 def LoopHint : Attr {
