@@ -34,16 +34,13 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_unrolling([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 !looptransform !2 {
+// IR-LABEL: define dso_local void @pragma_unrolling(double* noalias dereferenceable(2048) %C, double* noalias dereferenceable(2048) %A) #0 !looptransform !2 {
 //
-// IR:         %A.addr = alloca [256 x double]*, align 8
-// IR:         load double, double* %arrayidx5, align 8, !llvm.access !6
+// IR:           br label %for.cond, !llvm.loop !4
 //
-// IR:       !2 = !{!3}
-// IR:       !3 = !{!"llvm.data.pack", !4, !5, !"alloca"}
-// IR:       !4 = distinct !{!4}
-// IR:       !5 = !{!6}
-// IR:       !6 = distinct !{}
+// IR: !2 = !{!3}
+// IR: !3 = !{!"llvm.loop.unroll", !4, i64 4}
+// IR: !4 = distinct !{!4}
 
 
 // AST: if (1)
