@@ -1141,14 +1141,14 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
 enum class TransformClauseKind {
   None,
-  Sizes, // tile
+  Sizes,       // tile
   Permutation, // interchange
-  Array, // pack
-  PitIds, // tile
-  TileIds, // tile
-  Allocate, // pack
-  Factor, // unrolling
-  Full, // unrolling
+  Array,       // pack
+  PitIds,      // tile
+  TileIds,     // tile
+  Allocate,    // pack
+  Factor,      // unrolling
+  Full,        // unrolling
 };
 
 // TODO: Introduce enum for clause names
@@ -1290,7 +1290,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
   case TransformClauseKind::Factor: {
     assert(Toks[i + 1].is(tok::l_paren));
-        i += 2;
+    i += 2;
 
     // Get option value
     auto NumOpenParens = 1;
@@ -1317,17 +1317,18 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     ExprResult R = Parse.ParseConstantExpression();
     assert(!R.isInvalid());
     assert(Tok.is(tok::r_paren)); // Closing paren of factor(
-    Args.push_back(R.get()); // The factor
+    Args.push_back(R.get());      // The factor
 
     return TransformClauseKind::Factor;
   } break;
 
-  case TransformClauseKind::Full :{
+  case TransformClauseKind::Full: {
     assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
     auto OptionInfo = Toks[i].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
     assert(OptionStr == "full");
-    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
+                                         Toks[i].getLocation(), OptionInfo));
 
     i += 1;
     return TransformClauseKind::Full;
@@ -1578,19 +1579,19 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     return true;
   }
 
-  
   if (IdTok.getIdentifierInfo()->getName() == "unrolling") {
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-    assert(ApplyOnLocs.size() <= 1 && "only single loop supported for unrolling");
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for unrolling");
     if (ApplyOnLocs.empty())
       // Apply on following loop
       ArgHints.push_back((IdentifierLoc *)nullptr);
     else
       ArgHints.push_back(ApplyOnLocs[0]);
 
-    ArgsUnion Factor { (Expr*)nullptr};
-    ArgsUnion Full {(IdentifierLoc*)nullptr}; // Only presence matters
+    ArgsUnion Factor{(Expr *)nullptr};
+    ArgsUnion Full{(IdentifierLoc *)nullptr}; // Only presence matters
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -1605,7 +1606,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         break;
       case TransformClauseKind::Full:
         assert(ClauseArgs.size() == 1);
-        Full=ClauseArgs[0];
+        Full = ClauseArgs[0];
         break;
       }
     }
@@ -1622,7 +1623,6 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
     return true;
   }
-
 
   llvm_unreachable("Unrecognized transformation");
 }

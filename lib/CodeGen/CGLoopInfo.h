@@ -119,13 +119,13 @@ struct LoopTransformation {
     return Result;
   }
 
-  
-  static LoopTransformation createUnrolling(llvm::StringRef ApplyOn, int64_t Factor, bool Full) {
+  static LoopTransformation createUnrolling(llvm::StringRef ApplyOn,
+                                            int64_t Factor, bool Full) {
     LoopTransformation Result;
     Result.Kind = Unrolling;
     Result.ApplyOns.push_back(ApplyOn);
-    Result.Factor =Factor;
-    Result.Full=Full;
+    Result.Factor = Factor;
+    Result.Full = Full;
     return Result;
   }
 };

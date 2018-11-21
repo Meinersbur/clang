@@ -218,7 +218,8 @@ static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
                                   AllocateLoc != nullptr, A.getRange());
 }
 
-static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A,
+                                 SourceRange) {
   assert(A.getNumArgs() == 3);
 
   auto ApplyOnLoc = A.getArgAsIdent(0);
@@ -226,7 +227,8 @@ static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A, SourceR
   auto FullLoc = A.getArgAsIdent(2);
 
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return LoopUnrollingAttr::CreateImplicit(S.Context, ApplyOn, FactorLoc, FullLoc!=nullptr, A.getRange());
+  return LoopUnrollingAttr::CreateImplicit(S.Context, ApplyOn, FactorLoc,
+                                           FullLoc != nullptr, A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,

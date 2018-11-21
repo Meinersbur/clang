@@ -285,11 +285,11 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       TopLoopId = MDTransform;
     } break;
 
-          case LoopTransformation::Unrolling: {
-            SmallVector<Metadata *, 4> TransformArgs;
-            TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
+    case LoopTransformation::Unrolling: {
+      SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
 
-                  auto ApplyOn = Transform.getApplyOn();
+      auto ApplyOn = Transform.getApplyOn();
       if (ApplyOn.empty()) {
         assert(TopLoopId);
         TransformArgs.push_back(TopLoopId);
@@ -299,26 +299,27 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       auto UnrollFactor = Transform.Factor;
       auto IsFullUnroll = Transform.Full;
-      if (UnrollFactor>0 && IsFullUnroll) {
+      if (UnrollFactor > 0 && IsFullUnroll) {
         llvm_unreachable("Contradicting state");
-      } else if (UnrollFactor>0) {
-            TransformArgs.push_back(ConstantAsMetadata::get(ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)) );
+      } else if (UnrollFactor > 0) {
+        TransformArgs.push_back(ConstantAsMetadata::get(
+            ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)));
       } else if (IsFullUnroll) {
-            TransformArgs.push_back(MDString::get(Ctx, "full"));
+        TransformArgs.push_back(MDString::get(Ctx, "full"));
       } else {
-          TransformArgs.push_back(nullptr); // Determine unroll factor heuristically
+        TransformArgs.push_back(
+            nullptr); // Determine unroll factor heuristically
       }
 
-        auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
       Transform.TransformMD = MDTransform;
       AdditionalTransforms.push_back(MDTransform);
       AllTransforms.push_back(MDTransform);
- 
-            // Follow-ups use this one
+
+      // Follow-ups use this one
       TopLoopId = MDTransform;
 
-          } break;
-
+    } break;
     }
   }
 
@@ -426,17 +427,17 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       continue;
     }
 
-        if (auto Unrolling = dyn_cast<LoopUnrollingAttr>(Attr)) {
-            auto Fac = Unrolling->getFactor();
-            int64_t FactorInt = -1;
-            if (Fac) {
-              llvm::APSInt FactorAPS = Fac->EvaluateKnownConstInt(Ctx);
-                  FactorInt = FactorAPS.getSExtValue();
-            }
-      addTransformation(LoopTransformation::createUnrolling(Unrolling->getApplyOn(),FactorInt , Unrolling->getFull() ));
+    if (auto Unrolling = dyn_cast<LoopUnrollingAttr>(Attr)) {
+      auto Fac = Unrolling->getFactor();
+      int64_t FactorInt = -1;
+      if (Fac) {
+        llvm::APSInt FactorAPS = Fac->EvaluateKnownConstInt(Ctx);
+        FactorInt = FactorAPS.getSExtValue();
+      }
+      addTransformation(LoopTransformation::createUnrolling(
+          Unrolling->getApplyOn(), FactorInt, Unrolling->getFull()));
       continue;
     }
-
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
