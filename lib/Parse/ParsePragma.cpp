@@ -1324,11 +1324,12 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
 
   case TransformClauseKind::Full :{
     assert(!Toks[i + 1].is(tok::l_paren)); // No arguments
-
     auto OptionInfo = Toks[i].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
     assert(OptionStr == "full");
     Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
+
+    i += 1;
     return TransformClauseKind::Full;
   } break;
 

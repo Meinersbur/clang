@@ -299,9 +299,9 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
 
       auto UnrollFactor = Transform.Factor;
       auto IsFullUnroll = Transform.Full;
-      if (UnrollFactor && IsFullUnroll) {
-        llvm_unreachable("Contrdicting state");
-      } else if (UnrollFactor) {
+      if (UnrollFactor>0 && IsFullUnroll) {
+        llvm_unreachable("Contradicting state");
+      } else if (UnrollFactor>0) {
             TransformArgs.push_back(ConstantAsMetadata::get(ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)) );
       } else if (IsFullUnroll) {
             TransformArgs.push_back(MDString::get(Ctx, "full"));
@@ -427,9 +427,13 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
     }
 
         if (auto Unrolling = dyn_cast<LoopUnrollingAttr>(Attr)) {
-             llvm::APSInt FactorAPS = Unrolling->getFactor() ->EvaluateKnownConstInt(Ctx);
-             auto FactorInt = FactorAPS.getSExtValue();
-      addTransformation(LoopTransformation::createUnrolling(          Unrolling->getApplyOn(),FactorInt , Unrolling->getFull() ));
+            auto Fac = Unrolling->getFactor();
+            int64_t FactorInt = -1;
+            if (Fac) {
+              llvm::APSInt FactorAPS = Fac->EvaluateKnownConstInt(Ctx);
+                  FactorInt = FactorAPS.getSExtValue();
+            }
+      addTransformation(LoopTransformation::createUnrolling(Unrolling->getApplyOn(),FactorInt , Unrolling->getFull() ));
       continue;
     }
 
