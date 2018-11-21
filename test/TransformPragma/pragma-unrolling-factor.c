@@ -44,18 +44,21 @@ int main() {
 
 
 // AST: if (1)
-// AST:     for (int c0 = 0; c0 <= 255; c0 += 1) {
-// AST:       for (int c3 = 0; c3 <= 127; c3 += 1)
-// AST:         CopyStmt_0(c0, 0, c3);
-// AST:       for (int c1 = 0; c1 <= 127; c1 += 1)
-// AST:         Stmt_for_body4(c0, c1);
+// AST:     for (int c0 = 0; c0 <= 255; c0 += 4) {
+// AST:       Stmt_for_body(c0);
+// AST:       Stmt_for_body(c0 + 1);
+// AST:       Stmt_for_body(c0 + 2);
+// AST:       Stmt_for_body(c0 + 3);
 // AST:     }
 // AST: else
 // AST:     {  /* original code */ }
 
 
-// TRANS-LABEL: @pragma_pack
-// TRANS: Packed_MemRef_
+// TRANS-LABEL: @pragma_unrolling
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
+// TRANS: store double %p_add
 
 
-// RESULT: (45)
+// RESULT: (43)
