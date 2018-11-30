@@ -2234,10 +2234,6 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
     T = Context.getConstantArrayType(T, ConstVal, ASM, Quals);
   }
 
-  if (ArraySize && !CurContext->isFunctionOrMethod())
-    // A file-scoped array must have a constant array size.
-    ArraySize = new (Context) ConstantExpr(ArraySize);
-
   // OpenCL v1.2 s6.9.d: variable length arrays are not supported.
   if (getLangOpts().OpenCL && T->isVariableArrayType()) {
     Diag(Loc, diag::err_opencl_vla);
@@ -7230,8 +7226,9 @@ static void deduceOpenCLImplicitAddrSpace(TypeProcessingState &State,
     if (IsPointee) {
       ImpAddr = LangAS::opencl_generic;
     } else {
-      if (D.getContext() == DeclaratorContext::TemplateArgContext) {
-        // Do not deduce address space for non-pointee type in template args
+      if (D.getContext() == DeclaratorContext::TemplateArgContext ||
+          T->isDependentType()) {
+        // Do not deduce address space for non-pointee type in templates.
       } else if (D.getContext() == DeclaratorContext::FileContext) {
         ImpAddr = LangAS::opencl_global;
       } else {
