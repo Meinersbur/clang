@@ -15,6 +15,7 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 #define LLVM_CLANG_LIB_CODEGEN_CGLOOPINFO_H
 
+#include "clang/AST/Expr.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/DebugLoc.h"
@@ -25,12 +26,109 @@ namespace llvm {
 class BasicBlock;
 class Instruction;
 class MDNode;
+class AllocaInst;
 } // end namespace llvm
 
 namespace clang {
 class Attr;
 class ASTContext;
 namespace CodeGen {
+class CodeGenFunction;
+
+struct LoopTransformation {
+  enum TransformKind { Reversal, Tiling, Interchange, Pack, Unrolling };
+  TransformKind Kind;
+
+  // TODO: If ApplyOn is set, should not appear in the transformation stack
+  // TODO: Make a union or class hierachy
+  llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
+
+  llvm::SmallVector<int64_t, 4> TileSizes;
+  llvm::SmallVector<llvm::StringRef, 4> TilePitIds;
+  llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
+
+  llvm::SmallVector<llvm::StringRef, 4> Permutation;
+  clang::DeclRefExpr *Array;
+  bool OnHeap = false;
+
+  int64_t Factor = -1;
+  bool Full = false;
+
+  // FIXME: This is set later at CGLoopInfo and forces the emission of this
+  // pointer before its first use/even if it is not used. Maybe better hook into
+  // CGF->EmitLValue when the array pointer is emited.
+  llvm::AllocaInst *ArrayBasePtr = nullptr;
+
+  llvm::MDNode *TransformMD = nullptr;
+
+  llvm::StringRef getApplyOn() const {
+    assert(ApplyOns.size() <= 1);
+    if (ApplyOns.empty())
+      return {};
+    return ApplyOns[0];
+  }
+
+  static LoopTransformation
+  createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
+    LoopTransformation Result;
+    Result.Kind = Reversal;
+    Result.ApplyOns.push_back(ApplyOn);
+    return Result;
+  }
+
+  static LoopTransformation
+  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+               llvm::ArrayRef<int64_t> TileSizes,
+               llvm::ArrayRef<StringRef> PitIds,
+               llvm::ArrayRef<StringRef> TileIds) {
+    LoopTransformation Result;
+    Result.Kind = Tiling;
+    // TODO: list-intialize
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
+    for (auto TileSize : TileSizes)
+      Result.TileSizes.push_back(TileSize);
+    for (auto PitId : PitIds)
+      Result.TilePitIds.push_back(PitId);
+    for (auto TileId : TileIds)
+      Result.TileTileIds.push_back(TileId);
+
+    return Result;
+  }
+
+  static LoopTransformation
+  createInterchange(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+                    llvm::ArrayRef<llvm::StringRef> Permutation) {
+    LoopTransformation Result;
+    Result.Kind = Interchange;
+
+    for (auto ApplyOn : ApplyOns)
+      Result.ApplyOns.push_back(ApplyOn);
+    for (auto P : Permutation)
+      Result.Permutation.push_back(P);
+    return Result;
+  }
+
+  static LoopTransformation createPack(llvm::StringRef ApplyOn,
+                                       clang::DeclRefExpr *Array, bool OnHeap) {
+    LoopTransformation Result;
+    Result.Kind = Pack;
+    Result.ApplyOns.push_back(ApplyOn);
+    Result.Array = Array;
+    Result.OnHeap = OnHeap;
+    return Result;
+  }
+
+  static LoopTransformation createUnrolling(llvm::StringRef ApplyOn,
+                                            int64_t Factor, bool Full) {
+    LoopTransformation Result;
+    Result.Kind = Unrolling;
+    Result.ApplyOns.push_back(ApplyOn);
+    Result.Factor = Factor;
+    Result.Full = Full;
+    return Result;
+  }
+};
 
 /// Attributes that may be specified on loops.
 struct LoopAttributes {
@@ -66,13 +164,17 @@ struct LoopAttributes {
 
   /// Value for llvm.loop.distribute.enable metadata.
   LVEnableState DistributeEnable;
+
+  llvm::StringRef LoopId;
+  std::vector<LoopTransformation> TransformationStack;
 };
 
 /// Information used when generating a structured loop.
 class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
-  LoopInfo(llvm::BasicBlock *Header, const LoopAttributes &Attrs,
+  LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+           clang::CodeGen::CodeGenFunction *CGF, const LoopAttributes &Attrs,
            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Get the loop id metadata for this loop.
@@ -105,12 +207,14 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, const llvm::DebugLoc &StartLoc,
-            const llvm::DebugLoc &EndLoc);
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            clang::CodeGen::CodeGenFunction *CGF,
+            const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, clang::ASTContext &Ctx,
+  void push(llvm::BasicBlock *Header, llvm::Function *F,
+            clang::CodeGen::CodeGenFunction *CGF, clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 
@@ -165,6 +269,12 @@ public:
 
   /// \brief Set the unroll count for the next loop pushed.
   void setUnrollAndJamCount(unsigned C) { StagedAttrs.UnrollAndJamCount = C; }
+
+  void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
+
+  void addTransformation(LoopTransformation Transform) {
+    StagedAttrs.TransformationStack.push_back(Transform);
+  }
 
 private:
   /// Returns true if there is LoopInfo on the stack.
