@@ -2,12 +2,12 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -fno-unroll-loops -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
-// RUN: %clang -DMAIN -std=c99 -O3 -fno-unroll-loops -ffast-math -march=skylake -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
+// RUN: %clang -DMAIN -std=c99 -O3 -fno-unroll-loops -ffast-math -march=native -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
 void matmul(int M, int N, int K, double C[const restrict static M][N], double A[const restrict static M][K], double B[const restrict static K][N]) {
-  // #pragma clang loop(i2,i2) vectorize 
+  // #pragma clang loop(i2,i2) vectorize
   #pragma clang loop(j2) pack array(A) allocate(malloc)
   #pragma clang loop(i1) pack array(B) allocate(malloc)
   #pragma clang loop(i1,j1,k1,i2,j2) interchange permutation(j1,k1,i1,j2,i2)
