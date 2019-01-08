@@ -3336,7 +3336,7 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
        llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
            .Cases("vectorize", "vectorize_width", "interleave",
                   "interleave_count", "unroll", "unroll_count", "distribute",
-                  "unrollandjam", "unrollandjam_count", "badkeyword", true)
+                  "unrollandjam", "unrollandjam_count", "badkeyword", true).Cases("pipeline", "pipeline_initiation_interval",true)
            .Default(false))) {
     // Know legacy keywords, not (yet) supported by new syntax
     // #pragma clang loop <keyword>(<option>)
