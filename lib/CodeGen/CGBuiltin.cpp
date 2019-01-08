@@ -1235,7 +1235,7 @@ static bool isSpecialMixedSignMultiply(unsigned BuiltinID,
                                        WidthAndSignedness Op2Info,
                                        WidthAndSignedness ResultInfo) {
   return BuiltinID == Builtin::BI__builtin_mul_overflow &&
-         Op1Info.Width == Op2Info.Width && Op1Info.Width >= ResultInfo.Width &&
+         std::max(Op1Info.Width, Op2Info.Width) >= ResultInfo.Width &&
          Op1Info.Signed != Op2Info.Signed;
 }
 
@@ -1256,11 +1256,20 @@ EmitCheckedMixedSignMultiply(CodeGenFunction &CGF, const clang::Expr *Op1,
   const clang::Expr *UnsignedOp = Op1Info.Signed ? Op2 : Op1;
   llvm::Value *Signed = CGF.EmitScalarExpr(SignedOp);
   llvm::Value *Unsigned = CGF.EmitScalarExpr(UnsignedOp);
+  unsigned SignedOpWidth = Op1Info.Signed ? Op1Info.Width : Op2Info.Width;
+  unsigned UnsignedOpWidth = Op1Info.Signed ? Op2Info.Width : Op1Info.Width;
+
+  // One of the operands may be smaller than the other. If so, [s|z]ext it.
+  if (SignedOpWidth < UnsignedOpWidth)
+    Signed = CGF.Builder.CreateSExt(Signed, Unsigned->getType(), "op.sext");
+  if (UnsignedOpWidth < SignedOpWidth)
+    Unsigned = CGF.Builder.CreateZExt(Unsigned, Signed->getType(), "op.zext");
 
   llvm::Type *OpTy = Signed->getType();
   llvm::Value *Zero = llvm::Constant::getNullValue(OpTy);
   Address ResultPtr = CGF.EmitPointerWithAlignment(ResultArg);
   llvm::Type *ResTy = ResultPtr.getElementType();
+  unsigned OpWidth = std::max(Op1Info.Width, Op2Info.Width);
 
   // Take the absolute value of the signed operand.
   llvm::Value *IsNegative = CGF.Builder.CreateICmpSLT(Signed, Zero);
@@ -1278,8 +1287,8 @@ EmitCheckedMixedSignMultiply(CodeGenFunction &CGF, const clang::Expr *Op1,
   if (ResultInfo.Signed) {
     // Signed overflow occurs if the result is greater than INT_MAX or lesser
     // than INT_MIN, i.e when |Result| > (INT_MAX + IsNegative).
-    auto IntMax = llvm::APInt::getSignedMaxValue(ResultInfo.Width)
-                      .zextOrSelf(Op1Info.Width);
+    auto IntMax =
+        llvm::APInt::getSignedMaxValue(ResultInfo.Width).zextOrSelf(OpWidth);
     llvm::Value *MaxResult =
         CGF.Builder.CreateAdd(llvm::ConstantInt::get(OpTy, IntMax),
                               CGF.Builder.CreateZExt(IsNegative, OpTy));
@@ -1297,9 +1306,9 @@ EmitCheckedMixedSignMultiply(CodeGenFunction &CGF, const clang::Expr *Op1,
     llvm::Value *Underflow = CGF.Builder.CreateAnd(
         IsNegative, CGF.Builder.CreateIsNotNull(UnsignedResult));
     Overflow = CGF.Builder.CreateOr(UnsignedOverflow, Underflow);
-    if (ResultInfo.Width < Op1Info.Width) {
+    if (ResultInfo.Width < OpWidth) {
       auto IntMax =
-          llvm::APInt::getMaxValue(ResultInfo.Width).zext(Op1Info.Width);
+          llvm::APInt::getMaxValue(ResultInfo.Width).zext(OpWidth);
       llvm::Value *TruncOverflow = CGF.Builder.CreateICmpUGT(
           UnsignedResult, llvm::ConstantInt::get(OpTy, IntMax));
       Overflow = CGF.Builder.CreateOr(Overflow, TruncOverflow);
@@ -9159,6 +9168,24 @@ static Value *EmitX86MaskLogic(CodeGenFunction &CGF, Instruction::BinaryOps Opc,
                                    Ops[0]->getType());
 }
 
+static Value *EmitX86FunnelShift(CodeGenFunction &CGF, Value *Op0, Value *Op1,
+                                 Value *Amt, bool IsRight) {
+  llvm::Type *Ty = Op0->getType();
+
+  // Amount may be scalar immediate, in which case create a splat vector.
+  // Funnel shifts amounts are treated as modulo and types are all power-of-2 so
+  // we only care about the lowest log2 bits anyway.
+  if (Amt->getType() != Ty) {
+    unsigned NumElts = Ty->getVectorNumElements();
+    Amt = CGF.Builder.CreateIntCast(Amt, Ty->getScalarType(), false);
+    Amt = CGF.Builder.CreateVectorSplat(NumElts, Amt);
+  }
+
+  unsigned IID = IsRight ? Intrinsic::fshr : Intrinsic::fshl;
+  Value *F = CGF.CGM.getIntrinsic(IID, Ty);
+  return CGF.Builder.CreateCall(F, {Op0, Op1, Amt});
+}
+
 static Value *EmitX86Select(CodeGenFunction &CGF,
                             Value *Mask, Value *Op0, Value *Op1) {
 
@@ -9478,31 +9505,15 @@ static Value *EmitX86SExtMask(CodeGenFunction &CGF, Value *Op,
   return CGF.Builder.CreateSExt(Mask, DstTy, "vpmovm2");
 }
 
-// Emit addition or subtraction with saturation.
-// Handles both signed and unsigned intrinsics.
-static Value *EmitX86AddSubSatExpr(CodeGenFunction &CGF, const CallExpr *E,
-                                   SmallVectorImpl<Value *> &Ops,
+// Emit addition or subtraction with signed/unsigned saturation.
+static Value *EmitX86AddSubSatExpr(CodeGenFunction &CGF,
+                                   ArrayRef<Value *> Ops, bool IsSigned,
                                    bool IsAddition) {
-
-  // Collect vector elements and type data.
-  llvm::Type *ResultType = CGF.ConvertType(E->getType());
-
-  Value *Res;
-  if (IsAddition) {
-    // ADDUS: a > (a+b) ? ~0 : (a+b)
-    // If Ops[0] > Add, overflow occurred.
-    Value *Add = CGF.Builder.CreateAdd(Ops[0], Ops[1]);
-    Value *ICmp = CGF.Builder.CreateICmp(ICmpInst::ICMP_UGT, Ops[0], Add);
-    Value *Max = llvm::Constant::getAllOnesValue(ResultType);
-    Res = CGF.Builder.CreateSelect(ICmp, Max, Add);
-  } else {
-    // SUBUS: max(a, b) - b
-    Value *ICmp = CGF.Builder.CreateICmp(ICmpInst::ICMP_UGT, Ops[0], Ops[1]);
-    Value *Select = CGF.Builder.CreateSelect(ICmp, Ops[0], Ops[1]);
-    Res = CGF.Builder.CreateSub(Select, Ops[1]);
-  }
-
-  return Res;
+  Intrinsic::ID IID =
+      IsSigned ? (IsAddition ? Intrinsic::sadd_sat : Intrinsic::ssub_sat)
+               : (IsAddition ? Intrinsic::uadd_sat : Intrinsic::usub_sat);
+  llvm::Function *F = CGF.CGM.getIntrinsic(IID, Ops[0]->getType());
+  return CGF.Builder.CreateCall(F, {Ops[0], Ops[1]});
 }
 
 Value *CodeGenFunction::EmitX86CpuIs(const CallExpr *E) {
@@ -9526,6 +9537,7 @@ Value *CodeGenFunction::EmitX86CpuIs(StringRef CPUStr) {
 
   // Grab the global __cpu_model.
   llvm::Constant *CpuModel = CGM.CreateRuntimeVariable(STy, "__cpu_model");
+  cast<llvm::GlobalValue>(CpuModel)->setDSOLocal(true);
 
   // Calculate the index needed to access the correct field based on the
   // range. Also adjust the expected value.
@@ -9598,6 +9610,7 @@ llvm::Value *CodeGenFunction::EmitX86CpuSupports(uint64_t FeaturesMask) {
 
     // Grab the global __cpu_model.
     llvm::Constant *CpuModel = CGM.CreateRuntimeVariable(STy, "__cpu_model");
+    cast<llvm::GlobalValue>(CpuModel)->setDSOLocal(true);
 
     // Grab the first (0th) element from the field __cpu_features off of the
     // global in the struct STy.
@@ -9617,6 +9630,8 @@ llvm::Value *CodeGenFunction::EmitX86CpuSupports(uint64_t FeaturesMask) {
   if (Features2 != 0) {
     llvm::Constant *CpuFeatures2 = CGM.CreateRuntimeVariable(Int32Ty,
                                                              "__cpu_features2");
+    cast<llvm::GlobalValue>(CpuFeatures2)->setDSOLocal(true);
+
     Value *Features =
         Builder.CreateAlignedLoad(CpuFeatures2, CharUnits::fromQuantity(4));
 
@@ -9634,6 +9649,9 @@ Value *CodeGenFunction::EmitX86CpuInit() {
   llvm::FunctionType *FTy = llvm::FunctionType::get(VoidTy,
                                                     /*Variadic*/ false);
   llvm::Constant *Func = CGM.CreateRuntimeFunction(FTy, "__cpu_indicator_init");
+  cast<llvm::GlobalValue>(Func)->setDSOLocal(true);
+  cast<llvm::GlobalValue>(Func)->setDLLStorageClass(
+      llvm::GlobalValue::DefaultStorageClass);
   return Builder.CreateCall(Func);
 }
 
@@ -10582,7 +10600,41 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
     SI->setAlignment(1);
     return SI;
   }
-
+  // Rotate is a special case of funnel shift - 1st 2 args are the same.
+  case X86::BI__builtin_ia32_vprotb:
+  case X86::BI__builtin_ia32_vprotw:
+  case X86::BI__builtin_ia32_vprotd:
+  case X86::BI__builtin_ia32_vprotq:
+  case X86::BI__builtin_ia32_vprotbi:
+  case X86::BI__builtin_ia32_vprotwi:
+  case X86::BI__builtin_ia32_vprotdi:
+  case X86::BI__builtin_ia32_vprotqi:
+  case X86::BI__builtin_ia32_prold128:
+  case X86::BI__builtin_ia32_prold256:
+  case X86::BI__builtin_ia32_prold512:
+  case X86::BI__builtin_ia32_prolq128:
+  case X86::BI__builtin_ia32_prolq256:
+  case X86::BI__builtin_ia32_prolq512:
+  case X86::BI__builtin_ia32_prolvd128:
+  case X86::BI__builtin_ia32_prolvd256:
+  case X86::BI__builtin_ia32_prolvd512:
+  case X86::BI__builtin_ia32_prolvq128:
+  case X86::BI__builtin_ia32_prolvq256:
+  case X86::BI__builtin_ia32_prolvq512:
+    return EmitX86FunnelShift(*this, Ops[0], Ops[0], Ops[1], false);
+  case X86::BI__builtin_ia32_prord128:
+  case X86::BI__builtin_ia32_prord256:
+  case X86::BI__builtin_ia32_prord512:
+  case X86::BI__builtin_ia32_prorq128:
+  case X86::BI__builtin_ia32_prorq256:
+  case X86::BI__builtin_ia32_prorq512:
+  case X86::BI__builtin_ia32_prorvd128:
+  case X86::BI__builtin_ia32_prorvd256:
+  case X86::BI__builtin_ia32_prorvd512:
+  case X86::BI__builtin_ia32_prorvq128:
+  case X86::BI__builtin_ia32_prorvq256:
+  case X86::BI__builtin_ia32_prorvq512:
+    return EmitX86FunnelShift(*this, Ops[0], Ops[0], Ops[1], true);
   case X86::BI__builtin_ia32_selectb_128:
   case X86::BI__builtin_ia32_selectb_256:
   case X86::BI__builtin_ia32_selectb_512:
@@ -10946,6 +10998,52 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   case X86::BI__builtin_ia32_pternlogq128_maskz:
   case X86::BI__builtin_ia32_pternlogq256_maskz:
     return EmitX86Ternlog(*this, /*ZeroMask*/true, Ops);
+
+  case X86::BI__builtin_ia32_vpshldd128:
+  case X86::BI__builtin_ia32_vpshldd256:
+  case X86::BI__builtin_ia32_vpshldd512:
+  case X86::BI__builtin_ia32_vpshldq128:
+  case X86::BI__builtin_ia32_vpshldq256:
+  case X86::BI__builtin_ia32_vpshldq512:
+  case X86::BI__builtin_ia32_vpshldw128:
+  case X86::BI__builtin_ia32_vpshldw256:
+  case X86::BI__builtin_ia32_vpshldw512:
+    return EmitX86FunnelShift(*this, Ops[0], Ops[1], Ops[2], false);
+
+  case X86::BI__builtin_ia32_vpshrdd128:
+  case X86::BI__builtin_ia32_vpshrdd256:
+  case X86::BI__builtin_ia32_vpshrdd512:
+  case X86::BI__builtin_ia32_vpshrdq128:
+  case X86::BI__builtin_ia32_vpshrdq256:
+  case X86::BI__builtin_ia32_vpshrdq512:
+  case X86::BI__builtin_ia32_vpshrdw128:
+  case X86::BI__builtin_ia32_vpshrdw256:
+  case X86::BI__builtin_ia32_vpshrdw512:
+    // Ops 0 and 1 are swapped.
+    return EmitX86FunnelShift(*this, Ops[1], Ops[0], Ops[2], true);
+
+  case X86::BI__builtin_ia32_vpshldvd128:
+  case X86::BI__builtin_ia32_vpshldvd256:
+  case X86::BI__builtin_ia32_vpshldvd512:
+  case X86::BI__builtin_ia32_vpshldvq128:
+  case X86::BI__builtin_ia32_vpshldvq256:
+  case X86::BI__builtin_ia32_vpshldvq512:
+  case X86::BI__builtin_ia32_vpshldvw128:
+  case X86::BI__builtin_ia32_vpshldvw256:
+  case X86::BI__builtin_ia32_vpshldvw512:
+    return EmitX86FunnelShift(*this, Ops[0], Ops[1], Ops[2], false);
+
+  case X86::BI__builtin_ia32_vpshrdvd128:
+  case X86::BI__builtin_ia32_vpshrdvd256:
+  case X86::BI__builtin_ia32_vpshrdvd512:
+  case X86::BI__builtin_ia32_vpshrdvq128:
+  case X86::BI__builtin_ia32_vpshrdvq256:
+  case X86::BI__builtin_ia32_vpshrdvq512:
+  case X86::BI__builtin_ia32_vpshrdvw128:
+  case X86::BI__builtin_ia32_vpshrdvw256:
+  case X86::BI__builtin_ia32_vpshrdvw512:
+    // Ops 0 and 1 are swapped.
+    return EmitX86FunnelShift(*this, Ops[1], Ops[0], Ops[2], true);
 
   // 3DNow!
   case X86::BI__builtin_ia32_pswapdsf:
@@ -11367,20 +11465,34 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
     Load->setVolatile(true);
     return Load;
   }
+  case X86::BI__builtin_ia32_paddsb512:
+  case X86::BI__builtin_ia32_paddsw512:
+  case X86::BI__builtin_ia32_paddsb256:
+  case X86::BI__builtin_ia32_paddsw256:
+  case X86::BI__builtin_ia32_paddsb128:
+  case X86::BI__builtin_ia32_paddsw128:
+    return EmitX86AddSubSatExpr(*this, Ops, true, true);
   case X86::BI__builtin_ia32_paddusb512:
   case X86::BI__builtin_ia32_paddusw512:
   case X86::BI__builtin_ia32_paddusb256:
   case X86::BI__builtin_ia32_paddusw256:
   case X86::BI__builtin_ia32_paddusb128:
   case X86::BI__builtin_ia32_paddusw128:
-    return EmitX86AddSubSatExpr(*this, E, Ops, true /* IsAddition */);
+    return EmitX86AddSubSatExpr(*this, Ops, false, true);
+  case X86::BI__builtin_ia32_psubsb512:
+  case X86::BI__builtin_ia32_psubsw512:
+  case X86::BI__builtin_ia32_psubsb256:
+  case X86::BI__builtin_ia32_psubsw256:
+  case X86::BI__builtin_ia32_psubsb128:
+  case X86::BI__builtin_ia32_psubsw128:
+    return EmitX86AddSubSatExpr(*this, Ops, true, false);
   case X86::BI__builtin_ia32_psubusb512:
   case X86::BI__builtin_ia32_psubusw512:
   case X86::BI__builtin_ia32_psubusb256:
   case X86::BI__builtin_ia32_psubusw256:
   case X86::BI__builtin_ia32_psubusb128:
   case X86::BI__builtin_ia32_psubusw128:
-    return EmitX86AddSubSatExpr(*this, E, Ops, false /* IsAddition */);
+    return EmitX86AddSubSatExpr(*this, Ops, false, false);
   }
 }
 

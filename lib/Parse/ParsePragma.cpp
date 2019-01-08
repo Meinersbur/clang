@@ -1062,20 +1062,23 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   bool OptionUnroll = false;
   bool OptionUnrollAndJam = false;
   bool OptionDistribute = false;
+  bool OptionPipelineDisabled = false;
   bool StateOption = false;
   if (OptionInfo) { // Pragma Unroll does not specify an option.
     OptionUnroll = OptionInfo->isStr("unroll");
     OptionUnrollAndJam = OptionInfo->isStr("unroll_and_jam");
     OptionDistribute = OptionInfo->isStr("distribute");
+    OptionPipelineDisabled = OptionInfo->isStr("pipeline");
     StateOption = llvm::StringSwitch<bool>(OptionInfo->getName())
                       .Case("vectorize", true)
                       .Case("interleave", true)
                       .Default(false) ||
-                  OptionUnroll || OptionUnrollAndJam || OptionDistribute;
+                  OptionUnroll || OptionUnrollAndJam || OptionDistribute ||
+                  OptionPipelineDisabled;
   }
 
-  bool AssumeSafetyArg =
-      !OptionUnroll && !OptionUnrollAndJam && !OptionDistribute;
+  bool AssumeSafetyArg = !OptionUnroll && !OptionUnrollAndJam &&
+                         !OptionDistribute && !OptionPipelineDisabled;
   // Verify loop hint has an argument.
   if (Toks[0].is(tok::eof)) {
     ConsumeAnnotationToken();
@@ -1092,16 +1095,21 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
     SourceLocation StateLoc = Toks[0].getLocation();
     IdentifierInfo *StateInfo = Toks[0].getIdentifierInfo();
 
-    bool Valid =
-        StateInfo && llvm::StringSwitch<bool>(StateInfo->getName())
-                         .Cases("enable", "disable", true)
-                         .Case("full", OptionUnroll || OptionUnrollAndJam)
-                         .Case("assume_safety", AssumeSafetyArg)
-                         .Default(false);
+    bool Valid = StateInfo &&
+                 llvm::StringSwitch<bool>(StateInfo->getName())
+                     .Case("disable", true)
+                     .Case("enable", !OptionPipelineDisabled)
+                     .Case("full", OptionUnroll || OptionUnrollAndJam)
+                     .Case("assume_safety", AssumeSafetyArg)
+                     .Default(false);
     if (!Valid) {
-      Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
-          << /*FullKeyword=*/(OptionUnroll || OptionUnrollAndJam)
-          << /*AssumeSafetyKeyword=*/AssumeSafetyArg;
+      if (OptionPipelineDisabled) {
+        Diag(Toks[0].getLocation(), diag::err_pragma_pipeline_invalid_keyword);
+      } else {
+        Diag(Toks[0].getLocation(), diag::err_pragma_invalid_keyword)
+            << /*FullKeyword=*/(OptionUnroll || OptionUnrollAndJam)
+            << /*AssumeSafetyKeyword=*/AssumeSafetyArg;
+      }
       return false;
     }
     if (Toks.size() > 2)
@@ -1632,6 +1640,7 @@ struct PragmaAttributeInfo {
   enum ActionType { Push, Pop, Attribute };
   ParsedAttributes &Attributes;
   ActionType Action;
+  const IdentifierInfo *Namespace = nullptr;
   ArrayRef<Token> Tokens;
 
   PragmaAttributeInfo(ParsedAttributes &Attributes) : Attributes(Attributes) {}
@@ -1886,7 +1895,7 @@ void Parser::HandlePragmaAttribute() {
   auto *Info = static_cast<PragmaAttributeInfo *>(Tok.getAnnotationValue());
   if (Info->Action == PragmaAttributeInfo::Pop) {
     ConsumeAnnotationToken();
-    Actions.ActOnPragmaAttributePop(PragmaLoc);
+    Actions.ActOnPragmaAttributePop(PragmaLoc, Info->Namespace);
     return;
   }
   // Parse the actual attribute with its arguments.
@@ -1896,7 +1905,7 @@ void Parser::HandlePragmaAttribute() {
 
   if (Info->Action == PragmaAttributeInfo::Push && Info->Tokens.empty()) {
     ConsumeAnnotationToken();
-    Actions.ActOnPragmaAttributeEmptyPush(PragmaLoc);
+    Actions.ActOnPragmaAttributeEmptyPush(PragmaLoc, Info->Namespace);
     return;
   }
 
@@ -2048,7 +2057,7 @@ void Parser::HandlePragmaAttribute() {
 
   // Handle a mixed push/attribute by desurging to a push, then an attribute.
   if (Info->Action == PragmaAttributeInfo::Push)
-    Actions.ActOnPragmaAttributeEmptyPush(PragmaLoc);
+    Actions.ActOnPragmaAttributeEmptyPush(PragmaLoc, Info->Namespace);
 
   Actions.ActOnPragmaAttributeAttribute(Attribute, PragmaLoc,
                                         std::move(SubjectMatchRules));
@@ -3369,6 +3378,8 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
 ///    'vectorize_width' '(' loop-hint-value ')'
 ///    'interleave_count' '(' loop-hint-value ')'
 ///    'unroll_count' '(' loop-hint-value ')'
+///    'pipeline' '(' disable ')'
+///    'pipeline_initiation_interval' '(' loop-hint-value ')'
 ///
 ///  loop-hint-keyword:
 ///    'enable'
@@ -3428,6 +3439,8 @@ void PragmaLoopHintHandler::HandleLegacySyntax(Preprocessor &PP,
                            .Case("vectorize_width", true)
                            .Case("interleave_count", true)
                            .Case("unroll_count", true)
+                           .Case("pipeline", true)
+                           .Case("pipeline_initiation_interval", true)
                            .Default(false);
     if (!OptionValid) {
       PP.Diag(Tok.getLocation(), diag::err_pragma_loop_invalid_option)
@@ -3718,10 +3731,20 @@ void PragmaForceCUDAHostDeviceHandler::HandlePragma(
 ///
 /// The syntax is:
 /// \code
-///  #pragma clang attribute push(attribute, subject-set)
+///  #pragma clang attribute push (attribute, subject-set)
 ///  #pragma clang attribute push
 ///  #pragma clang attribute (attribute, subject-set)
 ///  #pragma clang attribute pop
+/// \endcode
+///
+/// There are also 'namespace' variants of push and pop directives. The bare
+/// '#pragma clang attribute (attribute, subject-set)' version doesn't require a
+/// namespace, since it always applies attributes to the most recently pushed
+/// group, regardless of namespace.
+/// \code
+///  #pragma clang attribute namespace.push (attribute, subject-set)
+///  #pragma clang attribute namespace.push
+///  #pragma clang attribute namespace.pop
 /// \endcode
 ///
 /// The subject-set clause defines the set of declarations which receive the
@@ -3739,6 +3762,22 @@ void PragmaAttributeHandler::HandlePragma(Preprocessor &PP,
   auto *Info = new (PP.getPreprocessorAllocator())
       PragmaAttributeInfo(AttributesForPragmaAttribute);
 
+  // Parse the optional namespace followed by a period.
+  if (Tok.is(tok::identifier)) {
+    IdentifierInfo *II = Tok.getIdentifierInfo();
+    if (!II->isStr("push") && !II->isStr("pop")) {
+      Info->Namespace = II;
+      PP.Lex(Tok);
+
+      if (!Tok.is(tok::period)) {
+        PP.Diag(Tok.getLocation(), diag::err_pragma_attribute_expected_period)
+            << II;
+        return;
+      }
+      PP.Lex(Tok);
+    }
+  }
+
   if (!Tok.isOneOf(tok::identifier, tok::l_paren)) {
     PP.Diag(Tok.getLocation(),
             diag::err_pragma_attribute_expected_push_pop_paren);
@@ -3746,9 +3785,16 @@ void PragmaAttributeHandler::HandlePragma(Preprocessor &PP,
   }
 
   // Determine what action this pragma clang attribute represents.
-  if (Tok.is(tok::l_paren))
+  if (Tok.is(tok::l_paren)) {
+    if (Info->Namespace) {
+      PP.Diag(Tok.getLocation(),
+              diag::err_pragma_attribute_namespace_on_attribute);
+      PP.Diag(Tok.getLocation(),
+              diag::note_pragma_attribute_namespace_on_attribute);
+      return;
+    }
     Info->Action = PragmaAttributeInfo::Attribute;
-  else {
+  } else {
     const IdentifierInfo *II = Tok.getIdentifierInfo();
     if (II->isStr("push"))
       Info->Action = PragmaAttributeInfo::Push;

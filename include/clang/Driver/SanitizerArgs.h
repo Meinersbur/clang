@@ -39,6 +39,7 @@ class SanitizerArgs {
   bool AsanPoisonCustomArrayCookie = false;
   bool AsanGlobalsDeadStripping = false;
   bool AsanUseOdrIndicator = false;
+  std::string HwasanAbi;
   bool LinkCXXRuntimes = false;
   bool NeedPIE = false;
   bool SafeStackRuntime = false;
@@ -82,6 +83,7 @@ class SanitizerArgs {
   bool needsUnwindTables() const;
   bool linkCXXRuntimes() const { return LinkCXXRuntimes; }
   bool hasCrossDsoCfi() const { return CfiCrossDso; }
+  bool hasAnySanitizer() const { return !Sanitizers.empty(); }
   void addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
                llvm::opt::ArgStringList &CmdArgs, types::ID InputType) const;
 };
