@@ -102,6 +102,7 @@ namespace {
     void VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D);
     void VisitOMPRequiresDecl(OMPRequiresDecl *D);
     void VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D);
+    void VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D);
     void VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D);
 
     void printTemplateParameters(const TemplateParameterList *Params);
@@ -424,7 +425,7 @@ void DeclPrinter::VisitDeclContext(DeclContext *DC, bool Indent) {
     // FIXME: Need to be able to tell the DeclPrinter when
     const char *Terminator = nullptr;
     if (isa<OMPThreadPrivateDecl>(*D) || isa<OMPDeclareReductionDecl>(*D) ||
-        isa<OMPRequiresDecl>(*D))
+        isa<OMPDeclareMapperDecl>(*D) || isa<OMPRequiresDecl>(*D))
       Terminator = nullptr;
     else if (isa<ObjCMethodDecl>(*D) && cast<ObjCMethodDecl>(*D)->hasBody())
       Terminator = nullptr;
@@ -1594,6 +1595,26 @@ void DeclPrinter::VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D) {
       if (D->getInitializerKind() == OMPDeclareReductionDecl::DirectInit)
         Out << ")";
       Out << ")";
+    }
+  }
+}
+
+void DeclPrinter::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
+  if (!D->isInvalidDecl()) {
+    Out << "#pragma omp declare mapper (";
+    D->printName(Out);
+    Out << " : ";
+    D->getType().print(Out, Policy);
+    Out << " ";
+    Out << D->getVarName();
+    Out << ")";
+    if (!D->clauselist_empty()) {
+      OMPClausePrinter Printer(Out, Policy);
+      for (auto I = D->clauselist_begin(), E = D->clauselist_end(); I != E;
+           ++I) {
+        Out << " ";
+        Printer.Visit(*I);
+      }
     }
   }
 }

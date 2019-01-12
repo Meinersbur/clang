@@ -1829,6 +1829,14 @@ public:
                                      CXXBasePath &Path, DeclarationName Name);
 
   /// Base-class lookup callback that determines whether there exists
+  /// an OpenMP declare mapper member with the given name.
+  ///
+  /// This callback can be used with \c lookupInBases() to find members
+  /// of the given name within a C++ class hierarchy.
+  static bool FindOMPMapperMember(const CXXBaseSpecifier *Specifier,
+                                  CXXBasePath &Path, DeclarationName Name);
+
+  /// Base-class lookup callback that determines whether there exists
   /// a member with the given name that can be used in a nested-name-specifier.
   ///
   /// This callback can be used with \c lookupInBases() to find members of
@@ -2180,7 +2188,7 @@ public:
   /// that for the call operator of a lambda closure type, this returns the
   /// desugared 'this' type (a pointer to the closure type), not the captured
   /// 'this' type.
-  QualType getThisType(ASTContext &C) const;
+  QualType getThisType() const;
 
   static QualType getThisType(const FunctionProtoType *FPT,
                               const CXXRecordDecl *Decl);

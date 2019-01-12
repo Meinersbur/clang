@@ -8622,6 +8622,7 @@ void CGOpenMPRuntime::scanForTargetRegionsFunctions(const Stmt *S,
     case OMPD_declare_target:
     case OMPD_end_declare_target:
     case OMPD_declare_reduction:
+    case OMPD_declare_mapper:
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_requires:
@@ -9102,6 +9103,7 @@ void CGOpenMPRuntime::emitTargetDataStandAloneCall(
     case OMPD_declare_target:
     case OMPD_end_declare_target:
     case OMPD_declare_reduction:
+    case OMPD_declare_mapper:
     case OMPD_taskloop:
     case OMPD_taskloop_simd:
     case OMPD_target:

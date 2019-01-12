@@ -311,6 +311,19 @@ bool Sema::DiagnoseUseOfDecl(NamedDecl *D, ArrayRef<SourceLocation> Locs,
     return true;
   }
 
+  // [OpenMP 5.0], 2.19.7.3. declare mapper Directive, Restrictions
+  //  List-items in map clauses on this construct may only refer to the declared
+  //  variable var and entities that could be referenced by a procedure defined
+  //  at the same location
+  auto *DMD = dyn_cast<OMPDeclareMapperDecl>(CurContext);
+  if (LangOpts.OpenMP && DMD && !CurContext->containsDecl(D) &&
+      isa<VarDecl>(D)) {
+    Diag(Loc, diag::err_omp_declare_mapper_wrong_var)
+        << DMD->getVarName().getAsString();
+    Diag(D->getLocation(), diag::note_entity_declared_at) << D;
+    return true;
+  }
+
   DiagnoseAvailabilityOfDecl(D, Locs, UnknownObjCClass, ObjCPropertyAccess,
                              AvoidPartialAvailabilityChecks, ClassReceiver);
 
@@ -2585,7 +2598,7 @@ Sema::PerformObjectMemberConversion(Expr *From,
     if (Method->isStatic())
       return From;
 
-    DestType = Method->getThisType(Context);
+    DestType = Method->getThisType();
     DestRecordType = DestType->getPointeeType();
 
     if (FromType->getAs<PointerType>()) {
@@ -2913,6 +2926,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     case Decl::EnumConstant:
     case Decl::UnresolvedUsingValue:
     case Decl::OMPDeclareReduction:
+    case Decl::OMPDeclareMapper:
       valueKind = VK_RValue;
       break;
 
@@ -14557,6 +14571,10 @@ void Sema::DiscardCleanupsInEvaluationContext() {
 }
 
 ExprResult Sema::HandleExprEvaluationContextForTypeof(Expr *E) {
+  ExprResult Result = CheckPlaceholderExpr(E);
+  if (Result.isInvalid())
+    return ExprError();
+  E = Result.get();
   if (!E->getType()->isVariablyModifiedType())
     return E;
   return TransformToPotentiallyEvaluated(E);

@@ -176,7 +176,10 @@ public:
     IDNS_LocalExtern         = 0x0800,
 
     /// This declaration is an OpenMP user defined reduction construction.
-    IDNS_OMPReduction        = 0x1000
+    IDNS_OMPReduction        = 0x1000,
+
+    /// This declaration is an OpenMP user defined mapper.
+    IDNS_OMPMapper           = 0x2000
   };
 
   /// ObjCDeclQualifier - 'Qualifiers' written next to the return and
@@ -324,7 +327,7 @@ protected:
   unsigned FromASTFile : 1;
 
   /// IdentifierNamespace - This specifies what IDNS_* namespace this lives in.
-  unsigned IdentifierNamespace : 13;
+  unsigned IdentifierNamespace : 14;
 
   /// If 0, we have not computed the linkage of this declaration.
   /// Otherwise, it is the linkage + 1.
@@ -1252,6 +1255,7 @@ public:
 ///   NamespaceDecl
 ///   TagDecl
 ///   OMPDeclareReductionDecl
+///   OMPDeclareMapperDecl
 ///   FunctionDecl
 ///   ObjCMethodDecl
 ///   ObjCContainerDecl
