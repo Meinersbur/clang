@@ -401,7 +401,7 @@ namespace  {
       dumpStmt(TA.getAsExpr());
     }
     void VisitPackTemplateArgument(const TemplateArgument &TA) {
-      for (const auto& TArg : TA.pack_elements())
+      for (const auto &TArg : TA.pack_elements())
         dumpTemplateArgument(TArg);
     }
 
