@@ -9518,6 +9518,10 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
                                     GetBuiltinTypeError &Error,
                                     unsigned *IntegerConstantArgs) const {
   const char *TypeStr = BuiltinInfo.getTypeString(Id);
+  if (TypeStr[0] == '\0') {
+    Error = GE_Missing_type;
+    return {};
+  }
 
   SmallVector<QualType, 8> ArgTypes;
 
@@ -10485,9 +10489,9 @@ unsigned char ASTContext::getFixedPointIBits(QualType Ty) const {
 }
 
 FixedPointSemantics ASTContext::getFixedPointSemantics(QualType Ty) const {
-  assert(Ty->isFixedPointType() ||
-         Ty->isIntegerType() && "Can only get the fixed point semantics for a "
-                                "fixed point or integer type.");
+  assert((Ty->isFixedPointType() || Ty->isIntegerType()) &&
+         "Can only get the fixed point semantics for a "
+         "fixed point or integer type.");
   if (Ty->isIntegerType())
     return FixedPointSemantics::GetIntegerSemantics(getIntWidth(Ty),
                                                     Ty->isSignedIntegerType());

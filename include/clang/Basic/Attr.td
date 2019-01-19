@@ -190,6 +190,9 @@ class VariadicIdentifierArgument<string name> : Argument<name, 1>;
 // Like VariadicUnsignedArgument except values are ParamIdx.
 class VariadicParamIdxArgument<string name> : Argument<name, 1>;
 
+// A list of identifiers matching parameters or ParamIdx indices.
+class VariadicParamOrParamIdxArgument<string name> : Argument<name, 1>;
+
 // Like VariadicParamIdxArgument but for a single function parameter index.
 class ParamIdxArgument<string name, bit opt = 0> : Argument<name, opt>;
 
@@ -1210,6 +1213,13 @@ def FormatArg : InheritableAttr {
   let Args = [ParamIdxArgument<"FormatIdx">];
   let Subjects = SubjectList<[ObjCMethod, HasFunctionProto]>;
   let Documentation = [Undocumented];
+}
+
+def Callback : InheritableAttr {
+  let Spellings = [Clang<"callback">];
+  let Args = [VariadicParamOrParamIdxArgument<"Encoding">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [CallbackDocs];
 }
 
 def GNUInline : InheritableAttr {
@@ -3385,6 +3395,12 @@ def SpeculativeLoadHardening : InheritableAttr {
   let Spellings = [Clang<"speculative_load_hardening">];
   let Subjects = SubjectList<[Function, ObjCMethod], ErrorDiag>;
   let Documentation = [SpeculativeLoadHardeningDocs];
+}
+
+def NoSpeculativeLoadHardening : InheritableAttr {
+  let Spellings = [Clang<"no_speculative_load_hardening">];
+  let Subjects = SubjectList<[Function, ObjCMethod], ErrorDiag>;
+  let Documentation = [NoSpeculativeLoadHardeningDocs];
 }
 
 def Uninitialized : InheritableAttr {
