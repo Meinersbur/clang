@@ -1,9 +1,8 @@
 //===- TemplateBase.h - Core classes for C++ templates ----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -620,13 +619,17 @@ public:
   /// The number of template arguments in TemplateArgs.
   unsigned NumTemplateArgs;
 
+  SourceLocation getLAngleLoc() const { return LAngleLoc; }
+  SourceLocation getRAngleLoc() const { return RAngleLoc; }
+
   /// Retrieve the template arguments
   const TemplateArgumentLoc *getTemplateArgs() const {
     return getTrailingObjects<TemplateArgumentLoc>();
   }
+  unsigned getNumTemplateArgs() const { return NumTemplateArgs; }
 
   llvm::ArrayRef<TemplateArgumentLoc> arguments() const {
-    return llvm::makeArrayRef(getTemplateArgs(), NumTemplateArgs);
+    return llvm::makeArrayRef(getTemplateArgs(), getNumTemplateArgs());
   }
 
   const TemplateArgumentLoc &operator[](unsigned I) const {

@@ -1,9 +1,8 @@
 //===- DeclCXX.cpp - C++ Declaration AST Node Implementation --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -2181,7 +2180,7 @@ QualType CXXMethodDecl::getThisType(const FunctionProtoType *FPT,
   return C.getPointerType(ClassTy);
 }
 
-QualType CXXMethodDecl::getThisType(ASTContext &C) const {
+QualType CXXMethodDecl::getThisType() const {
   // C++ 9.3.2p1: The type of this in a member function of a class X is X*.
   // If the member function is declared const, the type of this is const X*,
   // if the member function is declared volatile, the type of this is

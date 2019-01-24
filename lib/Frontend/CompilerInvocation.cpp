@@ -1,9 +1,8 @@
 //===- CompilerInvocation.cpp ---------------------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -907,6 +906,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << S;
   }
   Opts.LTOUnit = Args.hasFlag(OPT_flto_unit, OPT_fno_lto_unit, false);
+  Opts.EnableSplitLTOUnit = Args.hasArg(OPT_fsplit_lto_unit);
   if (Arg *A = Args.getLastArg(OPT_fthinlto_index_EQ)) {
     if (IK.getLanguage() != InputKind::LLVM_IR)
       Diags.Report(diag::err_drv_argument_only_allowed_with)
@@ -2845,6 +2845,11 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
         getLastArgIntValue(Args, options::OPT_fopenmp_cuda_blocks_per_sm_EQ,
                            Opts.OpenMPCUDABlocksPerSM, Diags);
   }
+
+  // Prevent auto-widening the representation of loop counters during an
+  // OpenMP collapse clause.
+  Opts.OpenMPOptimisticCollapse =
+      Args.hasArg(options::OPT_fopenmp_optimistic_collapse) ? 1 : 0;
 
   // Get the OpenMP target triples if any.
   if (Arg *A = Args.getLastArg(options::OPT_fopenmp_targets_EQ)) {

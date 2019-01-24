@@ -1,9 +1,8 @@
 //===--- CGCall.cpp - Encapsulate calling convention details --------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -74,7 +73,7 @@ static CanQualType GetThisType(ASTContext &Context, const CXXRecordDecl *RD,
                                const CXXMethodDecl *MD) {
   QualType RecTy = Context.getTagDeclType(RD)->getCanonicalTypeInternal();
   if (MD)
-    RecTy = Context.getAddrSpaceQualType(RecTy, MD->getType().getAddressSpace());
+    RecTy = Context.getAddrSpaceQualType(RecTy, MD->getTypeQualifiers().getAddressSpace());
   return Context.getPointerType(CanQualType::CreateUnsafe(RecTy));
 }
 
@@ -1793,8 +1792,6 @@ void CodeGenModule::ConstructDefaultFnAttrList(StringRef Name, bool HasOptnone,
     if (CodeGenOpts.Backchain)
       FuncAttrs.addAttribute("backchain");
 
-    // FIXME: The interaction of this attribute with the SLH command line flag
-    // has not been determined.
     if (CodeGenOpts.SpeculativeLoadHardening)
       FuncAttrs.addAttribute(llvm::Attribute::SpeculativeLoadHardening);
   }
@@ -1864,8 +1861,6 @@ void CodeGenModule::ConstructAttributeList(
       FuncAttrs.addAttribute(llvm::Attribute::NoDuplicate);
     if (TargetDecl->hasAttr<ConvergentAttr>())
       FuncAttrs.addAttribute(llvm::Attribute::Convergent);
-    if (TargetDecl->hasAttr<SpeculativeLoadHardeningAttr>())
-      FuncAttrs.addAttribute(llvm::Attribute::SpeculativeLoadHardening);
 
     if (const FunctionDecl *Fn = dyn_cast<FunctionDecl>(TargetDecl)) {
       AddAttributesFromFunctionProtoType(
@@ -1909,6 +1904,16 @@ void CodeGenModule::ConstructAttributeList(
   }
 
   ConstructDefaultFnAttrList(Name, HasOptnone, AttrOnCallSite, FuncAttrs);
+
+  // This must run after constructing the default function attribute list
+  // to ensure that the speculative load hardening attribute is removed
+  // in the case where the -mspeculative-load-hardening flag was passed.
+  if (TargetDecl) {
+    if (TargetDecl->hasAttr<NoSpeculativeLoadHardeningAttr>())
+      FuncAttrs.removeAttribute(llvm::Attribute::SpeculativeLoadHardening);
+    if (TargetDecl->hasAttr<SpeculativeLoadHardeningAttr>())
+      FuncAttrs.addAttribute(llvm::Attribute::SpeculativeLoadHardening);
+  }
 
   if (CodeGenOpts.EnableSegmentedStacks &&
       !(TargetDecl && TargetDecl->hasAttr<NoSplitStackAttr>()))
@@ -2410,7 +2415,10 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
           if (!AVAttr)
             if (const auto *TOTy = dyn_cast<TypedefType>(OTy))
               AVAttr = TOTy->getDecl()->getAttr<AlignValueAttr>();
-          if (AVAttr) {
+          if (AVAttr && !SanOpts.has(SanitizerKind::Alignment)) {
+            // If alignment-assumption sanitizer is enabled, we do *not* add
+            // alignment attribute here, but emit normal alignment assumption,
+            // so the UBSAN check could function.
             llvm::Value *AlignmentValue =
               EmitScalarExpr(AVAttr->getAlignment());
             llvm::ConstantInt *AlignmentCI =
@@ -4535,13 +4543,14 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
       llvm::Value *Alignment = EmitScalarExpr(AA->getAlignment());
       llvm::ConstantInt *AlignmentCI = cast<llvm::ConstantInt>(Alignment);
-      EmitAlignmentAssumption(Ret.getScalarVal(), AlignmentCI->getZExtValue(),
-                              OffsetValue);
+      EmitAlignmentAssumption(Ret.getScalarVal(), RetTy, Loc, AA->getLocation(),
+                              AlignmentCI->getZExtValue(), OffsetValue);
     } else if (const auto *AA = TargetDecl->getAttr<AllocAlignAttr>()) {
-      llvm::Value *ParamVal =
-          CallArgs[AA->getParamIndex().getLLVMIndex()].getRValue(
-              *this).getScalarVal();
-      EmitAlignmentAssumption(Ret.getScalarVal(), ParamVal);
+      llvm::Value *AlignmentVal = CallArgs[AA->getParamIndex().getLLVMIndex()]
+                                      .getRValue(*this)
+                                      .getScalarVal();
+      EmitAlignmentAssumption(Ret.getScalarVal(), RetTy, Loc, AA->getLocation(),
+                              AlignmentVal);
     }
   }
 

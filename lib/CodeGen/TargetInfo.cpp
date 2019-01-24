@@ -1,9 +1,8 @@
 //===---- TargetInfo.cpp - Encapsulate target details -----------*- C++ -*-===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -6774,21 +6773,19 @@ void MSP430TargetCodeGenInfo::setTargetAttributes(
   if (GV->isDeclaration())
     return;
   if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-    if (const MSP430InterruptAttr *attr = FD->getAttr<MSP430InterruptAttr>()) {
-      // Handle 'interrupt' attribute:
-      llvm::Function *F = cast<llvm::Function>(GV);
+    const auto *InterruptAttr = FD->getAttr<MSP430InterruptAttr>();
+    if (!InterruptAttr)
+      return;
 
-      // Step 1: Set ISR calling convention.
-      F->setCallingConv(llvm::CallingConv::MSP430_INTR);
+    // Handle 'interrupt' attribute:
+    llvm::Function *F = cast<llvm::Function>(GV);
 
-      // Step 2: Add attributes goodness.
-      F->addFnAttr(llvm::Attribute::NoInline);
+    // Step 1: Set ISR calling convention.
+    F->setCallingConv(llvm::CallingConv::MSP430_INTR);
 
-      // Step 3: Emit ISR vector alias.
-      unsigned Num = attr->getNumber() / 2;
-      llvm::GlobalAlias::create(llvm::Function::ExternalLinkage,
-                                "__isr_" + Twine(Num), F);
-    }
+    // Step 2: Add attributes goodness.
+    F->addFnAttr(llvm::Attribute::NoInline);
+    F->addFnAttr("interrupt", llvm::utostr(InterruptAttr->getNumber()));
   }
 }
 

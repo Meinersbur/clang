@@ -1,9 +1,8 @@
 //===- SemaTemplateDeduction.cpp - Template Argument Deduction ------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -4429,6 +4428,10 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *&Init, QualType &Result,
         return DAR_FailedAlreadyDiagnosed;
       }
 
+      ExprResult ER = CheckPlaceholderExpr(Init);
+      if (ER.isInvalid())
+        return DAR_FailedAlreadyDiagnosed;
+      Init = ER.get();
       QualType Deduced = BuildDecltypeType(Init, Init->getBeginLoc(), false);
       if (Deduced.isNull())
         return DAR_FailedAlreadyDiagnosed;

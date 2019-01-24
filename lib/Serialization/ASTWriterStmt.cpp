@@ -1,9 +1,8 @@
 //===--- ASTWriterStmt.cpp - Statement and Expression Serialization -------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 ///
@@ -1625,25 +1624,23 @@ ASTStmtWriter::VisitCXXUnresolvedConstructExpr(CXXUnresolvedConstructExpr *E) {
 void ASTStmtWriter::VisitOverloadExpr(OverloadExpr *E) {
   VisitExpr(E);
 
-  // Don't emit anything here, HasTemplateKWAndArgsInfo must be
-  // emitted first.
-
-  Record.push_back(E->HasTemplateKWAndArgsInfo);
-  if (E->HasTemplateKWAndArgsInfo) {
+  Record.push_back(E->getNumDecls());
+  Record.push_back(E->hasTemplateKWAndArgsInfo());
+  if (E->hasTemplateKWAndArgsInfo()) {
     const ASTTemplateKWAndArgsInfo &ArgInfo =
         *E->getTrailingASTTemplateKWAndArgsInfo();
     Record.push_back(ArgInfo.NumTemplateArgs);
     AddTemplateKWAndArgsInfo(ArgInfo, E->getTrailingTemplateArgumentLoc());
   }
 
-  Record.push_back(E->getNumDecls());
-  for (OverloadExpr::decls_iterator
-         OvI = E->decls_begin(), OvE = E->decls_end(); OvI != OvE; ++OvI) {
+  for (OverloadExpr::decls_iterator OvI = E->decls_begin(),
+                                    OvE = E->decls_end();
+       OvI != OvE; ++OvI) {
     Record.AddDeclRef(OvI.getDecl());
     Record.push_back(OvI.getAccess());
   }
 
-  Record.AddDeclarationNameInfo(E->NameInfo);
+  Record.AddDeclarationNameInfo(E->getNameInfo());
   Record.AddNestedNameSpecifierLoc(E->getQualifierLoc());
 }
 

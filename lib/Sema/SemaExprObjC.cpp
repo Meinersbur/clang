@@ -1,9 +1,8 @@
 //===--- SemaExprObjC.cpp - Semantic Analysis for ObjC Expressions --------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -3161,7 +3160,7 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
           Prop->getPropertyAttributes() & ObjCPropertyDecl::OBJC_PR_weak;
         if (!IsWeak && Sel.isUnarySelector())
           IsWeak = ReturnType.getObjCLifetime() & Qualifiers::OCL_Weak;
-        if (IsWeak &&
+        if (IsWeak && !isUnevaluatedContext() &&
             !Diags.isIgnored(diag::warn_arc_repeated_use_of_weak, LBracLoc))
           getCurFunction()->recordUseOfWeak(Result, Prop);
       }

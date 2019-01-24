@@ -1,9 +1,8 @@
 //===- ASTImporter.cpp - Importing ASTs from other Contexts ---------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 //
@@ -3092,12 +3091,28 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
         FromConstructor->isExplicit(),
         D->isInlineSpecified(), D->isImplicit(), D->isConstexpr()))
       return ToFunction;
-  } else if (isa<CXXDestructorDecl>(D)) {
+  } else if (CXXDestructorDecl *FromDtor = dyn_cast<CXXDestructorDecl>(D)) {
+
+    auto Imp =
+        importSeq(const_cast<FunctionDecl *>(FromDtor->getOperatorDelete()),
+                  FromDtor->getOperatorDeleteThisArg());
+
+    if (!Imp)
+      return Imp.takeError();
+
+    FunctionDecl *ToOperatorDelete;
+    Expr *ToThisArg;
+    std::tie(ToOperatorDelete, ToThisArg) = *Imp;
+
     if (GetImportedOrCreateDecl<CXXDestructorDecl>(
         ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
         ToInnerLocStart, NameInfo, T, TInfo, D->isInlineSpecified(),
         D->isImplicit()))
       return ToFunction;
+
+    CXXDestructorDecl *ToDtor = cast<CXXDestructorDecl>(ToFunction);
+
+    ToDtor->setOperatorDelete(ToOperatorDelete, ToThisArg);
   } else if (CXXConversionDecl *FromConversion =
                  dyn_cast<CXXConversionDecl>(D)) {
     if (GetImportedOrCreateDecl<CXXConversionDecl>(
