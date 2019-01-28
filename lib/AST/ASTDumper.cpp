@@ -766,7 +766,7 @@ void ASTDumper::VisitOMPDeclareReductionDecl(const OMPDeclareReductionDecl *D) {
 
 void ASTDumper::VisitOMPDeclareMapperDecl(const OMPDeclareMapperDecl *D) {
   NodeDumper.dumpName(D);
-  for (auto *C : D->clauselists()) {
+  for (const auto *C : D->clauselists()) {
     dumpChild([=] {
       if (!C) {
         ColorScope Color(OS, ShowColors, NullColor);
@@ -783,7 +783,7 @@ void ASTDumper::VisitOMPDeclareMapperDecl(const OMPDeclareMapperDecl *D) {
       NodeDumper.dumpSourceRange(SourceRange(C->getBeginLoc(), C->getEndLoc()));
       if (C->isImplicit())
         OS << " <implicit>";
-      for (auto *S : C->children())
+      for (const auto *S : C->children())
         dumpStmt(S);
     });
   }

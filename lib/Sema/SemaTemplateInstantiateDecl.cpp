@@ -2958,7 +2958,7 @@ TemplateDeclInstantiator::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
   bool IsCorrect = true;
   if (!RequiresInstantiation) {
     // Copy the mapper variable.
-    NewDMD->setMapperVar(D->getMapperVar());
+    NewDMD->setMapperVarRef(D->getMapperVarRef());
     // Copy map clauses from the original mapper.
     for (OMPClause *C : D->clauselists())
       Clauses.push_back(C);
@@ -2970,8 +2970,8 @@ TemplateDeclInstantiator::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
     SemaRef.ActOnOpenMPDeclareMapperDirectiveVarDecl(
         NewDMD, /*S=*/nullptr, SubstMapperTy, D->getLocation(), VN);
     SemaRef.CurrentInstantiationScope->InstantiatedLocal(
-        cast<DeclRefExpr>(D->getMapperVar())->getDecl(),
-        cast<DeclRefExpr>(NewDMD->getMapperVar())->getDecl());
+        cast<DeclRefExpr>(D->getMapperVarRef())->getDecl(),
+        cast<DeclRefExpr>(NewDMD->getMapperVarRef())->getDecl());
     auto *ThisContext = dyn_cast_or_null<CXXRecordDecl>(Owner);
     Sema::CXXThisScopeRAII ThisScope(SemaRef, ThisContext, Qualifiers(),
                                      ThisContext);

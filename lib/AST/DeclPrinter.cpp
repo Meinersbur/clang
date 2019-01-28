@@ -1609,10 +1609,9 @@ void DeclPrinter::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
     Out << ")";
     if (!D->clauselist_empty()) {
       OMPClausePrinter Printer(Out, Policy);
-      for (auto I = D->clauselist_begin(), E = D->clauselist_end(); I != E;
-           ++I) {
+      for (auto *C : D->clauselists()) {
         Out << " ";
-        Printer.Visit(*I);
+        Printer.Visit(C);
       }
     }
   }

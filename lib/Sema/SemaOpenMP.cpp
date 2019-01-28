@@ -13424,10 +13424,10 @@ TypeResult Sema::ActOnOpenMPDeclareMapperVarDecl(Scope *S, Declarator &D) {
 
 QualType Sema::ActOnOpenMPDeclareMapperType(SourceLocation TyLoc,
                                             TypeResult ParsedType) {
-  assert(ParsedType.isUsable());
+  assert(ParsedType.isUsable() && "Expect usable parsed mapper type");
 
   QualType MapperType = GetTypeFromParser(ParsedType.get());
-  assert(!MapperType.isNull());
+  assert(!MapperType.isNull() && "Expect valid mapper type");
 
   // [OpenMP 5.0], 2.19.7.3 declare mapper Directive, Restrictions
   //  The type must be of struct, union or class type in C and C++
@@ -13526,8 +13526,8 @@ void Sema::ActOnOpenMPDeclareMapperDirectiveVarDecl(OMPDeclareMapperDecl *DMD,
     PushOnScopeChains(VD, S);
   else
     DMD->addDecl(VD);
-  Expr *MapperVarExpr = buildDeclRefExpr(*this, VD, MapperType, StartLoc);
-  DMD->setMapperVar(MapperVarExpr);
+  Expr *MapperVarRefExpr = buildDeclRefExpr(*this, VD, MapperType, StartLoc);
+  DMD->setMapperVarRef(MapperVarRefExpr);
 }
 
 Sema::DeclGroupPtrTy

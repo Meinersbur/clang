@@ -2663,8 +2663,8 @@ void ASTDeclReader::VisitOMPDeclareReductionDecl(OMPDeclareReductionDecl *D) {
 void ASTDeclReader::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
   VisitValueDecl(D);
   D->setLocation(ReadSourceLocation());
-  Expr *MapperVarE = Record.readExpr();
-  D->setMapperVar(MapperVarE);
+  Expr *MapperVarRefE = Record.readExpr();
+  D->setMapperVarRef(MapperVarRefE);
   D->VarName = Record.readDeclarationName();
   D->PrevDeclInScope = ReadDeclID();
   unsigned NumClauses = D->clauselist_size();

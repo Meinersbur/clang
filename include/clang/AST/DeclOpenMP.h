@@ -217,16 +217,13 @@ public:
 class OMPDeclareMapperDecl final : public ValueDecl, public DeclContext {
   friend class ASTDeclReader;
 
-  // Clauses assoicated with this mapper declaration
-  OMPClause **Clauses = nullptr;
+  /// Clauses assoicated with this mapper declaration
+  MutableArrayRef<OMPClause *> Clauses;
 
-  // Number of clauses associated with this mapper declaration
-  unsigned NumClauses = 0;
+  /// Mapper variable, which is 'v' in the example above
+  Expr *MapperVarRef = nullptr;
 
-  /// Mapper variable
-  Expr *MapperVar = nullptr;
-
-  // Name of the mapper variable
+  /// Name of the mapper variable
   DeclarationName VarName;
 
   LazyDeclPtr PrevDeclInScope;
@@ -239,17 +236,6 @@ class OMPDeclareMapperDecl final : public ValueDecl, public DeclContext {
                        OMPDeclareMapperDecl *PrevDeclInScope)
       : ValueDecl(DK, DC, L, Name, Ty), DeclContext(DK), VarName(VarName),
         PrevDeclInScope(PrevDeclInScope) {}
-
-  /// Returns an array of immutable clauses associated with this mapper
-  /// declaration
-  ArrayRef<const OMPClause *> getClauses() const {
-    return llvm::makeArrayRef(Clauses, NumClauses);
-  }
-
-  /// Returns an array of clauses associated with this mapper declaration
-  MutableArrayRef<OMPClause *> getClauses() {
-    return MutableArrayRef<OMPClause *>(Clauses, NumClauses);
-  }
 
   void setPrevDeclInScope(OMPDeclareMapperDecl *Prev) {
     PrevDeclInScope = Prev;
@@ -278,8 +264,8 @@ public:
   using clauselist_const_range =
       llvm::iterator_range<clauselist_const_iterator>;
 
-  unsigned clauselist_size() const { return NumClauses; }
-  bool clauselist_empty() const { return NumClauses == 0; }
+  unsigned clauselist_size() const { return Clauses.size(); }
+  bool clauselist_empty() const { return Clauses.empty(); }
 
   clauselist_range clauselists() {
     return clauselist_range(clauselist_begin(), clauselist_end());
@@ -287,25 +273,21 @@ public:
   clauselist_const_range clauselists() const {
     return clauselist_const_range(clauselist_begin(), clauselist_end());
   }
-  clauselist_iterator clauselist_begin() { return getClauses().begin(); }
-  clauselist_iterator clauselist_end() { return getClauses().end(); }
-  clauselist_const_iterator clauselist_begin() const {
-    return getClauses().begin();
-  }
-  clauselist_const_iterator clauselist_end() const {
-    return getClauses().end();
-  }
+  clauselist_iterator clauselist_begin() { return Clauses.begin(); }
+  clauselist_iterator clauselist_end() { return Clauses.end(); }
+  clauselist_const_iterator clauselist_begin() const { return Clauses.begin(); }
+  clauselist_const_iterator clauselist_end() const { return Clauses.end(); }
 
   /// Get the variable declared in the mapper
-  Expr *getMapperVar() { return MapperVar; }
-  const Expr *getMapperVar() const { return MapperVar; }
+  Expr *getMapperVarRef() { return MapperVarRef; }
+  const Expr *getMapperVarRef() const { return MapperVarRef; }
   /// Set the variable declared in the mapper
-  void setMapperVar(Expr *MapperVarE) { MapperVar = MapperVarE; }
+  void setMapperVarRef(Expr *MapperVarRefE) { MapperVarRef = MapperVarRefE; }
 
   /// Get the name of the variable declared in the mapper
   DeclarationName getVarName() { return VarName; }
 
-  /// Get reference to previous declare reduction construct in the same
+  /// Get reference to previous declare mapper construct in the same
   /// scope with the same name.
   OMPDeclareMapperDecl *getPrevDeclInScope() {
     return cast_or_null<OMPDeclareMapperDecl>(

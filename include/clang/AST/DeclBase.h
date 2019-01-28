@@ -178,7 +178,7 @@ public:
     IDNS_OMPReduction        = 0x1000,
 
     /// This declaration is an OpenMP user defined mapper.
-    IDNS_OMPMapper           = 0x2000
+    IDNS_OMPMapper           = 0x2000,
   };
 
   /// ObjCDeclQualifier - 'Qualifiers' written next to the return and
