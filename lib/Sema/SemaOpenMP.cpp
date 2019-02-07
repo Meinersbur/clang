@@ -134,7 +134,7 @@ private:
     /// get the data (loop counters etc.) about enclosing loop-based construct.
     /// This data is required during codegen.
     DoacrossDependMapTy DoacrossDepends;
-    /// first argument (Expr *) contains optional argument of the
+    /// First argument (Expr *) contains optional argument of the
     /// 'ordered' clause, the second one is true if the regions has 'ordered'
     /// clause, false otherwise.
     llvm::Optional<std::pair<const Expr *, OMPOrderedClause *>> OrderedRegion;
@@ -7067,7 +7067,9 @@ StmtResult Sema::ActOnOpenMPTargetDirective(ArrayRef<OMPClause *> Clauses,
       auto I = CS->body_begin();
       while (I != CS->body_end()) {
         const auto *OED = dyn_cast<OMPExecutableDirective>(*I);
-        if (!OED || !isOpenMPTeamsDirective(OED->getDirectiveKind())) {
+        if (!OED || !isOpenMPTeamsDirective(OED->getDirectiveKind()) ||
+            OMPTeamsFound) {
+
           OMPTeamsFound = false;
           break;
         }
@@ -10747,7 +10749,8 @@ buildDeclareReductionRef(Sema &SemaRef, SourceLocation Loc, SourceRange Range,
               return D;
             return nullptr;
           }))
-    return SemaRef.BuildDeclRefExpr(VD, Ty, VK_LValue, Loc);
+    return SemaRef.BuildDeclRefExpr(VD, VD->getType().getNonReferenceType(),
+                                    VK_LValue, Loc);
   if (auto *VD = filterLookupForUDR<ValueDecl *>(
           Lookups, [&SemaRef, Ty, Loc](ValueDecl *D) -> ValueDecl * {
             if (!D->isInvalidDecl() &&
@@ -10765,7 +10768,8 @@ buildDeclareReductionRef(Sema &SemaRef, SourceLocation Loc, SourceRange Range,
                                          /*DiagID=*/0) !=
             Sema::AR_inaccessible) {
           SemaRef.BuildBasePathArray(Paths, BasePath);
-          return SemaRef.BuildDeclRefExpr(VD, Ty, VK_LValue, Loc);
+          return SemaRef.BuildDeclRefExpr(
+              VD, VD->getType().getNonReferenceType(), VK_LValue, Loc);
         }
       }
     }
