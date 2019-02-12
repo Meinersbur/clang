@@ -791,15 +791,15 @@ unsigned OMPClauseMappableExprCommon::getUniqueDeclarationsTotalNumber(
   return TotalNum;
 }
 
-OMPMapClause *
-OMPMapClause::Create(const ASTContext &C, SourceLocation StartLoc,
-                     SourceLocation LParenLoc, SourceLocation EndLoc,
-                     ArrayRef<Expr *> Vars, ArrayRef<ValueDecl *> Declarations,
-                     MappableExprComponentListsRef ComponentLists,
-                     ArrayRef<OpenMPMapModifierKind> MapModifiers,
-                     ArrayRef<SourceLocation> MapModifiersLoc,
-                     OpenMPMapClauseKind Type, bool TypeIsImplicit,
-                     SourceLocation TypeLoc) {
+OMPMapClause *OMPMapClause::Create(
+    const ASTContext &C, SourceLocation StartLoc, SourceLocation LParenLoc,
+    SourceLocation EndLoc, ArrayRef<Expr *> Vars,
+    ArrayRef<ValueDecl *> Declarations,
+    MappableExprComponentListsRef ComponentLists, ArrayRef<Expr *> UDMapperRefs,
+    ArrayRef<OpenMPMapModifierKind> MapModifiers,
+    ArrayRef<SourceLocation> MapModifiersLoc,
+    NestedNameSpecifierLoc UDMQualifierLoc, DeclarationNameInfo MapperId,
+    OpenMPMapClauseKind Type, bool TypeIsImplicit, SourceLocation TypeLoc) {
   unsigned NumVars = Vars.size();
   unsigned NumUniqueDeclarations =
       getUniqueDeclarationsTotalNumber(Declarations);
@@ -807,8 +807,8 @@ OMPMapClause::Create(const ASTContext &C, SourceLocation StartLoc,
   unsigned NumComponents = getComponentsTotalNumber(ComponentLists);
 
   // We need to allocate:
-  // NumVars x Expr* - we have an original list expression for each clause list
-  // entry.
+  // 2 x NumVars x Expr* - we have an original list expression and an associated
+  // user-defined mapper for each clause list entry.
   // NumUniqueDeclarations x ValueDecl* - unique base declarations associated
   // with each component list.
   // (NumUniqueDeclarations + NumComponentLists) x unsigned - we specify the
@@ -819,14 +819,15 @@ OMPMapClause::Create(const ASTContext &C, SourceLocation StartLoc,
   void *Mem = C.Allocate(
       totalSizeToAlloc<Expr *, ValueDecl *, unsigned,
                        OMPClauseMappableExprCommon::MappableComponent>(
-          NumVars, NumUniqueDeclarations,
+          2 * NumVars, NumUniqueDeclarations,
           NumUniqueDeclarations + NumComponentLists, NumComponents));
   OMPMapClause *Clause = new (Mem) OMPMapClause(
-      MapModifiers, MapModifiersLoc, Type, TypeIsImplicit, TypeLoc, StartLoc,
-      LParenLoc, EndLoc, NumVars, NumUniqueDeclarations, NumComponentLists,
-      NumComponents);
+      MapModifiers, MapModifiersLoc, UDMQualifierLoc, MapperId, Type,
+      TypeIsImplicit, TypeLoc, StartLoc, LParenLoc, EndLoc, NumVars,
+      NumUniqueDeclarations, NumComponentLists, NumComponents);
 
   Clause->setVarRefs(Vars);
+  Clause->setUDMapperRefs(UDMapperRefs);
   Clause->setClauseInfo(Declarations, ComponentLists);
   Clause->setMapType(Type);
   Clause->setMapLoc(TypeLoc);
@@ -840,7 +841,7 @@ OMPMapClause *OMPMapClause::CreateEmpty(const ASTContext &C, unsigned NumVars,
   void *Mem = C.Allocate(
       totalSizeToAlloc<Expr *, ValueDecl *, unsigned,
                        OMPClauseMappableExprCommon::MappableComponent>(
-          NumVars, NumUniqueDeclarations,
+          2 * NumVars, NumUniqueDeclarations,
           NumUniqueDeclarations + NumComponentLists, NumComponents));
   return new (Mem) OMPMapClause(NumVars, NumUniqueDeclarations,
                                 NumComponentLists, NumComponents);
@@ -1432,6 +1433,14 @@ void OMPClausePrinter::VisitOMPMapClause(OMPMapClause *Node) {
         if (Node->getMapTypeModifier(I) != OMPC_MAP_MODIFIER_unknown) {
           OS << getOpenMPSimpleClauseTypeName(OMPC_map,
                                               Node->getMapTypeModifier(I));
+          if (Node->getMapTypeModifier(I) == OMPC_MAP_MODIFIER_mapper) {
+            OS << '(';
+            NestedNameSpecifier *MapperNNS =
+                Node->getMapperQualifierLoc().getNestedNameSpecifier();
+            if (MapperNNS)
+              MapperNNS->print(OS, Policy);
+            OS << Node->getMapperIdInfo() << ')';
+          }
           OS << ',';
         }
       }

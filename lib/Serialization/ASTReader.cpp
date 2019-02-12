@@ -12288,6 +12288,10 @@ void OMPClauseReader::VisitOMPMapClause(OMPMapClause *C) {
         I, static_cast<OpenMPMapModifierKind>(Record.readInt()));
     C->setMapTypeModifierLoc(I, Record.readSourceLocation());
   }
+  C->setMapperQualifierLoc(Record.readNestedNameSpecifierLoc());
+  DeclarationNameInfo DNI;
+  Record.readDeclarationNameInfo(DNI);
+  C->setMapperIdInfo(DNI);
   C->setMapType(
      static_cast<OpenMPMapClauseKind>(Record.readInt()));
   C->setMapLoc(Record.readSourceLocation());
@@ -12302,6 +12306,12 @@ void OMPClauseReader::VisitOMPMapClause(OMPMapClause *C) {
   for (unsigned i = 0; i != NumVars; ++i)
     Vars.push_back(Record.readExpr());
   C->setVarRefs(Vars);
+
+  SmallVector<Expr *, 16> UDMappers;
+  UDMappers.reserve(NumVars);
+  for (unsigned I = 0; I < NumVars; ++I)
+    UDMappers.push_back(Record.readExpr());
+  C->setUDMapperRefs(UDMappers);
 
   SmallVector<ValueDecl *, 16> Decls;
   Decls.reserve(UniqueDecls);

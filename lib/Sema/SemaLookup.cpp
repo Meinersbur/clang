@@ -1071,6 +1071,17 @@ bool Sema::CppLookupName(LookupResult &R, Scope *S) {
     I = IdResolver.begin(Name),
     IEnd = IdResolver.end();
 
+  if (NameKind == LookupOMPMapperName) {
+    // Skip declarations in inner scopes.
+    for (; I != IEnd; ++I) {
+      Scope *CurS = S;
+      while (CurS && !CurS->isDeclScope(*I))
+        CurS = CurS->getParent();
+      if (CurS)
+        break;
+    }
+  }
+
   // First we lookup local scope.
   // We don't consider using-directives, as per 7.3.4.p1 [namespace.udir]
   // ...During unqualified name lookup (3.4.1), the names appear as if
@@ -1779,6 +1790,14 @@ bool Sema::LookupName(LookupResult &R, Scope *S, bool AllowBuiltinCreation) {
         else if (NameKind == LookupObjCImplicitSelfParam &&
                  !isa<ImplicitParamDecl>(*I))
           continue;
+        else if (NameKind == LookupOMPMapperName) {
+          // Skip declarations in inner scopes.
+          Scope *CurS = S;
+          while (CurS && !CurS->isDeclScope(*I))
+            CurS = CurS->getParent();
+          if (!CurS)
+            continue;
+        }
 
         R.addDecl(D);
 

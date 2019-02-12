@@ -2989,11 +2989,19 @@ TemplateDeclInstantiator::VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D) {
       }
       if (!IsCorrect)
         break;
+      NestedNameSpecifierLoc NewQualifierLoc =
+          SemaRef.SubstNestedNameSpecifierLoc(OldC->getMapperQualifierLoc(),
+                                              TemplateArgs);
+      CXXScopeSpec SS;
+      SS.Adopt(NewQualifierLoc);
+      DeclarationNameInfo NewNameInfo = SemaRef.SubstDeclarationNameInfo(
+          OldC->getMapperIdInfo(), TemplateArgs);
       OMPClause *NewC = SemaRef.ActOnOpenMPMapClause(
           OldC->getMapTypeModifiers(), OldC->getMapTypeModifiersLoc(),
-          OldC->getMapType(), OldC->isImplicitMapType(), OldC->getMapLoc(),
-          OldC->getColonLoc(), NewVars, OldC->getBeginLoc(),
-          OldC->getLParenLoc(), OldC->getEndLoc());
+          SS, NewNameInfo, OldC->getMapType(),
+          OldC->isImplicitMapType(), OldC->getMapLoc(), OldC->getColonLoc(),
+          NewVars, OldC->getBeginLoc(), OldC->getLParenLoc(),
+          OldC->getEndLoc());
       Clauses.push_back(NewC);
     }
     SemaRef.EndOpenMPDSABlock(nullptr);

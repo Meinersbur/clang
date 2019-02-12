@@ -4051,7 +4051,7 @@ class OMPMapClause final : public OMPMappableExprListClause<OMPMapClause>,
   /// Define the sizes of each trailing object array except the last one. This
   /// is required for TrailingObjects to work properly.
   size_t numTrailingObjects(OverloadToken<Expr *>) const {
-    return varlist_size();
+    return 2 * varlist_size();
   }
   size_t numTrailingObjects(OverloadToken<ValueDecl *>) const {
     return getUniqueDeclarationsNum();
@@ -4068,11 +4068,17 @@ public:
 private:
   /// Map-type-modifiers for the 'map' clause.
   OpenMPMapModifierKind MapTypeModifiers[NumberOfModifiers] = {
-    OMPC_MAP_MODIFIER_unknown, OMPC_MAP_MODIFIER_unknown
-  };
-  
+      OMPC_MAP_MODIFIER_unknown, OMPC_MAP_MODIFIER_unknown,
+      OMPC_MAP_MODIFIER_unknown};
+
   /// Location of map-type-modifiers for the 'map' clause.
   SourceLocation MapTypeModifiersLoc[NumberOfModifiers];
+
+  /// C++ nested name specifier for the assoicated user-defined mapper.
+  NestedNameSpecifierLoc MapperQualifierLoc;
+
+  /// The associated user-defined mapper identifier information.
+  DeclarationNameInfo MapperIdInfo;
 
   /// Map type for the 'map' clause.
   OpenMPMapClauseKind MapType = OMPC_MAP_unknown;
@@ -4092,6 +4098,9 @@ private:
   ///
   /// \param MapModifiers Map-type-modifiers.
   /// \param MapModifiersLoc Locations of map-type-modifiers.
+  /// \param MapperQualifierLoc C++ nested name specifier for the assoicated
+  /// user-defined mapper.
+  /// \param MapperIdInfo The identifier of associated user-defined mapper.
   /// \param MapType Map type.
   /// \param MapTypeIsImplicit Map type is inferred implicitly.
   /// \param MapLoc Location of the map type.
@@ -4104,6 +4113,8 @@ private:
   /// \param NumComponents Total number of expression components in the clause.
   explicit OMPMapClause(ArrayRef<OpenMPMapModifierKind> MapModifiers,
                         ArrayRef<SourceLocation> MapModifiersLoc,
+                        NestedNameSpecifierLoc MapperQualifierLoc,
+                        DeclarationNameInfo MapperIdInfo,
                         OpenMPMapClauseKind MapType, bool MapTypeIsImplicit,
                         SourceLocation MapLoc, SourceLocation StartLoc,
                         SourceLocation LParenLoc, SourceLocation EndLoc,
@@ -4112,16 +4123,16 @@ private:
       : OMPMappableExprListClause(OMPC_map, StartLoc, LParenLoc, EndLoc,
                                   NumVars, NumUniqueDeclarations,
                                   NumComponentLists, NumComponents),
-        MapType(MapType), MapTypeIsImplicit(MapTypeIsImplicit),
-        MapLoc(MapLoc) {
-          assert(llvm::array_lengthof(MapTypeModifiers) == MapModifiers.size()
-                 && "Unexpected number of map type modifiers.");
-          llvm::copy(MapModifiers, std::begin(MapTypeModifiers));
+        MapperQualifierLoc(MapperQualifierLoc), MapperIdInfo(MapperIdInfo),
+        MapType(MapType), MapTypeIsImplicit(MapTypeIsImplicit), MapLoc(MapLoc) {
+    assert(llvm::array_lengthof(MapTypeModifiers) == MapModifiers.size() &&
+           "Unexpected number of map type modifiers.");
+    llvm::copy(MapModifiers, std::begin(MapTypeModifiers));
 
-          assert(llvm::array_lengthof(MapTypeModifiersLoc) ==
-                     MapModifiersLoc.size() &&
-                 "Unexpected number of map type modifier locations.");
-          llvm::copy(MapModifiersLoc, std::begin(MapTypeModifiersLoc));
+    assert(llvm::array_lengthof(MapTypeModifiersLoc) ==
+               MapModifiersLoc.size() &&
+           "Unexpected number of map type modifier locations.");
+    llvm::copy(MapModifiersLoc, std::begin(MapTypeModifiersLoc));
   }
 
   /// Build an empty clause.
@@ -4170,6 +4181,38 @@ private:
   /// Set colon location.
   void setColonLoc(SourceLocation Loc) { ColonLoc = Loc; }
 
+  /// Set the nested name specifier of associated user-defined mapper.
+  void setMapperQualifierLoc(NestedNameSpecifierLoc NNSL) {
+    MapperQualifierLoc = NNSL;
+  }
+
+  /// Set the name of associated user-defined mapper.
+  void setMapperIdInfo(DeclarationNameInfo MapperId) {
+    MapperIdInfo = MapperId;
+  }
+
+  /// Get the user-defined mapper references that are in the trailing objects of
+  /// the class.
+  MutableArrayRef<Expr *> getUDMapperRefs() {
+    return llvm::makeMutableArrayRef<Expr *>(
+        getTrailingObjects<Expr *>() + varlist_size(), varlist_size());
+  }
+
+  /// Get the user-defined mappers references that are in the trailing objects
+  /// of the class.
+  ArrayRef<Expr *> getUDMapperRefs() const {
+    return llvm::makeArrayRef<Expr *>(
+        getTrailingObjects<Expr *>() + varlist_size(), varlist_size());
+  }
+
+  /// Set the user-defined mappers that are in the trailing objects of the
+  /// class.
+  void setUDMapperRefs(ArrayRef<Expr *> DMDs) {
+    assert(DMDs.size() == varlist_size() &&
+           "Unexpected amount of user-defined mappers.");
+    std::copy(DMDs.begin(), DMDs.end(), getUDMapperRefs().begin());
+  }
+
 public:
   /// Creates clause with a list of variables \a VL.
   ///
@@ -4179,20 +4222,26 @@ public:
   /// \param Vars The original expression used in the clause.
   /// \param Declarations Declarations used in the clause.
   /// \param ComponentLists Component lists used in the clause.
+  /// \param UDMapperRefs References to user-defined mappers associated with
+  /// expressions used in the clause.
   /// \param MapModifiers Map-type-modifiers.
   /// \param MapModifiersLoc Location of map-type-modifiers.
+  /// \param UDMQualifierLoc C++ nested name specifier for the assoicated
+  /// user-defined mapper.
+  /// \param MapperId The identifier of associated user-defined mapper.
   /// \param Type Map type.
   /// \param TypeIsImplicit Map type is inferred implicitly.
   /// \param TypeLoc Location of the map type.
-  static OMPMapClause *Create(const ASTContext &C, SourceLocation StartLoc,
-                              SourceLocation LParenLoc, SourceLocation EndLoc,
-                              ArrayRef<Expr *> Vars,
-                              ArrayRef<ValueDecl *> Declarations,
-                              MappableExprComponentListsRef ComponentLists,
-                              ArrayRef<OpenMPMapModifierKind> MapModifiers,
-                              ArrayRef<SourceLocation> MapModifiersLoc,
-                              OpenMPMapClauseKind Type, bool TypeIsImplicit,
-                              SourceLocation TypeLoc);
+  static OMPMapClause *
+  Create(const ASTContext &C, SourceLocation StartLoc, SourceLocation LParenLoc,
+         SourceLocation EndLoc, ArrayRef<Expr *> Vars,
+         ArrayRef<ValueDecl *> Declarations,
+         MappableExprComponentListsRef ComponentLists,
+         ArrayRef<Expr *> UDMapperRefs,
+         ArrayRef<OpenMPMapModifierKind> MapModifiers,
+         ArrayRef<SourceLocation> MapModifiersLoc,
+         NestedNameSpecifierLoc UDMQualifierLoc, DeclarationNameInfo MapperId,
+         OpenMPMapClauseKind Type, bool TypeIsImplicit, SourceLocation TypeLoc);
 
   /// Creates an empty clause with the place for \a NumVars original
   /// expressions, \a NumUniqueDeclarations declarations, \NumComponentLists
@@ -4232,7 +4281,7 @@ public:
   /// Fetches the map-type-modifier location at 'Cnt' index of array of
   /// modifiers' locations.
   ///
-  /// \param Cnt index for map-type-modifier location.  
+  /// \param Cnt index for map-type-modifier location.
   SourceLocation getMapTypeModifierLoc(unsigned Cnt) const LLVM_READONLY {
     assert(Cnt < NumberOfModifiers &&
            "Requested modifier location exceeds total number of modifiers.");
@@ -4243,10 +4292,18 @@ public:
   ArrayRef<OpenMPMapModifierKind> getMapTypeModifiers() const LLVM_READONLY {
     return llvm::makeArrayRef(MapTypeModifiers);
   }
-  
+
   /// Fetches ArrayRef of location of map-type-modifiers.
   ArrayRef<SourceLocation> getMapTypeModifiersLoc() const LLVM_READONLY {
     return llvm::makeArrayRef(MapTypeModifiersLoc);
+  }
+
+  /// Gets the name info for associated user-defined mapper.
+  const DeclarationNameInfo &getMapperIdInfo() const { return MapperIdInfo; }
+
+  /// Gets the nested name specifier for associated user-defined mapper.
+  NestedNameSpecifierLoc getMapperQualifierLoc() const {
+    return MapperQualifierLoc;
   }
 
   /// Fetches location of clause mapping kind.
@@ -4254,6 +4311,27 @@ public:
 
   /// Get colon location.
   SourceLocation getColonLoc() const { return ColonLoc; }
+
+  using mapperlist_iterator = MutableArrayRef<Expr *>::iterator;
+  using mapperlist_const_iterator = ArrayRef<const Expr *>::iterator;
+  using mapperlist_range = llvm::iterator_range<mapperlist_iterator>;
+  using mapperlist_const_range =
+      llvm::iterator_range<mapperlist_const_iterator>;
+
+  mapperlist_iterator mapperlist_begin() { return getUDMapperRefs().begin(); }
+  mapperlist_iterator mapperlist_end() { return getUDMapperRefs().end(); }
+  mapperlist_const_iterator mapperlist_begin() const {
+    return getUDMapperRefs().begin();
+  }
+  mapperlist_const_iterator mapperlist_end() const {
+    return getUDMapperRefs().end();
+  }
+  mapperlist_range mapperlists() {
+    return mapperlist_range(mapperlist_begin(), mapperlist_end());
+  }
+  mapperlist_const_range mapperlists() const {
+    return mapperlist_const_range(mapperlist_begin(), mapperlist_end());
+  }
 
   child_range children() {
     return child_range(
