@@ -4074,7 +4074,7 @@ private:
   /// Location of map-type-modifiers for the 'map' clause.
   SourceLocation MapTypeModifiersLoc[NumberOfModifiers];
 
-  /// C++ nested name specifier for the assoicated user-defined mapper.
+  /// C++ nested name specifier for the associated user-defined mapper.
   NestedNameSpecifierLoc MapperQualifierLoc;
 
   /// The associated user-defined mapper identifier information.
@@ -4098,7 +4098,7 @@ private:
   ///
   /// \param MapModifiers Map-type-modifiers.
   /// \param MapModifiersLoc Locations of map-type-modifiers.
-  /// \param MapperQualifierLoc C++ nested name specifier for the assoicated
+  /// \param MapperQualifierLoc C++ nested name specifier for the associated
   /// user-defined mapper.
   /// \param MapperIdInfo The identifier of associated user-defined mapper.
   /// \param MapType Map type.
@@ -4209,7 +4209,7 @@ private:
   /// class.
   void setUDMapperRefs(ArrayRef<Expr *> DMDs) {
     assert(DMDs.size() == varlist_size() &&
-           "Unexpected amount of user-defined mappers.");
+           "Unexpected number of user-defined mappers.");
     std::copy(DMDs.begin(), DMDs.end(), getUDMapperRefs().begin());
   }
 
@@ -4226,7 +4226,7 @@ public:
   /// expressions used in the clause.
   /// \param MapModifiers Map-type-modifiers.
   /// \param MapModifiersLoc Location of map-type-modifiers.
-  /// \param UDMQualifierLoc C++ nested name specifier for the assoicated
+  /// \param UDMQualifierLoc C++ nested name specifier for the associated
   /// user-defined mapper.
   /// \param MapperId The identifier of associated user-defined mapper.
   /// \param Type Map type.

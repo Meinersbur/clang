@@ -45,7 +45,7 @@ int main() {
 #pragma omp target map(mapper(id) alloc: vv)
 // CHECK: #pragma omp target map(mapper(id),alloc: vv)
     { vv.len++; }
-#pragma omp target map(mapper(default) from: dd[0:10])
+#pragma omp target map(mapper(default), from: dd[0:10])
 // CHECK: #pragma omp target map(mapper(default),from: dd[0:10])
     { dd[0].i++; }
   }
