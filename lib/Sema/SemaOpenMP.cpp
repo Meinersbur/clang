@@ -9737,14 +9737,12 @@ OMPClause *Sema::ActOnOpenMPDynamicAllocatorsClause(SourceLocation StartLoc,
 OMPClause *Sema::ActOnOpenMPVarListClause(
     OpenMPClauseKind Kind, ArrayRef<Expr *> VarList, Expr *TailExpr,
     SourceLocation StartLoc, SourceLocation LParenLoc, SourceLocation ColonLoc,
-    SourceLocation EndLoc, CXXScopeSpec &ReductionIdScopeSpec,
-    const DeclarationNameInfo &ReductionId, OpenMPDependClauseKind DepKind,
+    SourceLocation EndLoc, CXXScopeSpec &ReductionOrMapperIdScopeSpec,
+    DeclarationNameInfo &ReductionOrMapperId, OpenMPDependClauseKind DepKind,
     OpenMPLinearClauseKind LinKind,
     ArrayRef<OpenMPMapModifierKind> MapTypeModifiers,
-    ArrayRef<SourceLocation> MapTypeModifiersLoc,
-    CXXScopeSpec &MapperIdScopeSpec, DeclarationNameInfo &MapperId,
-    OpenMPMapClauseKind MapType, bool IsMapTypeImplicit,
-    SourceLocation DepLinMapLoc) {
+    ArrayRef<SourceLocation> MapTypeModifiersLoc, OpenMPMapClauseKind MapType,
+    bool IsMapTypeImplicit, SourceLocation DepLinMapLoc) {
   OMPClause *Res = nullptr;
   switch (Kind) {
   case OMPC_private:
@@ -9761,17 +9759,18 @@ OMPClause *Sema::ActOnOpenMPVarListClause(
     break;
   case OMPC_reduction:
     Res = ActOnOpenMPReductionClause(VarList, StartLoc, LParenLoc, ColonLoc,
-                                     EndLoc, ReductionIdScopeSpec, ReductionId);
+                                     EndLoc, ReductionOrMapperIdScopeSpec,
+                                     ReductionOrMapperId);
     break;
   case OMPC_task_reduction:
     Res = ActOnOpenMPTaskReductionClause(VarList, StartLoc, LParenLoc, ColonLoc,
-                                         EndLoc, ReductionIdScopeSpec,
-                                         ReductionId);
+                                         EndLoc, ReductionOrMapperIdScopeSpec,
+                                         ReductionOrMapperId);
     break;
   case OMPC_in_reduction:
-    Res =
-        ActOnOpenMPInReductionClause(VarList, StartLoc, LParenLoc, ColonLoc,
-                                     EndLoc, ReductionIdScopeSpec, ReductionId);
+    Res = ActOnOpenMPInReductionClause(VarList, StartLoc, LParenLoc, ColonLoc,
+                                       EndLoc, ReductionOrMapperIdScopeSpec,
+                                       ReductionOrMapperId);
     break;
   case OMPC_linear:
     Res = ActOnOpenMPLinearClause(VarList, TailExpr, StartLoc, LParenLoc,
@@ -9795,10 +9794,10 @@ OMPClause *Sema::ActOnOpenMPVarListClause(
                                   StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_map:
-    Res = ActOnOpenMPMapClause(MapTypeModifiers, MapTypeModifiersLoc,
-                               MapperIdScopeSpec, MapperId, MapType,
-                               IsMapTypeImplicit, DepLinMapLoc, ColonLoc,
-                               VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPMapClause(
+        MapTypeModifiers, MapTypeModifiersLoc, ReductionOrMapperIdScopeSpec,
+        ReductionOrMapperId, MapType, IsMapTypeImplicit, DepLinMapLoc, ColonLoc,
+        VarList, StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_to:
     Res = ActOnOpenMPToClause(VarList, StartLoc, LParenLoc, EndLoc);
@@ -10654,7 +10653,7 @@ static NamedDecl *findAcceptableDecl(Sema &SemaRef, NamedDecl *D) {
 }
 
 static void
-argumentDependentLookup(Sema &SemaRef, const DeclarationNameInfo &ReductionId,
+argumentDependentLookup(Sema &SemaRef, const DeclarationNameInfo &Id,
                         SourceLocation Loc, QualType Ty,
                         SmallVectorImpl<UnresolvedSet<8>> &Lookups) {
   // Find all of the associated namespaces and classes based on the
@@ -10688,13 +10687,14 @@ argumentDependentLookup(Sema &SemaRef, const DeclarationNameInfo &ReductionId,
     //        associated classes are visible within their respective
     //        namespaces even if they are not visible during an ordinary
     //        lookup (11.4).
-    DeclContext::lookup_result R = NS->lookup(ReductionId.getName());
+    DeclContext::lookup_result R = NS->lookup(Id.getName());
     for (auto *D : R) {
       auto *Underlying = D;
       if (auto *USD = dyn_cast<UsingShadowDecl>(D))
         Underlying = USD->getTargetDecl();
 
-      if (!isa<OMPDeclareReductionDecl>(Underlying))
+      if (!isa<OMPDeclareReductionDecl>(Underlying) &&
+          !isa<OMPDeclareMapperDecl>(Underlying))
         continue;
 
       if (!SemaRef.isVisible(D)) {
@@ -13006,7 +13006,7 @@ static bool checkMapConflicts(
 // build a reference to it.
 ExprResult buildUserDefinedMapperRef(Sema &SemaRef, Scope *S,
                                      CXXScopeSpec &MapperIdScopeSpec,
-                                     DeclarationNameInfo &MapperId,
+                                     const DeclarationNameInfo &MapperId,
                                      QualType Type, Expr *UnresolvedMapper) {
   if (MapperIdScopeSpec.isInvalid())
     return ExprError();
@@ -13060,8 +13060,11 @@ ExprResult buildUserDefinedMapperRef(Sema &SemaRef, Scope *S,
   //  The type must be of struct, union or class type in C and C++
   if (!Type->isStructureOrClassType() && !Type->isUnionType())
     return ExprEmpty();
-  // Return the first user-defined mapper with the desired type.
   SourceLocation Loc = MapperId.getLoc();
+  // Perform argument dependent lookup.
+  if (SemaRef.getLangOpts().CPlusPlus && !MapperIdScopeSpec.isSet())
+    argumentDependentLookup(SemaRef, MapperId, Loc, Type, Lookups);
+  // Return the first user-defined mapper with the desired type.
   if (auto *VD = filterLookupForUDReductionAndMapper<ValueDecl *>(
           Lookups, [&SemaRef, Type](ValueDecl *D) -> ValueDecl * {
             if (!D->isInvalidDecl() &&
@@ -13137,7 +13140,7 @@ static void checkMappableExpressionList(
     MappableVarListInfo &MVLI, SourceLocation StartLoc,
     OpenMPMapClauseKind MapType = OMPC_MAP_unknown,
     bool IsMapTypeImplicit = false, CXXScopeSpec *MapperIdScopeSpec = nullptr,
-    DeclarationNameInfo *MapperId = nullptr,
+    const DeclarationNameInfo *MapperId = nullptr,
     ArrayRef<Expr *> UnresolvedMappers = llvm::None) {
   // We only expect mappable expressions in 'to', 'from', and 'map' clauses.
   assert((CKind == OMPC_map || CKind == OMPC_to || CKind == OMPC_from) &&
@@ -13407,7 +13410,7 @@ OMPClause *Sema::ActOnOpenMPMapClause(
   }
 
   // If the identifier of user-defined mapper is not specified, it is "default".
-  if (MapperId.getName().isEmpty()) {
+  if (!MapperId.getName() || MapperId.getName().isEmpty()) {
     auto &DeclNames = getASTContext().DeclarationNames;
     MapperId.setName(
         DeclNames.getIdentifier(&getASTContext().Idents.get("default")));

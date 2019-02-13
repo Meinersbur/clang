@@ -3613,6 +3613,12 @@ class OMPMappableExprListClause : public OMPVarListClause<T>,
   /// Total number of components in this clause.
   unsigned NumComponents;
 
+  /// C++ nested name specifier for the associated user-defined mapper.
+  NestedNameSpecifierLoc MapperQualifierLoc;
+
+  /// The associated user-defined mapper identifier information.
+  DeclarationNameInfo MapperIdInfo;
+
 protected:
   /// Build a clause for \a NumUniqueDeclarations declarations, \a
   /// NumComponentLists total component lists, and \a NumComponents total
@@ -3628,13 +3634,23 @@ protected:
   /// \param NumComponentLists Number of component lists in this clause - one
   /// list for each expression in the clause.
   /// \param NumComponents Total number of expression components in the clause.
-  OMPMappableExprListClause(OpenMPClauseKind K, SourceLocation StartLoc,
-                            SourceLocation LParenLoc, SourceLocation EndLoc,
-                            unsigned NumVars, unsigned NumUniqueDeclarations,
-                            unsigned NumComponentLists, unsigned NumComponents)
+  /// \param MapperQualifierLocP C++ nested name specifier for the associated
+  /// user-defined mapper.
+  /// \param MapperIdInfoP The identifier of associated user-defined mapper.
+  OMPMappableExprListClause(
+      OpenMPClauseKind K, SourceLocation StartLoc, SourceLocation LParenLoc,
+      SourceLocation EndLoc, unsigned NumVars, unsigned NumUniqueDeclarations,
+      unsigned NumComponentLists, unsigned NumComponents,
+      NestedNameSpecifierLoc *MapperQualifierLocP = nullptr,
+      DeclarationNameInfo *MapperIdInfoP = nullptr)
       : OMPVarListClause<T>(K, StartLoc, LParenLoc, EndLoc, NumVars),
         NumUniqueDeclarations(NumUniqueDeclarations),
-        NumComponentLists(NumComponentLists), NumComponents(NumComponents) {}
+        NumComponentLists(NumComponentLists), NumComponents(NumComponents) {
+    if (MapperQualifierLocP)
+      MapperQualifierLoc = *MapperQualifierLocP;
+    if (MapperIdInfoP)
+      MapperIdInfo = *MapperIdInfoP;
+  }
 
   /// Get the unique declarations that are in the trailing objects of the
   /// class.
@@ -3815,6 +3831,42 @@ protected:
     }
   }
 
+  /// Set the nested name specifier of associated user-defined mapper.
+  void setMapperQualifierLoc(NestedNameSpecifierLoc NNSL) {
+    MapperQualifierLoc = NNSL;
+  }
+
+  /// Set the name of associated user-defined mapper.
+  void setMapperIdInfo(DeclarationNameInfo MapperId) {
+    MapperIdInfo = MapperId;
+  }
+
+  /// Get the user-defined mapper references that are in the trailing objects of
+  /// the class.
+  MutableArrayRef<Expr *> getUDMapperRefs() {
+    return llvm::makeMutableArrayRef<Expr *>(
+        static_cast<T *>(this)->template getTrailingObjects<Expr *>() +
+            OMPVarListClause<T>::varlist_size(),
+        OMPVarListClause<T>::varlist_size());
+  }
+
+  /// Get the user-defined mappers references that are in the trailing objects
+  /// of the class.
+  ArrayRef<Expr *> getUDMapperRefs() const {
+    return llvm::makeArrayRef<Expr *>(
+        static_cast<T *>(this)->template getTrailingObjects<Expr *>() +
+            OMPVarListClause<T>::varlist_size(),
+        OMPVarListClause<T>::varlist_size());
+  }
+
+  /// Set the user-defined mappers that are in the trailing objects of the
+  /// class.
+  void setUDMapperRefs(ArrayRef<Expr *> DMDs) {
+    assert(DMDs.size() == OMPVarListClause<T>::varlist_size() &&
+           "Unexpected number of user-defined mappers.");
+    std::copy(DMDs.begin(), DMDs.end(), getUDMapperRefs().begin());
+  }
+
 public:
   /// Return the number of unique base declarations in this clause.
   unsigned getUniqueDeclarationsNum() const { return NumUniqueDeclarations; }
@@ -3825,6 +3877,14 @@ public:
   /// Return the total number of components in all lists derived from the
   /// clause.
   unsigned getTotalComponentsNum() const { return NumComponents; }
+
+  /// Gets the nested name specifier for associated user-defined mapper.
+  NestedNameSpecifierLoc getMapperQualifierLoc() const {
+    return MapperQualifierLoc;
+  }
+
+  /// Gets the name info for associated user-defined mapper.
+  const DeclarationNameInfo &getMapperIdInfo() const { return MapperIdInfo; }
 
   /// Iterator that browse the components by lists. It also allows
   /// browsing components of a single declaration.
@@ -4029,6 +4089,27 @@ public:
     auto A = getComponentsRef();
     return const_all_components_range(A.begin(), A.end());
   }
+
+  using mapperlist_iterator = MutableArrayRef<Expr *>::iterator;
+  using mapperlist_const_iterator = ArrayRef<const Expr *>::iterator;
+  using mapperlist_range = llvm::iterator_range<mapperlist_iterator>;
+  using mapperlist_const_range =
+      llvm::iterator_range<mapperlist_const_iterator>;
+
+  mapperlist_iterator mapperlist_begin() { return getUDMapperRefs().begin(); }
+  mapperlist_iterator mapperlist_end() { return getUDMapperRefs().end(); }
+  mapperlist_const_iterator mapperlist_begin() const {
+    return getUDMapperRefs().begin();
+  }
+  mapperlist_const_iterator mapperlist_end() const {
+    return getUDMapperRefs().end();
+  }
+  mapperlist_range mapperlists() {
+    return mapperlist_range(mapperlist_begin(), mapperlist_end());
+  }
+  mapperlist_const_range mapperlists() const {
+    return mapperlist_const_range(mapperlist_begin(), mapperlist_end());
+  }
 };
 
 /// This represents clause 'map' in the '#pragma omp ...'
@@ -4051,6 +4132,8 @@ class OMPMapClause final : public OMPMappableExprListClause<OMPMapClause>,
   /// Define the sizes of each trailing object array except the last one. This
   /// is required for TrailingObjects to work properly.
   size_t numTrailingObjects(OverloadToken<Expr *>) const {
+    // There are varlist_size() of expressions, and varlist_size() of
+    // user-defined mappers.
     return 2 * varlist_size();
   }
   size_t numTrailingObjects(OverloadToken<ValueDecl *>) const {
@@ -4073,12 +4156,6 @@ private:
 
   /// Location of map-type-modifiers for the 'map' clause.
   SourceLocation MapTypeModifiersLoc[NumberOfModifiers];
-
-  /// C++ nested name specifier for the associated user-defined mapper.
-  NestedNameSpecifierLoc MapperQualifierLoc;
-
-  /// The associated user-defined mapper identifier information.
-  DeclarationNameInfo MapperIdInfo;
 
   /// Map type for the 'map' clause.
   OpenMPMapClauseKind MapType = OMPC_MAP_unknown;
@@ -4122,8 +4199,8 @@ private:
                         unsigned NumComponentLists, unsigned NumComponents)
       : OMPMappableExprListClause(OMPC_map, StartLoc, LParenLoc, EndLoc,
                                   NumVars, NumUniqueDeclarations,
-                                  NumComponentLists, NumComponents),
-        MapperQualifierLoc(MapperQualifierLoc), MapperIdInfo(MapperIdInfo),
+                                  NumComponentLists, NumComponents,
+                                  &MapperQualifierLoc, &MapperIdInfo),
         MapType(MapType), MapTypeIsImplicit(MapTypeIsImplicit), MapLoc(MapLoc) {
     assert(llvm::array_lengthof(MapTypeModifiers) == MapModifiers.size() &&
            "Unexpected number of map type modifiers.");
@@ -4180,38 +4257,6 @@ private:
 
   /// Set colon location.
   void setColonLoc(SourceLocation Loc) { ColonLoc = Loc; }
-
-  /// Set the nested name specifier of associated user-defined mapper.
-  void setMapperQualifierLoc(NestedNameSpecifierLoc NNSL) {
-    MapperQualifierLoc = NNSL;
-  }
-
-  /// Set the name of associated user-defined mapper.
-  void setMapperIdInfo(DeclarationNameInfo MapperId) {
-    MapperIdInfo = MapperId;
-  }
-
-  /// Get the user-defined mapper references that are in the trailing objects of
-  /// the class.
-  MutableArrayRef<Expr *> getUDMapperRefs() {
-    return llvm::makeMutableArrayRef<Expr *>(
-        getTrailingObjects<Expr *>() + varlist_size(), varlist_size());
-  }
-
-  /// Get the user-defined mappers references that are in the trailing objects
-  /// of the class.
-  ArrayRef<Expr *> getUDMapperRefs() const {
-    return llvm::makeArrayRef<Expr *>(
-        getTrailingObjects<Expr *>() + varlist_size(), varlist_size());
-  }
-
-  /// Set the user-defined mappers that are in the trailing objects of the
-  /// class.
-  void setUDMapperRefs(ArrayRef<Expr *> DMDs) {
-    assert(DMDs.size() == varlist_size() &&
-           "Unexpected number of user-defined mappers.");
-    std::copy(DMDs.begin(), DMDs.end(), getUDMapperRefs().begin());
-  }
 
 public:
   /// Creates clause with a list of variables \a VL.
@@ -4298,40 +4343,11 @@ public:
     return llvm::makeArrayRef(MapTypeModifiersLoc);
   }
 
-  /// Gets the name info for associated user-defined mapper.
-  const DeclarationNameInfo &getMapperIdInfo() const { return MapperIdInfo; }
-
-  /// Gets the nested name specifier for associated user-defined mapper.
-  NestedNameSpecifierLoc getMapperQualifierLoc() const {
-    return MapperQualifierLoc;
-  }
-
   /// Fetches location of clause mapping kind.
   SourceLocation getMapLoc() const LLVM_READONLY { return MapLoc; }
 
   /// Get colon location.
   SourceLocation getColonLoc() const { return ColonLoc; }
-
-  using mapperlist_iterator = MutableArrayRef<Expr *>::iterator;
-  using mapperlist_const_iterator = ArrayRef<const Expr *>::iterator;
-  using mapperlist_range = llvm::iterator_range<mapperlist_iterator>;
-  using mapperlist_const_range =
-      llvm::iterator_range<mapperlist_const_iterator>;
-
-  mapperlist_iterator mapperlist_begin() { return getUDMapperRefs().begin(); }
-  mapperlist_iterator mapperlist_end() { return getUDMapperRefs().end(); }
-  mapperlist_const_iterator mapperlist_begin() const {
-    return getUDMapperRefs().begin();
-  }
-  mapperlist_const_iterator mapperlist_end() const {
-    return getUDMapperRefs().end();
-  }
-  mapperlist_range mapperlists() {
-    return mapperlist_range(mapperlist_begin(), mapperlist_end());
-  }
-  mapperlist_const_range mapperlists() const {
-    return mapperlist_const_range(mapperlist_begin(), mapperlist_end());
-  }
 
   child_range children() {
     return child_range(

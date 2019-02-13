@@ -1980,7 +1980,7 @@ bool Parser::parseMapTypeModifiers(OpenMPVarListDataTy &Data) {
       }
       // Parse mapper-identifier
       if (getLangOpts().CPlusPlus)
-        ParseOptionalCXXScopeSpecifier(Data.MapperIdScopeSpec,
+        ParseOptionalCXXScopeSpecifier(Data.ReductionOrMapperIdScopeSpec,
                                        /*ObjectType=*/nullptr,
                                        /*EnteringContext=*/false);
       if (Tok.isNot(tok::identifier) && Tok.isNot(tok::kw_default)) {
@@ -1989,7 +1989,7 @@ bool Parser::parseMapTypeModifiers(OpenMPVarListDataTy &Data) {
         return true;
       }
       auto &DeclNames = Actions.getASTContext().DeclarationNames;
-      Data.MapperId = DeclarationNameInfo(
+      Data.ReductionOrMapperId = DeclarationNameInfo(
           DeclNames.getIdentifier(Tok.getIdentifierInfo()), Tok.getLocation());
       ConsumeToken();
       // Parse ')'.
@@ -2065,11 +2065,11 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
       Kind == OMPC_in_reduction) {
     ColonProtectionRAIIObject ColonRAII(*this);
     if (getLangOpts().CPlusPlus)
-      ParseOptionalCXXScopeSpecifier(Data.ReductionIdScopeSpec,
+      ParseOptionalCXXScopeSpecifier(Data.ReductionOrMapperIdScopeSpec,
                                      /*ObjectType=*/nullptr,
                                      /*EnteringContext=*/false);
-    InvalidReductionId = ParseReductionId(*this, Data.ReductionIdScopeSpec,
-                                          UnqualifiedReductionId);
+    InvalidReductionId = ParseReductionId(
+        *this, Data.ReductionOrMapperIdScopeSpec, UnqualifiedReductionId);
     if (InvalidReductionId) {
       SkipUntil(tok::colon, tok::r_paren, tok::annot_pragma_openmp_end,
                 StopBeforeMatch);
@@ -2079,7 +2079,7 @@ bool Parser::ParseOpenMPVarList(OpenMPDirectiveKind DKind,
     else
       Diag(Tok, diag::warn_pragma_expected_colon) << "reduction identifier";
     if (!InvalidReductionId)
-      Data.ReductionId =
+      Data.ReductionOrMapperId =
           Actions.GetNameFromUnqualifiedId(UnqualifiedReductionId);
   } else if (Kind == OMPC_depend) {
   // Handle dependency type for depend clause.
@@ -2273,8 +2273,8 @@ OMPClause *Parser::ParseOpenMPVarListClause(OpenMPDirectiveKind DKind,
     return nullptr;
   return Actions.ActOnOpenMPVarListClause(
       Kind, Vars, Data.TailExpr, Loc, LOpen, Data.ColonLoc, Data.RLoc,
-      Data.ReductionIdScopeSpec, Data.ReductionId, Data.DepKind, Data.LinKind,
-      Data.MapTypeModifiers, Data.MapTypeModifiersLoc, Data.MapperIdScopeSpec,
-      Data.MapperId, Data.MapType, Data.IsMapTypeImplicit, Data.DepLinMapLoc);
+      Data.ReductionOrMapperIdScopeSpec, Data.ReductionOrMapperId, Data.DepKind,
+      Data.LinKind, Data.MapTypeModifiers, Data.MapTypeModifiersLoc,
+      Data.MapType, Data.IsMapTypeImplicit, Data.DepLinMapLoc);
 }
 
