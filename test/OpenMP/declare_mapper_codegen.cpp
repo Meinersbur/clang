@@ -46,7 +46,7 @@ void foo(int a){
   // CHECK-DAG: [[CP1:%.+]] = bitcast i8** [[P1]] to %class.C**
   // CHECK-DAG: store %class.C* [[VAL:%[^,]+]], %class.C** [[CBP1]]
   // CHECK-DAG: store %class.C* [[VAL]], %class.C** [[CP1]]
-  #pragma omp target map(mapper(default),tofrom: c)
+  #pragma omp target map(mapper(id),tofrom: c)
   {
    ++c.a;
   }

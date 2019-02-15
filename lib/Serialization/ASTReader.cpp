@@ -11784,12 +11784,12 @@ OMPClause *OMPClauseReader::readClause() {
     C = new (Context) OMPDeviceClause();
     break;
   case OMPC_map: {
-    unsigned NumVars = Record.readInt();
-    unsigned NumDeclarations = Record.readInt();
-    unsigned NumLists = Record.readInt();
-    unsigned NumComponents = Record.readInt();
-    C = OMPMapClause::CreateEmpty(Context, NumVars, NumDeclarations, NumLists,
-                                  NumComponents);
+    OMPMapClause::OMPMappableExprListSizeTy Sizes;
+    Sizes.NumVars = Record.readInt();
+    Sizes.NumUniqueDeclarations = Record.readInt();
+    Sizes.NumComponentLists = Record.readInt();
+    Sizes.NumComponents = Record.readInt();
+    C = OMPMapClause::CreateEmpty(Context, Sizes);
     break;
   }
   case OMPC_num_teams:
