@@ -3456,8 +3456,7 @@ StmtResult Sema::ActOnOpenMPExecutableDirective(
       if (OMPClause *Implicit = ActOnOpenMPMapClause(
               llvm::None, llvm::None, MapperIdScopeSpec, MapperId,
               OMPC_MAP_tofrom, /*IsMapTypeImplicit=*/true, SourceLocation(),
-              SourceLocation(), ImplicitMaps, SourceLocation(),
-              SourceLocation(), SourceLocation())) {
+              SourceLocation(), ImplicitMaps, OMPVarListLocTy())) {
         ClausesWithImplicit.emplace_back(Implicit);
         ErrorFound |=
             cast<OMPMapClause>(Implicit)->varlist_size() != ImplicitMaps.size();
@@ -9736,13 +9735,16 @@ OMPClause *Sema::ActOnOpenMPDynamicAllocatorsClause(SourceLocation StartLoc,
 
 OMPClause *Sema::ActOnOpenMPVarListClause(
     OpenMPClauseKind Kind, ArrayRef<Expr *> VarList, Expr *TailExpr,
-    SourceLocation StartLoc, SourceLocation LParenLoc, SourceLocation ColonLoc,
-    SourceLocation EndLoc, CXXScopeSpec &ReductionOrMapperIdScopeSpec,
+    const OMPVarListLocTy &Locs, SourceLocation ColonLoc,
+    CXXScopeSpec &ReductionOrMapperIdScopeSpec,
     DeclarationNameInfo &ReductionOrMapperId, OpenMPDependClauseKind DepKind,
     OpenMPLinearClauseKind LinKind,
     ArrayRef<OpenMPMapModifierKind> MapTypeModifiers,
     ArrayRef<SourceLocation> MapTypeModifiersLoc, OpenMPMapClauseKind MapType,
     bool IsMapTypeImplicit, SourceLocation DepLinMapLoc) {
+  SourceLocation StartLoc = Locs.StartLoc;
+  SourceLocation LParenLoc = Locs.LParenLoc;
+  SourceLocation EndLoc = Locs.EndLoc;
   OMPClause *Res = nullptr;
   switch (Kind) {
   case OMPC_private:
@@ -9794,22 +9796,22 @@ OMPClause *Sema::ActOnOpenMPVarListClause(
                                   StartLoc, LParenLoc, EndLoc);
     break;
   case OMPC_map:
-    Res = ActOnOpenMPMapClause(
-        MapTypeModifiers, MapTypeModifiersLoc, ReductionOrMapperIdScopeSpec,
-        ReductionOrMapperId, MapType, IsMapTypeImplicit, DepLinMapLoc, ColonLoc,
-        VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPMapClause(MapTypeModifiers, MapTypeModifiersLoc,
+                               ReductionOrMapperIdScopeSpec,
+                               ReductionOrMapperId, MapType, IsMapTypeImplicit,
+                               DepLinMapLoc, ColonLoc, VarList, Locs);
     break;
   case OMPC_to:
-    Res = ActOnOpenMPToClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPToClause(VarList, Locs);
     break;
   case OMPC_from:
-    Res = ActOnOpenMPFromClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPFromClause(VarList, Locs);
     break;
   case OMPC_use_device_ptr:
-    Res = ActOnOpenMPUseDevicePtrClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPUseDevicePtrClause(VarList, Locs);
     break;
   case OMPC_is_device_ptr:
-    Res = ActOnOpenMPIsDevicePtrClause(VarList, StartLoc, LParenLoc, EndLoc);
+    Res = ActOnOpenMPIsDevicePtrClause(VarList, Locs);
     break;
   case OMPC_if:
   case OMPC_final:
@@ -13386,9 +13388,8 @@ OMPClause *Sema::ActOnOpenMPMapClause(
     ArrayRef<SourceLocation> MapTypeModifiersLoc,
     CXXScopeSpec &MapperIdScopeSpec, DeclarationNameInfo &MapperId,
     OpenMPMapClauseKind MapType, bool IsMapTypeImplicit, SourceLocation MapLoc,
-    SourceLocation ColonLoc, ArrayRef<Expr *> VarList, SourceLocation StartLoc,
-    SourceLocation LParenLoc, SourceLocation EndLoc,
-    ArrayRef<Expr *> UnresolvedMappers) {
+    SourceLocation ColonLoc, ArrayRef<Expr *> VarList,
+    const OMPVarListLocTy &Locs, ArrayRef<Expr *> UnresolvedMappers) {
   OpenMPMapModifierKind Modifiers[] = {OMPC_MAP_MODIFIER_unknown,
                                        OMPC_MAP_MODIFIER_unknown,
                                        OMPC_MAP_MODIFIER_unknown};
@@ -13417,17 +13418,17 @@ OMPClause *Sema::ActOnOpenMPMapClause(
   }
 
   MappableVarListInfo MVLI(VarList);
-  checkMappableExpressionList(*this, DSAStack, OMPC_map, MVLI, StartLoc,
+  checkMappableExpressionList(*this, DSAStack, OMPC_map, MVLI, Locs.StartLoc,
                               MapType, IsMapTypeImplicit, &MapperIdScopeSpec,
                               &MapperId, UnresolvedMappers);
 
   // We need to produce a map clause even if we don't have variables so that
   // other diagnostics related with non-existing map clauses are accurate.
-  return OMPMapClause::Create(
-      Context, StartLoc, LParenLoc, EndLoc, MVLI.ProcessedVarList,
-      MVLI.VarBaseDeclarations, MVLI.VarComponents, MVLI.UDMapperList,
-      Modifiers, ModifiersLoc, MapperIdScopeSpec.getWithLocInContext(Context),
-      MapperId, MapType, IsMapTypeImplicit, MapLoc);
+  return OMPMapClause::Create(Context, Locs, MVLI.ProcessedVarList,
+                              MVLI.VarBaseDeclarations, MVLI.VarComponents,
+                              MVLI.UDMapperList, Modifiers, ModifiersLoc,
+                              MapperIdScopeSpec.getWithLocInContext(Context),
+                              MapperId, MapType, IsMapTypeImplicit, MapLoc);
 }
 
 QualType Sema::ActOnOpenMPDeclareReductionType(SourceLocation TyLoc,
@@ -14168,37 +14169,29 @@ void Sema::checkDeclIsAllowedInOpenMPTarget(Expr *E, Decl *D,
 }
 
 OMPClause *Sema::ActOnOpenMPToClause(ArrayRef<Expr *> VarList,
-                                     SourceLocation StartLoc,
-                                     SourceLocation LParenLoc,
-                                     SourceLocation EndLoc) {
+                                     const OMPVarListLocTy &Locs) {
   MappableVarListInfo MVLI(VarList);
-  checkMappableExpressionList(*this, DSAStack, OMPC_to, MVLI, StartLoc);
+  checkMappableExpressionList(*this, DSAStack, OMPC_to, MVLI, Locs.StartLoc);
   if (MVLI.ProcessedVarList.empty())
     return nullptr;
 
-  return OMPToClause::Create(Context, StartLoc, LParenLoc, EndLoc,
-                             MVLI.ProcessedVarList, MVLI.VarBaseDeclarations,
-                             MVLI.VarComponents);
+  return OMPToClause::Create(Context, Locs, MVLI.ProcessedVarList,
+                             MVLI.VarBaseDeclarations, MVLI.VarComponents);
 }
 
 OMPClause *Sema::ActOnOpenMPFromClause(ArrayRef<Expr *> VarList,
-                                       SourceLocation StartLoc,
-                                       SourceLocation LParenLoc,
-                                       SourceLocation EndLoc) {
+                                       const OMPVarListLocTy &Locs) {
   MappableVarListInfo MVLI(VarList);
-  checkMappableExpressionList(*this, DSAStack, OMPC_from, MVLI, StartLoc);
+  checkMappableExpressionList(*this, DSAStack, OMPC_from, MVLI, Locs.StartLoc);
   if (MVLI.ProcessedVarList.empty())
     return nullptr;
 
-  return OMPFromClause::Create(Context, StartLoc, LParenLoc, EndLoc,
-                               MVLI.ProcessedVarList, MVLI.VarBaseDeclarations,
-                               MVLI.VarComponents);
+  return OMPFromClause::Create(Context, Locs, MVLI.ProcessedVarList,
+                               MVLI.VarBaseDeclarations, MVLI.VarComponents);
 }
 
 OMPClause *Sema::ActOnOpenMPUseDevicePtrClause(ArrayRef<Expr *> VarList,
-                                               SourceLocation StartLoc,
-                                               SourceLocation LParenLoc,
-                                               SourceLocation EndLoc) {
+                                               const OMPVarListLocTy &Locs) {
   MappableVarListInfo MVLI(VarList);
   SmallVector<Expr *, 8> PrivateCopies;
   SmallVector<Expr *, 8> Inits;
@@ -14278,14 +14271,12 @@ OMPClause *Sema::ActOnOpenMPUseDevicePtrClause(ArrayRef<Expr *> VarList,
     return nullptr;
 
   return OMPUseDevicePtrClause::Create(
-      Context, StartLoc, LParenLoc, EndLoc, MVLI.ProcessedVarList,
-      PrivateCopies, Inits, MVLI.VarBaseDeclarations, MVLI.VarComponents);
+      Context, Locs, MVLI.ProcessedVarList, PrivateCopies, Inits,
+      MVLI.VarBaseDeclarations, MVLI.VarComponents);
 }
 
 OMPClause *Sema::ActOnOpenMPIsDevicePtrClause(ArrayRef<Expr *> VarList,
-                                              SourceLocation StartLoc,
-                                              SourceLocation LParenLoc,
-                                              SourceLocation EndLoc) {
+                                              const OMPVarListLocTy &Locs) {
   MappableVarListInfo MVLI(VarList);
   for (Expr *RefExpr : VarList) {
     assert(RefExpr && "NULL expr in OpenMP is_device_ptr clause.");
@@ -14361,7 +14352,7 @@ OMPClause *Sema::ActOnOpenMPIsDevicePtrClause(ArrayRef<Expr *> VarList,
   if (MVLI.ProcessedVarList.empty())
     return nullptr;
 
-  return OMPIsDevicePtrClause::Create(
-      Context, StartLoc, LParenLoc, EndLoc, MVLI.ProcessedVarList,
-      MVLI.VarBaseDeclarations, MVLI.VarComponents);
+  return OMPIsDevicePtrClause::Create(Context, Locs, MVLI.ProcessedVarList,
+                                      MVLI.VarBaseDeclarations,
+                                      MVLI.VarComponents);
 }
