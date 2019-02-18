@@ -35,7 +35,14 @@ namespace CodeGen {
 class CodeGenFunction;
 
 struct LoopTransformation {
-  enum TransformKind { Reversal, Tiling, Interchange, Pack, Unrolling, ThreadParallel };
+  enum TransformKind {
+    Reversal,
+    Tiling,
+    Interchange,
+    Pack,
+    Unrolling,
+    ThreadParallel
+  };
   TransformKind Kind;
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
@@ -129,10 +136,10 @@ struct LoopTransformation {
   }
 
   static LoopTransformation createThreadParallel(llvm::StringRef ApplyOn) {
-	  LoopTransformation Result;
-	  Result.Kind = ThreadParallel;
-	  Result.ApplyOns.push_back(ApplyOn);
-	  return Result;
+    LoopTransformation Result;
+    Result.Kind = ThreadParallel;
+    Result.ApplyOns.push_back(ApplyOn);
+    return Result;
   }
 };
 
@@ -176,8 +183,8 @@ struct LoopAttributes {
 
   /// Value for llvm.loop.pipeline.iicount metadata.
   unsigned PipelineInitiationInterval;
-  
-   llvm::StringRef LoopId;
+
+  llvm::StringRef LoopId;
   std::vector<LoopTransformation> TransformationStack;
 };
 
@@ -301,7 +308,6 @@ public:
     StagedAttrs.TransformationStack.push_back(Transform);
   }
 
-  
 private:
   /// Returns true if there is LoopInfo on the stack.
   bool hasInfo() const { return !Active.empty(); }

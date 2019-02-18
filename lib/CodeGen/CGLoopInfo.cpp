@@ -284,7 +284,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
         TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
       }
 
-     // auto Var = Transform.Array->getDecl();
+      // auto Var = Transform.Array->getDecl();
       auto LVar = CGF->EmitLValue(Transform.Array);
       auto Addr = cast<AllocaInst>(LVar.getPointer());
       assert(!Transform.ArrayBasePtr);
@@ -341,25 +341,26 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       TopLoopId = MDTransform;
 
     } break;
-	case LoopTransformation::ThreadParallel: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.parallelize_thread"));
+    case LoopTransformation::ThreadParallel: {
+      SmallVector<Metadata *, 4> TransformArgs;
+      TransformArgs.push_back(
+          MDString::get(Ctx, "llvm.loop.parallelize_thread"));
 
-		auto ApplyOn = Transform.getApplyOn();
-		if (ApplyOn.empty()) {
-			assert(TopLoopId);
-			TransformArgs.push_back(TopLoopId);
-		} else {
-			TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
+      auto ApplyOn = Transform.getApplyOn();
+      if (ApplyOn.empty()) {
+        assert(TopLoopId);
+        TransformArgs.push_back(TopLoopId);
+      } else {
+        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+      }
 
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		Transform.TransformMD = MDTransform;
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
+      auto MDTransform = MDNode::get(Ctx, TransformArgs);
+      Transform.TransformMD = MDTransform;
+      AdditionalTransforms.push_back(MDTransform);
+      AllTransforms.push_back(MDTransform);
 
-		// No further transformations after parallelizing
-	} break;
+      // No further transformations after parallelizing
+    } break;
     }
   }
 
@@ -400,8 +401,8 @@ LoopInfo::LoopInfo(BasicBlock *Header, Function *F,
                    const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
                    const llvm::DebugLoc &EndLoc)
     : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID =
-      createMetadata(Header->getContext(), F, CGF, this->Attrs, StartLoc, EndLoc, AccGroup);
+  LoopID = createMetadata(Header->getContext(), F, CGF, this->Attrs, StartLoc,
+                          EndLoc, AccGroup);
 }
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
@@ -482,10 +483,11 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       continue;
     }
 
-	if (auto ThreadParallel = dyn_cast<LoopParallelizeThreadAttr>(Attr)) {
-		addTransformation(LoopTransformation::createThreadParallel(			ThreadParallel->getApplyOn()));
-		continue;
-	}
+    if (auto ThreadParallel = dyn_cast<LoopParallelizeThreadAttr>(Attr)) {
+      addTransformation(LoopTransformation::createThreadParallel(
+          ThreadParallel->getApplyOn()));
+      continue;
+    }
 
     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
     const OpenCLUnrollHintAttr *OpenCLHint =
@@ -785,7 +787,5 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
         }
       }
     }
-
   }
-
 }

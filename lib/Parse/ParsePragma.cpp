@@ -1631,35 +1631,35 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   }
 
   if (IdTok.getIdentifierInfo()->getName() == "parallelize_thread") {
-	  Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+    Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
-	  assert(ApplyOnLocs.size() <= 1 &&
-		  "only single loop supported for thread-parallelism; use collapse before to parallelize multiple loops");
-	  if (ApplyOnLocs.empty())
-		  // Apply on following loop
-		  ArgHints.push_back((IdentifierLoc *)nullptr);
-	  else
-		  ArgHints.push_back(ApplyOnLocs[0]);
+    assert(ApplyOnLocs.size() <= 1 &&
+           "only single loop supported for thread-parallelism; use collapse "
+           "before to parallelize multiple loops");
+    if (ApplyOnLocs.empty())
+      // Apply on following loop
+      ArgHints.push_back((IdentifierLoc *)nullptr);
+    else
+      ArgHints.push_back(ApplyOnLocs[0]);
 
-	
-	  while (true) {
-		  SmallVector<ArgsUnion, 4> ClauseArgs;
-		  auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
-		  if (Kind == TransformClauseKind::None)
-			  break;
-		  switch (Kind) {
-		  default:
-			  llvm_unreachable("unsupported clause for thread-parallelism");
-		  }
-	  }
+    while (true) {
+      SmallVector<ArgsUnion, 4> ClauseArgs;
+      auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+      if (Kind == TransformClauseKind::None)
+        break;
+      switch (Kind) {
+      default:
+        llvm_unreachable("unsupported clause for thread-parallelism");
+      }
+    }
 
-	  auto &EofTok = Toks[i];
-	  assert(EofTok.is(tok::eof));
-	  i += 1;
+    auto &EofTok = Toks[i];
+    assert(EofTok.is(tok::eof));
+    i += 1;
 
-	  assert(Toks.size() == i); // Nothing following
-	  PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
-	  return true;
+    assert(Toks.size() == i); // Nothing following
+    PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+    return true;
   }
 
   llvm_unreachable("Unrecognized transformation");
@@ -3366,7 +3366,8 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
        llvm::StringSwitch<bool>(HintToken.getIdentifierInfo()->getName())
            .Cases("vectorize", "vectorize_width", "interleave",
                   "interleave_count", "unroll", "unroll_count", "distribute",
-                  "unrollandjam", "unrollandjam_count", "badkeyword", true).Cases("pipeline", "pipeline_initiation_interval",true)
+                  "unrollandjam", "unrollandjam_count", "badkeyword", true)
+           .Cases("pipeline", "pipeline_initiation_interval", true)
            .Default(false))) {
     // Know legacy keywords, not (yet) supported by new syntax
     // #pragma clang loop <keyword>(<option>)

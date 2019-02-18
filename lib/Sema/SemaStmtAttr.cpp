@@ -229,14 +229,15 @@ static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A,
                                            FullLoc != nullptr, A.getRange());
 }
 
+static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,
+                                         SourceRange) {
+  assert(A.getNumArgs() == 1);
 
-static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,	SourceRange) {
-	assert(A.getNumArgs() == 1);
+  auto ApplyOnLoc = A.getArgAsIdent(0);
 
-	auto ApplyOnLoc = A.getArgAsIdent(0);
-
-	auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-	return  LoopParallelizeThreadAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopParallelizeThreadAttr::CreateImplicit(S.Context, ApplyOn,
+                                                   A.getRange());
 }
 
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -517,7 +518,7 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
   case ParsedAttr::AT_LoopUnrolling:
     return handleLoopUnrolling(S, St, A, Range);
   case ParsedAttr::AT_LoopParallelizeThread:
-	  return handleLoopParallelizeThread(S,St,A,Range);
+    return handleLoopParallelizeThread(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   default:
