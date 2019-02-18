@@ -27,7 +27,7 @@ void pragma_id_reverse(double *A, int N) {
 
 // AST: if (1)
 //
-// AST:          // reversed
+// AST:          // Loop: reversed
 // AST-NEXT:     for (int c0 = -p_0 + 1; c0 <= 0; c0 += 1)
 // AST-NEXT:       Stmt2(-c0);
 //

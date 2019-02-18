@@ -9,7 +9,7 @@ void pragma_id_reverse(double *A, int N) {
 
 // CHECK:      if (p_0 >= 2)
 // CHECK-NEXT:        Stmt1();
-// CHECK-NEXT:      // Loop_myloop
+// CHECK-NEXT:      // Loop: myloop
 // CHECK-NEXT:      for (int c0 = 0; c0 < p_0 - 1; c0 += 1)
 // CHECK-NEXT:        Stmt2(c0);
 // CHECK-NEXT:    }

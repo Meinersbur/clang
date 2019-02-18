@@ -53,9 +53,9 @@ int main() {
 // IR: !9 = !{!"llvm.loop.id", !"i"}
 
 
-// AST:         // Loop_j
+// AST:         // Loop: j
 // AST-NEXT:    for (int c0 = 0; c0 < n; c0 += 1) {
-// AST-NEXT:       // Loop_i
+// AST-NEXT:       // Loop: i
 // AST-NEXT:       for (int c1 = 0; c1 < m; c1 += 1)
 // AST-NEXT:         Stmt_for_body4_us(c1, c0);
 // AST-NEXT:     }

@@ -3005,7 +3005,7 @@ def LoopTiling : Attr {
 				bool First=true;
 				for (auto Id : tileIds()) {
 				  if (!First) {
-					  OS << ", "; 
+					  OS << ", ";
 					}
 					  OS<<Id;
 				  First = false;
@@ -3074,7 +3074,7 @@ def Pack : Attr {
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
 			OS << "clang loop";
- 
+
 			if (!getApplyOn().empty()) {
 				OS << "(" << getApplyOn() << ")";
             }
@@ -3126,6 +3126,29 @@ def LoopUnrolling : Attr {
 			if (getFull()) {
 				OS << " full";
 			}
+		}
+  }];
+
+  let Documentation = [];
+}
+
+def LoopParallelizeThread : Attr {
+  // #pragma clang loop thread_parallel
+  // #pragma clang loop(loopname) thread_parallel
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "parallelize_thread">];
+  let PrettyPrintSpelling = 0;
+
+  let Args = [StringArgument<"ApplyOn">];
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+			OS << " parallelize_thread";
 		}
   }];
 
@@ -3206,7 +3229,7 @@ def LoopHint : Attr {
       OS << "unroll_and_jam " << getValueString(Policy);
       return;
     }
-    
+
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
     OS << "clang loop " << getOptionName(option) << getValueString(Policy);
   }

@@ -35,7 +35,7 @@ namespace CodeGen {
 class CodeGenFunction;
 
 struct LoopTransformation {
-  enum TransformKind { Reversal, Tiling, Interchange, Pack, Unrolling };
+  enum TransformKind { Reversal, Tiling, Interchange, Pack, Unrolling, ThreadParallel };
   TransformKind Kind;
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
@@ -126,6 +126,13 @@ struct LoopTransformation {
     Result.Factor = Factor;
     Result.Full = Full;
     return Result;
+  }
+
+  static LoopTransformation createThreadParallel(llvm::StringRef ApplyOn) {
+	  LoopTransformation Result;
+	  Result.Kind = ThreadParallel;
+	  Result.ApplyOns.push_back(ApplyOn);
+	  return Result;
   }
 };
 
