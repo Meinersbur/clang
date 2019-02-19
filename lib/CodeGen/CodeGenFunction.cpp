@@ -103,6 +103,8 @@ CodeGenFunction::~CodeGenFunction() {
 
   if (getLangOpts().OpenMP && CurFn)
     CGM.getOpenMPRuntime().functionFinished(*this);
+
+  LoopStack.finish();
 }
 
 CharUnits CodeGenFunction::getNaturalPointeeTypeAlignment(QualType T,

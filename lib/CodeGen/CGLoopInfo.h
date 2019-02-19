@@ -33,6 +33,8 @@ class Attr;
 class ASTContext;
 namespace CodeGen {
 class CodeGenFunction;
+class LoopInfoStack;
+class VirtualLoopInfo;
 
 struct LoopTransformation {
   enum TransformKind {
@@ -193,11 +195,12 @@ class LoopInfo {
 public:
   /// Construct a new LoopInfo for the loop with entry Header.
   LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
-           clang::CodeGen::CodeGenFunction *CGF, const LoopAttributes &Attrs,
-           const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
+           clang::CodeGen::CodeGenFunction *CGF,  LoopAttributes &Attrs,
+           const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
+           LoopInfo *Parent);
 
   /// Get the loop id metadata for this loop.
-  llvm::MDNode *getLoopID() const { return LoopID; }
+  llvm::MDNode *getLoopID() const;
 
   /// Get the header block of this loop.
   llvm::BasicBlock *getHeader() const { return Header; }
@@ -208,16 +211,50 @@ public:
   /// Return this loop's access group or nullptr if it does not have one.
   llvm::MDNode *getAccessGroup() const { return AccGroup; }
 
+  /// Create the loop's metadata. Must be called after its nested loops have
+  /// been processed.
+  void finish(LoopInfoStack &LIS);
+
 private:
+	VirtualLoopInfo *VInfo=nullptr;
+
   /// Loop ID metadata.
-  llvm::MDNode *LoopID;
+ // llvm::TempMDTuple TempLoopID;
+
   /// Header block of this loop.
   llvm::BasicBlock *Header;
   /// The attributes for this loop.
   LoopAttributes Attrs;
   /// The access group for memory accesses parallel to this loop.
   llvm::MDNode *AccGroup = nullptr;
+  /// Start location of this loop.
+  llvm::DebugLoc StartLoc;
+  /// End location of this loop.
+  llvm::DebugLoc EndLoc;
+  /// The next outer loop, or nullptr if this is the outermost loop.
+  LoopInfo *Parent;
+
+  clang::CodeGen::CodeGenFunction *CGF;
+  bool InTransformation = false;
 };
+
+
+
+class VirtualLoopInfo {
+public:
+	VirtualLoopInfo();
+
+	llvm::MDNode *getLoopID() {TempLoopID.get();}
+
+	void addAttribute(llvm::Metadata *Node) { 
+		Attributes.push_back(Node);
+	}
+
+private:
+	llvm::TempMDTuple TempLoopID;
+	llvm::SmallVector<llvm::Metadata*,8> Attributes;
+};
+
 
 /// A stack of loop information corresponding to loop nesting levels.
 /// This stack can be used to prepare attributes which are applied when a loop
@@ -308,6 +345,8 @@ public:
     StagedAttrs.TransformationStack.push_back(Transform);
   }
 
+  void finish();
+
 private:
   /// Returns true if there is LoopInfo on the stack.
   bool hasInfo() const { return !Active.empty(); }
@@ -318,6 +357,8 @@ private:
   LoopAttributes StagedAttrs;
   /// Stack of active loops.
   llvm::SmallVector<LoopInfo, 4> Active;
+
+  llvm::DenseMap<llvm::StringRef, VirtualLoopInfo*> NamedLoopMap;
 };
 
 } // end namespace CodeGen

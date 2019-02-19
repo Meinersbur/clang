@@ -21,9 +21,9 @@ using namespace clang::CodeGen;
 using namespace llvm;
 
 static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
-                              CodeGenFunction *CGF, LoopAttributes &Attrs,
+                              CodeGenFunction *CGF,const  LoopAttributes &Attrs,
                               const llvm::DebugLoc &StartLoc,
-                              const llvm::DebugLoc &EndLoc, MDNode *&AccGroup) {
+                              const llvm::DebugLoc &EndLoc, MDNode *AccGroup) {
 
   if (!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
       Attrs.InterleaveCount == 0 && Attrs.UnrollCount == 0 &&
@@ -125,11 +125,10 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
     Args.push_back(MDNode::get(Ctx, Vals));
   }
 
-  if (Attrs.IsParallel) {
-    AccGroup = MDNode::getDistinct(Ctx, {});
-    Args.push_back(MDNode::get(
-        Ctx, {MDString::get(Ctx, "llvm.loop.parallel_accesses"), AccGroup}));
-  }
+
+  if (AccGroup) 
+    Args.push_back(MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.parallel_accesses"), AccGroup}));
+  
 
   if (Attrs.PipelineDisabled) {
     Metadata *Vals[] = {
@@ -157,6 +156,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
+#if 0
   SmallVector<MDNode *, 4> AdditionalTransforms;
   SmallVector<Metadata *, 8> AllTransforms;
   auto FuncMD = F->getMetadata("looptransform");
@@ -368,6 +368,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
     auto AllTransformsMD = MDNode::get(Ctx, AllTransforms);
     F->setMetadata("looptransform", AllTransformsMD);
   }
+#endif
 
   return LoopID;
 }
@@ -396,23 +397,83 @@ void LoopAttributes::clear() {
   TransformationStack.clear();
 }
 
-LoopInfo::LoopInfo(BasicBlock *Header, Function *F,
-                   clang::CodeGen::CodeGenFunction *CGF,
-                   const LoopAttributes &Attrs, const llvm::DebugLoc &StartLoc,
-                   const llvm::DebugLoc &EndLoc)
-    : LoopID(nullptr), Header(Header), Attrs(Attrs) {
-  LoopID = createMetadata(Header->getContext(), F, CGF, this->Attrs, StartLoc,
-                          EndLoc, AccGroup);
+LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
+	clang::CodeGen::CodeGenFunction *CGF,  LoopAttributes &Attrs,
+	const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc,
+	LoopInfo *Parent)  : Header(Header), Attrs(Attrs), StartLoc(StartLoc), EndLoc(EndLoc), Parent(Parent), CGF(CGF) {
+
+	if (Attrs.IsParallel) {
+		// Create an access group for this loop.
+		LLVMContext &Ctx = Header->getContext();
+		AccGroup = MDNode::getDistinct(Ctx, {});
+	}
+
+
+	bool HasLagacyTransformation =!(!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
+		Attrs.InterleaveCount == 0 && Attrs.UnrollCount == 0 &&
+		Attrs.UnrollAndJamCount == 0 && !Attrs.PipelineDisabled &&
+		Attrs.PipelineInitiationInterval == 0 &&
+		Attrs.VectorizeEnable == LoopAttributes::Unspecified &&
+		Attrs.UnrollEnable == LoopAttributes::Unspecified &&
+		Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
+		Attrs.DistributeEnable == LoopAttributes::Unspecified && !StartLoc &&
+		!EndLoc && !AccGroup);
+	bool HasOrderedTransformation = Attrs.LoopId.empty() && Attrs.TransformationStack.empty();
+	bool AncestorHasOrderedTransformation = Parent && Parent->InTransformation ;
+
+	this->InTransformation = HasOrderedTransformation || AncestorHasOrderedTransformation;
+		
+	if (HasLagacyTransformation || HasOrderedTransformation ||AncestorHasOrderedTransformation ) {
+		VInfo = new VirtualLoopInfo();
+		//TempLoopID = MDNode::getTemporary(Header->getContext(), None);
+
+		LLVMContext &Ctx = Header->getContext();
+		MDNode * LegacyLoopID = createMetadata(Ctx, Header->getParent(),CGF, Attrs, StartLoc, EndLoc, AccGroup);
+		if (LegacyLoopID) {
+			for(auto &LegacyAttr: drop_begin( LegacyLoopID->operands(),1) ) 
+				VInfo->addAttribute(LegacyAttr.get());
+		}
+
+	}
+}
+
+llvm::MDNode *LoopInfo::getLoopID() const {
+	if (!VInfo)
+		return nullptr;
+	return  VInfo->getLoopID();  
+}
+
+
+void LoopInfo::finish(LoopInfoStack &LIS) {
+  // We did not annote the loop body instructions because there are no
+  // attributes for this loop.
+  if (!VInfo)
+    return;
+
+
+  // Apply transformations
+
+
+
+
+//  TempLoopID->replaceAllUsesWith(LegacyLoopID);
 }
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
                          clang::CodeGen::CodeGenFunction *CGF,
                          const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
-  Active.push_back(LoopInfo(Header, F, CGF, StagedAttrs, StartLoc, EndLoc));
+  Active.push_back(LoopInfo(Header, F, CGF, StagedAttrs, StartLoc, EndLoc,
+                            Active.empty() ? nullptr : &Active.back()));
   // Clear the attributes so nested loops do not inherit them.
   StagedAttrs.clear();
 }
+
+
+VirtualLoopInfo::VirtualLoopInfo() {
+
+}
+
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
                          clang::CodeGen::CodeGenFunction *CGF,
@@ -660,6 +721,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
 
 void LoopInfoStack::pop() {
   assert(!Active.empty() && "No active loops to pop");
+  Active.back().finish(*this);
   Active.pop_back();
 }
 
@@ -788,4 +850,12 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
       }
     }
   }
+}
+
+
+
+void LoopInfoStack::finish(){
+	//TODO: Replace TempLoopID with non-temp MDNodes
+
+	//  TempLoopID->replaceAllUsesWith(LegacyLoopID);
 }
