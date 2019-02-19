@@ -721,6 +721,10 @@ private:
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
 
+  bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                 SourceRange &Range,
+                                 SmallVectorImpl<ArgsUnion> &ArgHints);
+
   bool ParsePragmaAttributeSubjectMatchRuleSet(
       attr::ParsedSubjectMatchRuleSet &SubjectMatchRules,
       SourceLocation &AnyLoc, SourceLocation &LastMatchRuleEndLoc);
@@ -2901,8 +2905,8 @@ public:
     Expr *TailExpr = nullptr;
     SourceLocation ColonLoc;
     SourceLocation RLoc;
-    CXXScopeSpec ReductionIdScopeSpec;
-    DeclarationNameInfo ReductionId;
+    CXXScopeSpec ReductionOrMapperIdScopeSpec;
+    DeclarationNameInfo ReductionOrMapperId;
     OpenMPDependClauseKind DepKind = OMPC_DEPEND_unknown;
     OpenMPLinearClauseKind LinKind = OMPC_LINEAR_val;
     SmallVector<OpenMPMapModifierKind, OMPMapClause::NumberOfModifiers>
@@ -2925,6 +2929,10 @@ public:
                           ParsedType ObjectType,
                           SourceLocation *TemplateKWLoc,
                           UnqualifiedId &Result);
+  /// Parses map-type-modifiers in map clause.
+  /// map([ [map-type-modifier[,] [map-type-modifier[,] ...] map-type : ] list)
+  /// where, map-type-modifier ::= always | close | mapper(mapper-identifier)
+  bool parseMapTypeModifiers(OpenMPVarListDataTy &Data);
 
 private:
   //===--------------------------------------------------------------------===//

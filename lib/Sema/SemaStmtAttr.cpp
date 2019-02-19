@@ -75,6 +75,171 @@ static Attr *handleSuppressAttr(Sema &S, Stmt *St, const ParsedAttr &A,
       DiagnosticIdentifiers.size(), A.getAttributeSpellingListIndex());
 }
 
+static Attr *handleLoopId(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+  assert(A.getNumArgs() == 1);
+
+  // <loopname> as in #pragma clang loop id(<loopname>)
+  auto LoopIdLoc = A.getArgAsIdent(0);
+
+  return LoopIdAttr::CreateImplicit(S.Context, LoopIdLoc->Ident->getName(),
+                                    A.getRange());
+}
+
+static Attr *handleLoopReversal(Sema &S, Stmt *St, const ParsedAttr &A,
+                                SourceRange) {
+  assert(A.getNumArgs() == 1);
+
+  // <loopname> as in #pragma clang loop(<loopname>) <transform>
+  IdentifierLoc *ApplyOnLoc = A.getArgAsIdent(0);
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
+}
+
+static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
+                              SourceRange) {
+  assert(A.getNumArgs() >= 1);
+
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
+  // pit_ids(<pitid1>, <pitid2>) tile_ids(<tileid1>, <tileid2>)
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  unsigned i = 0;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
+
+  SmallVector<Expr *, 4> Sizes;
+  while (true) {
+    auto Expr = A.getArgAsExpr(i);
+    i += 1;
+    if (!Expr)
+      break;
+
+    Sizes.push_back(Expr);
+  }
+
+  SmallVector<IdentifierLoc *, 4> PitIds;
+  SmallVector<StringRef, 4> PitIdNames;
+  while (true) {
+    auto Id = A.getArgAsIdent(i);
+    i += 1;
+    if (!Id)
+      break;
+
+    PitIds.push_back(Id);
+    PitIdNames.push_back(Id->Ident->getName());
+  }
+
+  SmallVector<IdentifierLoc *, 4> TileIds;
+  SmallVector<StringRef, 4> TileIdNames;
+  while (true) {
+    auto Id = A.getArgAsIdent(i);
+    i += 1;
+    if (!Id)
+      break;
+
+    TileIds.push_back(Id);
+    TileIdNames.push_back(Id->Ident->getName());
+  }
+
+  assert(i == NumArgs && "Must consume all args");
+
+  if (ApplyOns.empty()) {
+    // Apply on following loop
+    // support only one loop in this case (stripmining)
+    // TODO: Support arbitrary many nested (vertical) loops
+    assert(Sizes.size() <= 1);
+    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(),
+                                          Sizes.size(), PitIdNames.data(),
+                                          PitIdNames.size(), TileIdNames.data(),
+                                          TileIdNames.size(), A.getRange());
+  }
+
+  assert(ApplyOns.size() == Sizes.size());
+  return LoopTilingAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), Sizes.data(), Sizes.size(),
+      PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
+      TileIdNames.size(), A.getRange());
+}
+
+static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
+                                   SourceRange) {
+  assert(A.getNumArgs() >= 1);
+
+  // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) interchange
+  SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  SmallVector<StringRef, 4> ApplyOns;
+  auto NumArgs = A.getNumArgs();
+  unsigned i = 0;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    ApplyOnLocs.push_back(Ident);
+    ApplyOns.push_back(Ident->Ident->getName());
+  }
+
+  SmallVector<IdentifierLoc *, 4> PermutationLocs;
+  SmallVector<StringRef, 4> Permutation;
+  while (true) {
+    auto Ident = A.getArgAsIdent(i);
+    i += 1;
+    if (!Ident)
+      break;
+    PermutationLocs.push_back(Ident);
+    Permutation.push_back(Ident->Ident->getName());
+  }
+  assert(NumArgs == i && "Must consume all args");
+  assert(ApplyOns.size() >= 2);
+  assert(ApplyOns.size() == Permutation.size());
+  return LoopInterchangeAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), Permutation.data(),
+      Permutation.size(), A.getRange());
+}
+
+static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
+  assert(A.getNumArgs() == 3);
+
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+  auto ArrayLoc = A.getArgAsExpr(1);
+  auto AllocateLoc = A.getArgAsIdent(2);
+
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return PackAttr::CreateImplicit(S.Context, ApplyOn, ArrayLoc,
+                                  AllocateLoc != nullptr, A.getRange());
+}
+
+static Attr *handleLoopUnrolling(Sema &S, Stmt *St, const ParsedAttr &A,
+                                 SourceRange) {
+  assert(A.getNumArgs() == 3);
+
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+  auto FactorLoc = A.getArgAsExpr(1);
+  auto FullLoc = A.getArgAsIdent(2);
+
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopUnrollingAttr::CreateImplicit(S.Context, ApplyOn, FactorLoc,
+                                           FullLoc != nullptr, A.getRange());
+}
+
+static Attr *handleLoopParallelizeThread(Sema &S, Stmt *St, const ParsedAttr &A,
+                                         SourceRange) {
+  assert(A.getNumArgs() == 1);
+
+  auto ApplyOnLoc = A.getArgAsIdent(0);
+
+  auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
+  return LoopParallelizeThreadAttr::CreateImplicit(S.Context, ApplyOn,
+                                                   A.getRange());
+}
+
 static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
   IdentifierLoc *PragmaNameLoc = A.getArgAsIdent(0);
@@ -340,6 +505,20 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleLoopHintAttr(S, St, A, Range);
   case ParsedAttr::AT_OpenCLUnrollHint:
     return handleOpenCLUnrollHint(S, St, A, Range);
+  case ParsedAttr::AT_LoopId:
+    return handleLoopId(S, St, A, Range);
+  case ParsedAttr::AT_LoopReversal:
+    return handleLoopReversal(S, St, A, Range);
+  case ParsedAttr::AT_LoopTiling:
+    return handleLoopTiling(S, St, A, Range);
+  case ParsedAttr::AT_LoopInterchange:
+    return handleLoopInterchange(S, St, A, Range);
+  case ParsedAttr::AT_Pack:
+    return handlePack(S, St, A, Range);
+  case ParsedAttr::AT_LoopUnrolling:
+    return handleLoopUnrolling(S, St, A, Range);
+  case ParsedAttr::AT_LoopParallelizeThread:
+    return handleLoopParallelizeThread(S, St, A, Range);
   case ParsedAttr::AT_Suppress:
     return handleSuppressAttr(S, St, A, Range);
   default:
