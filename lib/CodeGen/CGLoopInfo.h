@@ -211,6 +211,10 @@ public:
   /// Return this loop's access group or nullptr if it does not have one.
   llvm::MDNode *getAccessGroup() const { return AccGroup; }
 
+  void addSubloop(LoopInfo *Sub){Subloops.push_back(Sub); }
+
+  void afterLoop(LoopInfoStack &LIS);
+
   /// Create the loop's metadata. Must be called after its nested loops have
   /// been processed.
   void finish(LoopInfoStack &LIS);
@@ -233,9 +237,12 @@ private:
   llvm::DebugLoc EndLoc;
   /// The next outer loop, or nullptr if this is the outermost loop.
   LoopInfo *Parent;
+  SmallVector<LoopInfo*,4> Subloops;
 
   clang::CodeGen::CodeGenFunction *CGF;
   bool InTransformation = false;
+
+  llvm::TempMDTuple TempLoopID;
 };
 
 
@@ -244,14 +251,16 @@ class VirtualLoopInfo {
 public:
 	VirtualLoopInfo();
 
-	llvm::MDNode *getLoopID() {TempLoopID.get();}
+	// llvm::MDNode *getLoopID() {return TempLoopID.get();}
 
 	void addAttribute(llvm::Metadata *Node) { 
 		Attributes.push_back(Node);
 	}
 
+llvm::	MDNode *makeLoopID(llvm::LLVMContext &Ctx);
+
 private:
-	llvm::TempMDTuple TempLoopID;
+
 	llvm::SmallVector<llvm::Metadata*,8> Attributes;
 };
 
@@ -268,7 +277,7 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  void push(llvm::BasicBlock *Header, llvm::Function *F,
+  LoopInfo* push(llvm::BasicBlock *Header, llvm::Function *F,
             clang::CodeGen::CodeGenFunction *CGF,
             const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
@@ -345,19 +354,22 @@ public:
     StagedAttrs.TransformationStack.push_back(Transform);
   }
 
+
   void finish();
+
 
 private:
   /// Returns true if there is LoopInfo on the stack.
   bool hasInfo() const { return !Active.empty(); }
   /// Return the LoopInfo for the current loop. HasInfo should be called
   /// first to ensure LoopInfo is present.
-  const LoopInfo &getInfo() const { return Active.back(); }
+  const LoopInfo &getInfo() const { return *Active.back(); }
   /// The set of attributes that will be applied to the next pushed loop.
   LoopAttributes StagedAttrs;
   /// Stack of active loops.
-  llvm::SmallVector<LoopInfo, 4> Active;
+  llvm::SmallVector<LoopInfo*, 4> Active;
 
+  llvm::SmallVector<LoopInfo*, 16> OriginalLoops;
   llvm::DenseMap<llvm::StringRef, VirtualLoopInfo*> NamedLoopMap;
 };
 
