@@ -6,7 +6,7 @@
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
 __attribute__((noinline))
-void pragma_reverse(int n, double A[n]) {
+void pragma_reverse_tile(int n, double A[n]) {
 #pragma clang loop tile sizes(128)
 #pragma clang loop reverse
   for (int i = n - 1; i >= 0; i--)
@@ -20,14 +20,14 @@ int main() {
   double A[2048];
   memset(A, 0, sizeof(A));
   A[2] = 42;
-  pragma_reverse(2048,A);
+  pragma_reverse_tile(2048,A);
   printf("(%0.0f)\n", A[2]);
   return 0;
 }
 #endif
 
 
-// PRINT-LABEL: void pragma_reverse(int n, double A[n]) __attribute__((noinline)) {
+// PRINT-LABEL: void pragma_reverse_tile(int n, double A[n]) __attribute__((noinline)) {
 // PRINT-NEXT:   #pragma clang loop tile sizes(128)
 // PRINT-NEXT:   #pragma clang loop reverse
 // PRINT-NEXT:    for (int i = n - 1; i >= 0; i--)
@@ -35,7 +35,7 @@ int main() {
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_reverse(i32 %n, double* %A) #0 !looptransform !2 {
+// IR-LABEL: define dso_local void @pragma_reverse_tile(i32 %n, double* %A) #0 !looptransform !2 {
 // IR:         br label %for.cond, !llvm.loop !4
 //
 // IR: !2 = !{!3, !5}

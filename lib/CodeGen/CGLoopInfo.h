@@ -251,17 +251,33 @@ class VirtualLoopInfo {
 public:
 	VirtualLoopInfo();
 
+	void markNondefault() {
+	IsDefault = true;
+	}
+
 	// llvm::MDNode *getLoopID() {return TempLoopID.get();}
 
 	void addAttribute(llvm::Metadata *Node) { 
 		Attributes.push_back(Node);
 	}
 
+	void addTransformMD(llvm::Metadata *Node) { 
+		Transforms.push_back(Node);
+	}
+
+	void addFollowup(const char *FollowupAttributeName, VirtualLoopInfo* Followup){
+		Followups.push_back({FollowupAttributeName, Followup});
+	}
+
 llvm::	MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
-private:
+//private:
+bool IsDefault = true;
 
-	llvm::SmallVector<llvm::Metadata*,8> Attributes;
+	llvm::SmallVector<llvm::Metadata*,8> Attributes; // inheritable
+	llvm::SmallVector<llvm::Metadata*,4> Transforms;
+
+	llvm::SmallVector<std::pair<const char*, VirtualLoopInfo*> ,4> Followups;
 };
 
 
