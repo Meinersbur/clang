@@ -2925,14 +2925,14 @@ def LoopId : Attr {
 }
 
 def LoopReversal : Attr {
-  // #pragma clang loop reverse
-  // #pragma clang loop(loopname) reverse
+  // #pragma clang loop           reverse [reversed_id(loopname)]
+  // #pragma clang loop(loopname) reverse [reversed_id(loopname)]
 
   // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
   let Spellings = [Pragma<"", "reverse">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [StringArgument<"ApplyOn">];
+  let Args = [StringArgument<"ApplyOn">, StringArgument<"ReversedId">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2940,7 +2940,11 @@ def LoopReversal : Attr {
 			if (!getApplyOn().empty()) {
 						OS << "(" << getApplyOn() << ")";
 			}
+
 			OS << " reverse";
+
+			if (!getReversedId().empty())
+						OS << " reversed_id(" << getReversedId() << ")";
 		}
   }];
 

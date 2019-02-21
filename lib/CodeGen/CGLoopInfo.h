@@ -36,6 +36,7 @@ class CodeGenFunction;
 class LoopInfoStack;
 class VirtualLoopInfo;
 
+// FIXME: Don't need this, why not use the attribute instead?
 struct LoopTransformation {
   enum TransformKind {
 	  Id,
@@ -53,6 +54,7 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
   llvm::StringRef Name;
+  llvm::StringRef FollowupName;
   llvm::SmallVector<int64_t, 4> TileSizes;
   llvm::SmallVector<llvm::StringRef, 4> TilePitIds;
   llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
@@ -86,11 +88,12 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
+  createReversal(llvm::StringRef ApplyOn , llvm::StringRef ReversedId ) {
     LoopTransformation Result;
     Result.Kind = Reversal;
 	if (!ApplyOn.empty())
 		Result.ApplyOns.push_back(ApplyOn);
+	Result.FollowupName=ReversedId;
     return Result;
   }
 
@@ -262,7 +265,7 @@ public:
 	VirtualLoopInfo();
 
 	void markNondefault() {
-	IsDefault = true;
+	IsDefault = false;
 	}
 
 	// llvm::MDNode *getLoopID() {return TempLoopID.get();}
@@ -391,11 +394,13 @@ public:
 
 
   VirtualLoopInfo * applyTransformation(const LoopTransformation &Transform, VirtualLoopInfo *TopLoopId = nullptr) ;
+   VirtualLoopInfo* applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
 
 
   void finish();
 
 
+  void invalidateVirtualLoop(VirtualLoopInfo *VLI);
 
 
 private:

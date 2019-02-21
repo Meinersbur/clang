@@ -1147,6 +1147,7 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
 enum class TransformClauseKind {
   None,
+  ReversedId,  // reverse
   Sizes,       // tile
   Permutation, // interchange
   Array,       // pack
@@ -1170,6 +1171,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   auto ClauseName = ClauseTok.getIdentifierInfo()->getName();
 
   auto Kind = llvm::StringSwitch<TransformClauseKind>(ClauseName)
+				  .Case("reversed_id", TransformClauseKind::ReversedId)
                   .Case("sizes", TransformClauseKind::Sizes)
                   .Case("permutation", TransformClauseKind::Permutation)
                   .Case("array", TransformClauseKind::Array)
@@ -1181,6 +1183,21 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Default(TransformClauseKind::None);
 
   switch (Kind) {
+  case  TransformClauseKind::ReversedId: {
+	  i+=1;
+
+	  assert(Toks[i].is(tok::l_paren));
+	  i += 1;
+
+	  auto LoopIdInfo = Toks[i].getIdentifierInfo();
+	  auto LoopIdStr = LoopIdInfo->getName();
+	  Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), LoopIdInfo));
+	  i+=1;
+
+	  assert(Toks[i].is(tok::r_paren));
+	  i+=1;
+	  return Kind;
+  } break;
   case TransformClauseKind::Sizes: {
     assert(Toks[i + 1].is(tok::l_paren));
     i += 2;
@@ -1440,11 +1457,33 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     else
       ArgHints.push_back(ApplyOnLocs[0]);
 
-    auto &EofTok = Toks[i];
-    assert(EofTok.is(tok::eof));
-    i += 1;
 
-    assert(Toks.size() == i); // Nothing following
+
+
+	ArgsUnion ReverseId= (IdentifierLoc *)nullptr;
+	while (true) {
+		SmallVector<ArgsUnion, 4> ClauseArgs;
+		auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+		if (Kind == TransformClauseKind::None)
+			break;
+		switch (Kind) {
+		default:
+			llvm_unreachable("wrong clause for tile");
+		case TransformClauseKind::ReversedId:
+			assert(!ReverseId);
+			assert(ClauseArgs.size()==1);
+			ReverseId =ClauseArgs[0];
+			break;
+		}
+	}
+
+	ArgHints.push_back(ReverseId);
+
+	auto &EofTok = Toks[i];
+	assert(EofTok.is(tok::eof));
+	i += 1;
+
+	assert(Toks.size() == i); // Nothing following
     ConsumeAnnotationToken();
     return true;
   }

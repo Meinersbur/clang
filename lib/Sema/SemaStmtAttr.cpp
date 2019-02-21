@@ -87,12 +87,15 @@ static Attr *handleLoopId(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {
 
 static Attr *handleLoopReversal(Sema &S, Stmt *St, const ParsedAttr &A,
                                 SourceRange) {
-  assert(A.getNumArgs() == 1);
+  assert(A.getNumArgs() == 2);
 
   // <loopname> as in #pragma clang loop(<loopname>) <transform>
   IdentifierLoc *ApplyOnLoc = A.getArgAsIdent(0);
+  IdentifierLoc *ReversedIdLoc = A.getArgAsIdent(1);
+
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, A.getRange());
+  auto ReversedId = ReversedIdLoc ? ReversedIdLoc->Ident->getName() : StringRef();
+  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, ReversedId, A.getRange());
 }
 
 static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,

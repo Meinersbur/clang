@@ -456,18 +456,33 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 }
 
 
-static VirtualLoopInfo* applyUnrolling(LLVMContext &Ctx,  const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
+ VirtualLoopInfo* LoopInfoStack:: applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
 	assert(On);
 
+	invalidateVirtualLoop(On);
+
 	auto Result = new VirtualLoopInfo();
-	Result->markNondefault();
+
 	// Inherit all attributes.
 	for (auto X : On->Attributes) 
 		Result->addAttribute(X);
 	
+	On->addFollowup("llvm.loop.reverse.followup_reversed", Result);
+	if (!TheTransform.FollowupName.empty()) {
+		assert(!NamedLoopMap.count(TheTransform.FollowupName));
+		NamedLoopMap[TheTransform.FollowupName] = Result;
+		Result->addTransformMD(MDNode::get( Ctx, { 
+			MDString::get(Ctx, "llvm.loop.id"), 
+			MDString::get(Ctx, TheTransform.FollowupName) }));
+		Result->markNondefault();
+	}
 
+	
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
+	On->markNondefault();
+
+
 	return Result;
 }
 
@@ -513,6 +528,14 @@ MDNode * VirtualLoopInfo :: makeLoopID(llvm::LLVMContext &Ctx){
 	
 	for (auto Y : Transforms)
 		Args.push_back(Y);
+
+	for (auto Z: Followups) {
+		auto FollowupInfo = Z.second;
+		if (!FollowupInfo->IsDefault) {
+			auto FollowupLoopMD = FollowupInfo->makeLoopID(Ctx);
+			Args.push_back( MDNode::get(Ctx, { MDString::get(Ctx, Z.first), FollowupLoopMD }) );
+		}
+	}
 
 	// Set the first operand to itself.
 	MDNode *LoopID = MDNode::get(Ctx, Args);
@@ -568,7 +591,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         // Apply on the loop with that name
       }
 
-      addTransformation(LoopTransformation::createReversal(ApplyOn));
+      addTransformation(LoopTransformation::createReversal(ApplyOn, LReversal->getReversedId()));
       continue;
     }
 
@@ -962,11 +985,12 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 		ApplyTo[0]->addTransformMD(MDNode::get( Ctx, { 
 			MDString::get(Ctx, "llvm.loop.id"), 
 			MDString::get(Ctx, Name) }));
+		ApplyTo[0]->markNondefault();
 		return nullptr;
 	} break;
 	case LoopTransformation::Reversal: {
 		assert(ApplyTo.size()==1);
-		return applyUnrolling(Ctx, Transform, ApplyTo[0]);
+		return applyUnrolling( Transform, ApplyTo[0]);
 
 
 #if 0
@@ -1165,13 +1189,22 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 
 }
 
+void LoopInfoStack::invalidateVirtualLoop(VirtualLoopInfo *VLI) {
+	// FIXME: Inefficiency
+	for (auto It = NamedLoopMap.begin(), E = NamedLoopMap.end(); It !=E; ++It ) {
+		if (It->second==VLI)
+			NamedLoopMap.erase(It); // Must not invalidate iterator.
+	}
+}
+
+
 void LoopInfoStack::finish(){
 	//TODO: Replace TempLoopID with non-temp MDNodes
-
 
 	for (auto T : PendingTransformations) {
 		applyTransformation(T);
 	}
+	PendingTransformations.clear();
 
 	for (auto L : OriginalLoops) {
 		L->finish(*this);
@@ -1181,4 +1214,5 @@ void LoopInfoStack::finish(){
 		delete L;
 	}
 	OriginalLoops.clear();
+	NamedLoopMap.clear();
 }
