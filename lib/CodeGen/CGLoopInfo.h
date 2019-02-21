@@ -38,6 +38,7 @@ class VirtualLoopInfo;
 
 struct LoopTransformation {
   enum TransformKind {
+	  Id,
     Reversal,
     Tiling,
     Interchange,
@@ -51,6 +52,7 @@ struct LoopTransformation {
   // TODO: Make a union or class hierachy
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
+  llvm::StringRef Name;
   llvm::SmallVector<int64_t, 4> TileSizes;
   llvm::SmallVector<llvm::StringRef, 4> TilePitIds;
   llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
@@ -76,11 +78,19 @@ struct LoopTransformation {
     return ApplyOns[0];
   }
 
+  static LoopTransformation createId(llvm::StringRef Name) {
+	  LoopTransformation Result;
+	  Result.Kind = Id;
+	  Result.Name = Name;
+	  return Result;
+  }
+
   static LoopTransformation
   createReversal(llvm::StringRef ApplyOn = llvm::StringRef()) {
     LoopTransformation Result;
     Result.Kind = Reversal;
-    Result.ApplyOns.push_back(ApplyOn);
+	if (!ApplyOn.empty())
+		Result.ApplyOns.push_back(ApplyOn);
     return Result;
   }
 
@@ -289,7 +299,7 @@ class LoopInfoStack {
   void operator=(const LoopInfoStack &) = delete;
 
 public:
-  LoopInfoStack() {}
+  LoopInfoStack(llvm::LLVMContext &Ctx) : Ctx(Ctx) {}
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
@@ -364,14 +374,28 @@ public:
     StagedAttrs.PipelineInitiationInterval = C;
   }
 
-  void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
+ // void setLoopId(llvm::StringRef Id) { StagedAttrs.LoopId = Id; }
 
-  void addTransformation(LoopTransformation Transform) {
-    StagedAttrs.TransformationStack.push_back(Transform);
+  void addTransformation(const LoopTransformation& Transform) {
+	  if (Transform.ApplyOns.empty())
+		 StagedAttrs.TransformationStack.push_back(Transform);
+	  else {
+		  // TODO: Such pragmas are not necessarily in front of a loop, hence should be treated differently:
+		  // Collect all such pragmas in the function beforehand (e.g. in Sema) and treat like PendingTransformations.
+		  PendingTransformations.push_back(Transform);
+	  }
   }
 
 
+  VirtualLoopInfo *lookupNamedLoop(StringRef LoopName);
+
+
+  VirtualLoopInfo * applyTransformation(const LoopTransformation &Transform, VirtualLoopInfo *TopLoopId = nullptr) ;
+
+
   void finish();
+
+
 
 
 private:
@@ -386,7 +410,11 @@ private:
   llvm::SmallVector<LoopInfo*, 4> Active;
 
   llvm::SmallVector<LoopInfo*, 16> OriginalLoops;
+
+  public:
   llvm::DenseMap<llvm::StringRef, VirtualLoopInfo*> NamedLoopMap;
+  std::vector<LoopTransformation> PendingTransformations;
+  llvm::LLVMContext &Ctx;
 };
 
 } // end namespace CodeGen
