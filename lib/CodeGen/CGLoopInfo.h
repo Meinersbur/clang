@@ -265,7 +265,10 @@ public:
 	VirtualLoopInfo();
 
 	void markNondefault() {
-	IsDefault = false;
+		IsDefault = false;
+	}
+	void markDisableHeuristic() {
+		DisableHeuristic = true;
 	}
 
 	// llvm::MDNode *getLoopID() {return TempLoopID.get();}
@@ -282,10 +285,13 @@ public:
 		Followups.push_back({FollowupAttributeName, Followup});
 	}
 
+
+
 llvm::	MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
 //private:
 bool IsDefault = true;
+bool DisableHeuristic = false;
 
 	llvm::SmallVector<llvm::Metadata*,8> Attributes; // inheritable
 	llvm::SmallVector<llvm::Metadata*,4> Transforms;
@@ -395,6 +401,7 @@ public:
 
   VirtualLoopInfo * applyTransformation(const LoopTransformation &Transform, VirtualLoopInfo *TopLoopId = nullptr) ;
    VirtualLoopInfo* applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
+   VirtualLoopInfo*  applyTiling(const LoopTransformation &TheTransform,llvm:: ArrayRef< VirtualLoopInfo *>On) ;
 
 
   void finish();

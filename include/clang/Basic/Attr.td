@@ -2958,7 +2958,7 @@ def LoopTiling : Attr {
   let Spellings = [Pragma<"", "tile">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [VariadicStringArgument<"ApplyOn">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"PitIds">,VariadicStringArgument<"TileIds">];
+  let Args = [VariadicStringArgument<"ApplyOn">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2991,10 +2991,10 @@ def LoopTiling : Attr {
 				OS << ")";
 			}
 
-			if (pitIds_size()) {
-				OS << " pit_ids(";
+			if (floorIds_size()) {
+				OS << " floor_ids(";
 				bool First=true;
-				for (auto Id : pitIds()) {
+				for (auto Id : floorIds()) {
 				  if (!First) {
 					  OS << ", ";
 				  }

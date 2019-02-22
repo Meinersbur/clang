@@ -458,9 +458,6 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 
  VirtualLoopInfo* LoopInfoStack:: applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
 	assert(On);
-
-	invalidateVirtualLoop(On);
-
 	auto Result = new VirtualLoopInfo();
 
 	// Inherit all attributes.
@@ -481,11 +478,104 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
 	On->markNondefault();
-
+	invalidateVirtualLoop(On);
 
 	return Result;
 }
 
+ VirtualLoopInfo* LoopInfoStack::applyTiling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) {
+	 assert(On.size()>=1);
+	 assert(On.size() == Transform.TileSizes.size());
+	 auto N = On.size();
+
+	 SmallVector<VirtualLoopInfo*,4> OuterLoops;
+	 SmallVector<VirtualLoopInfo*,4> InnerLoops;
+
+	 for (auto i = 0; i < N;i+=1) {
+		 auto Orig = On[i];
+		 auto FloorId = Transform.TilePitIds[i];
+		 auto TileId = Transform.TileTileIds[i];
+
+		 auto Outer = new VirtualLoopInfo();
+		 OuterLoops.push_back(Outer);
+		 auto Inner = new VirtualLoopInfo();
+		 InnerLoops.push_back(Inner);
+		
+		 // Inherit all attributes.
+		 for (auto X : Orig->Attributes)  {
+			 Outer->addAttribute(X);
+			 Inner->addAttribute(X);
+		 }
+
+		 auto Orig = On[i];
+		 Orig->addTransformMD(MDNode::get( Ctx, { 
+			 MDString::get(Ctx, "llvm.loop.tile.size"), 
+			 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32,Transform.TileSizes[i]  ))) 
+			 }) );
+		 Orig->addFollowup("llvm.loop.tile.followup_floor",Outer );
+		 Orig->addFollowup("llvm.loop.tile.followup_tile",Inner );
+		 Orig->markDisableHeuristic();
+	 }
+
+	 On[0]->markNondefault();
+	 On[0]->addTransformMD(MDNode::get( Ctx, { 
+		 MDString::get(Ctx, "llvm.loop.tile.enable"), 
+		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) 
+		 }) );
+	 On[0]->addTransformMD(MDNode::get( Ctx, { 
+		 MDString::get(Ctx, "llvm.loop.tile.depth"), 
+		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
+		 }) );
+
+
+	 return nullptr;
+
+#if 0
+
+ SmallVector<Metadata *, 4> TransformArgs;
+ TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
+
+ SmallVector<Metadata *, 4> ApplyOnArgs;
+ if (Transform.ApplyOns.empty()) {
+	 // Apply on top loop
+	 assert(TopLoopId);
+	 ApplyOnArgs.push_back(TopLoopId);
+ } else {
+	 for (auto ApplyOn : Transform.ApplyOns) {
+		 assert(!ApplyOn.empty() && "Must specify loops to tile");
+		 ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+	 }
+ }
+ TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+
+ SmallVector<Metadata *, 4> TileSizeArgs;
+ for (auto TileSize : Transform.TileSizes) {
+	 assert(TileSize > 0 && "Must specify tile size");
+	 TileSizeArgs.push_back(ConstantAsMetadata::get(
+		 ConstantInt::get(Type::getInt64Ty(Ctx), TileSize)));
+ }
+ TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
+
+ SmallVector<Metadata *, 4> PitIdArgs;
+ for (auto PitId : Transform.TilePitIds)
+	 PitIdArgs.push_back(MDString::get(Ctx, PitId));
+ TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
+
+ SmallVector<Metadata *, 4> TileIdArgs;
+ for (auto TileId : Transform.TileTileIds)
+	 TileIdArgs.push_back(MDString::get(Ctx, TileId));
+ TransformArgs.push_back(MDNode::get(Ctx, TileIdArgs));
+
+ assert(TileSizeArgs.empty() ||
+	 (TileSizeArgs.size() == ApplyOnArgs.size()));
+ auto MDTransform = MDNode::get(Ctx, TransformArgs);
+
+ AdditionalTransforms.push_back(MDTransform);
+ AllTransforms.push_back(MDTransform);
+
+ TopLoopId = nullptr; // No unique follow-up node
+#endif
+ }
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
 //	LLVMContext &Ctx = Header->getContext();
@@ -526,6 +616,9 @@ MDNode * VirtualLoopInfo :: makeLoopID(llvm::LLVMContext &Ctx){
 	for (auto X : Attributes )
 		Args.push_back(X);
 	
+	if (DisableHeuristic)
+		Args.push_back(MDNode::get(Ctx,  MDString::get(Ctx, "llvm.loop.disable_nonforced") ));
+
 	for (auto Y : Transforms)
 		Args.push_back(Y);
 
@@ -991,80 +1084,14 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 	case LoopTransformation::Reversal: {
 		assert(ApplyTo.size()==1);
 		return applyUnrolling( Transform, ApplyTo[0]);
-
-
-#if 0
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
-
-		auto ApplyOn = Transform.getApplyOn();
-		if (ApplyOn.empty()) {
-			// Apply on TopLoopId
-			assert(TopLoopId);
-			TransformArgs.push_back(TopLoopId);
-		} else {
-			// Apply on Transform.ApplyOn
-			// TODO: Search for LoopID instead of using the name?
-			TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
-
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-
-		// auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow
-		// multiple transformation
-		// F->addMetadata("looptransform", *Transforms);
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		// TODO: Different scheme for transformations that output more than one
-		TopLoopId = MDTransform;
-#endif
 	} break;
-#if 0
+
 	case LoopTransformation::Tiling: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
+		return applyTiling(Transform, ApplyTo);
 
-		SmallVector<Metadata *, 4> ApplyOnArgs;
-		if (Transform.ApplyOns.empty()) {
-			// Apply on top loop
-			assert(TopLoopId);
-			ApplyOnArgs.push_back(TopLoopId);
-		} else {
-			for (auto ApplyOn : Transform.ApplyOns) {
-				assert(!ApplyOn.empty() && "Must specify loops to tile");
-				ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-			}
-		}
-		TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
-
-		SmallVector<Metadata *, 4> TileSizeArgs;
-		for (auto TileSize : Transform.TileSizes) {
-			assert(TileSize > 0 && "Must specify tile size");
-			TileSizeArgs.push_back(ConstantAsMetadata::get(
-				ConstantInt::get(Type::getInt64Ty(Ctx), TileSize)));
-		}
-		TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
-
-		SmallVector<Metadata *, 4> PitIdArgs;
-		for (auto PitId : Transform.TilePitIds)
-			PitIdArgs.push_back(MDString::get(Ctx, PitId));
-		TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
-
-		SmallVector<Metadata *, 4> TileIdArgs;
-		for (auto TileId : Transform.TileTileIds)
-			TileIdArgs.push_back(MDString::get(Ctx, TileId));
-		TransformArgs.push_back(MDNode::get(Ctx, TileIdArgs));
-
-		assert(TileSizeArgs.empty() ||
-			(TileSizeArgs.size() == ApplyOnArgs.size()));
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		TopLoopId = nullptr; // No unique follow-up node
+	
 	} break;
+#if 0
 	case LoopTransformation::Interchange: {
 		SmallVector<Metadata *, 4> TransformArgs;
 		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
