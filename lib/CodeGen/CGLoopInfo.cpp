@@ -224,7 +224,7 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
       TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
 
       SmallVector<Metadata *, 4> PitIdArgs;
-      for (auto PitId : Transform.TilePitIds)
+      for (auto PitId : Transform.TileFloorIds)
         PitIdArgs.push_back(MDString::get(Ctx, PitId));
       TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
 
@@ -456,7 +456,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 }
 
 
- VirtualLoopInfo* LoopInfoStack:: applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
+ VirtualLoopInfo* LoopInfoStack:: applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
 	assert(On);
 	auto Result = new VirtualLoopInfo();
 
@@ -478,6 +478,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
 	On->markNondefault();
+	On->markDisableHeuristic();
 	invalidateVirtualLoop(On);
 
 	return Result;
@@ -491,33 +492,6 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	 SmallVector<VirtualLoopInfo*,4> OuterLoops;
 	 SmallVector<VirtualLoopInfo*,4> InnerLoops;
 
-	 for (auto i = 0; i < N;i+=1) {
-		 auto Orig = On[i];
-		 auto FloorId = Transform.TilePitIds[i];
-		 auto TileId = Transform.TileTileIds[i];
-
-		 auto Outer = new VirtualLoopInfo();
-		 OuterLoops.push_back(Outer);
-		 auto Inner = new VirtualLoopInfo();
-		 InnerLoops.push_back(Inner);
-		
-		 // Inherit all attributes.
-		 for (auto X : Orig->Attributes)  {
-			 Outer->addAttribute(X);
-			 Inner->addAttribute(X);
-		 }
-
-		 auto Orig = On[i];
-		 Orig->addTransformMD(MDNode::get( Ctx, { 
-			 MDString::get(Ctx, "llvm.loop.tile.size"), 
-			 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32,Transform.TileSizes[i]  ))) 
-			 }) );
-		 Orig->addFollowup("llvm.loop.tile.followup_floor",Outer );
-		 Orig->addFollowup("llvm.loop.tile.followup_tile",Inner );
-		 Orig->markDisableHeuristic();
-	 }
-
-	 On[0]->markNondefault();
 	 On[0]->addTransformMD(MDNode::get( Ctx, { 
 		 MDString::get(Ctx, "llvm.loop.tile.enable"), 
 		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) 
@@ -527,6 +501,48 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
 		 }) );
 
+	 for (auto i = 0; i < N;i+=1) {
+		 auto Orig = On[i];
+		 auto FloorId =( i < Transform.TileFloorIds.size()) ? Transform.TileFloorIds[i] : StringRef();
+		 auto TileId = ( i < Transform.TileTileIds.size()) ?  Transform.TileTileIds[i]: StringRef();
+
+		 auto Outer = new VirtualLoopInfo();
+		 OuterLoops.push_back(Outer);
+		 if (!FloorId.empty()) {
+			 NamedLoopMap[FloorId] = Outer;
+			 Outer->addTransformMD(MDNode::get( Ctx, { 
+				 MDString::get(Ctx, "llvm.loop.id"), 
+				 MDString::get(Ctx, FloorId) }));
+			 Outer->markNondefault();
+		 }
+
+		 auto Inner = new VirtualLoopInfo();
+		 InnerLoops.push_back(Inner);
+		 if (!TileId.empty()) {
+			 NamedLoopMap[TileId] = Inner;
+			 Inner->addTransformMD(MDNode::get( Ctx, { 
+				 MDString::get(Ctx, "llvm.loop.id"), 
+				 MDString::get(Ctx, TileId) }));
+			 Inner->markNondefault();
+		 }
+
+		 // Inherit all attributes.
+		 for (auto X : Orig->Attributes)  {
+			 Outer->addAttribute(X);
+			 Inner->addAttribute(X);
+		 }
+
+		 Orig->addTransformMD(MDNode::get( Ctx, { 
+			 MDString::get(Ctx, "llvm.loop.tile.size"), 
+			 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32,Transform.TileSizes[i]))) 
+			 }) );
+		 Orig->addFollowup("llvm.loop.tile.followup_floor",Outer );
+		 Orig->addFollowup("llvm.loop.tile.followup_tile",Inner );
+		 Orig->markDisableHeuristic();
+		 Orig->markNondefault();
+	 }
+
+	// On[0]->markNondefault();
 
 	 return nullptr;
 
@@ -557,7 +573,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
  TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
 
  SmallVector<Metadata *, 4> PitIdArgs;
- for (auto PitId : Transform.TilePitIds)
+ for (auto PitId : Transform.TileFloorIds)
 	 PitIdArgs.push_back(MDString::get(Ctx, PitId));
  TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
 
@@ -699,7 +715,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       addTransformation(LoopTransformation::createTiling(
           makeArrayRef(LTiling->applyOn_begin(), LTiling->applyOn_size()),
           TileSizes,
-          makeArrayRef(LTiling->pitIds_begin(), LTiling->pitIds_size()),
+          makeArrayRef(LTiling->floorIds_begin(), LTiling->floorIds_size()),
           makeArrayRef(LTiling->tileIds_begin(), LTiling->tileIds_size())));
       continue;
     }
@@ -1083,7 +1099,7 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 	} break;
 	case LoopTransformation::Reversal: {
 		assert(ApplyTo.size()==1);
-		return applyUnrolling( Transform, ApplyTo[0]);
+		return applyReversal( Transform, ApplyTo[0]);
 	} break;
 
 	case LoopTransformation::Tiling: {

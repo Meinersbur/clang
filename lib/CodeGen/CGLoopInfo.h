@@ -56,7 +56,7 @@ struct LoopTransformation {
   llvm::StringRef Name;
   llvm::StringRef FollowupName;
   llvm::SmallVector<int64_t, 4> TileSizes;
-  llvm::SmallVector<llvm::StringRef, 4> TilePitIds;
+  llvm::SmallVector<llvm::StringRef, 4> TileFloorIds;
   llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
 
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
@@ -110,7 +110,7 @@ struct LoopTransformation {
     for (auto TileSize : TileSizes)
       Result.TileSizes.push_back(TileSize);
     for (auto PitId : PitIds)
-      Result.TilePitIds.push_back(PitId);
+      Result.TileFloorIds.push_back(PitId);
     for (auto TileId : TileIds)
       Result.TileTileIds.push_back(TileId);
 
@@ -400,7 +400,7 @@ public:
 
 
   VirtualLoopInfo * applyTransformation(const LoopTransformation &Transform, VirtualLoopInfo *TopLoopId = nullptr) ;
-   VirtualLoopInfo* applyUnrolling(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
+   VirtualLoopInfo* applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
    VirtualLoopInfo*  applyTiling(const LoopTransformation &TheTransform,llvm:: ArrayRef< VirtualLoopInfo *>On) ;
 
 

@@ -38,9 +38,10 @@ int main() {
 // IR-LABEL: define dso_local void @pragma_id_reverse(i32 %n, double* %A) #0 {
 // IR:         br label %for.cond, !llvm.loop !2
 //
-// IR: !2 = distinct !{!2, !3, !4}
-// IR: !3 = !{!"llvm.loop.id", !"myloop"}
-// IR: !4 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !2 = distinct !{!2, !3, !4, !5}
+// IR: !3 = !{!"llvm.loop.disable_nonforced"}
+// IR: !4 = !{!"llvm.loop.id", !"myloop"}
+// IR: !5 = !{!"llvm.loop.reverse.enable", i1 true}
 
 
 // AST: if (1)
