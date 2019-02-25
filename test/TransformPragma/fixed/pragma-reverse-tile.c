@@ -43,9 +43,9 @@ int main() {
 // IR: !4 = !{!"llvm.loop.reverse.enable", i1 true}
 // IR: !5 = !{!"llvm.loop.reverse.followup_reversed", !6}
 // IR: !6 = distinct !{!6, !3, !7, !8, !9}
-// IR: !7 = !{!"llvm.loop.tile.size", i32 128}
-// IR: !8 = !{!"llvm.loop.tile.enable", i1 true}
-// IR: !9 = !{!"llvm.loop.tile.depth", i32 1}
+// IR: !7 = !{!"llvm.loop.tile.enable", i1 true}
+// IR: !8 = !{!"llvm.loop.tile.depth", i32 1}
+// IR: !9 = !{!"llvm.loop.tile.size", i32 128}
 
 
 // AST: if (1)
