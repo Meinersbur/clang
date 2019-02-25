@@ -54,13 +54,16 @@ int main() {
 
 
 // AST: if (1
-// AST:     for (int c0 = 0; c0 <= floord(p_0 - 1, 32); c0 += 1)
-// AST:       for (int c1 = 0; c1 <= floord(p_1 - 1, 32); c1 += 1)
-// AST:         for (int c2 = 0; c2 <= min(31, p_0 - 32 * c0 - 1); c2 += 1)
-// AST:           for (int c3 = 0; c3 <= min(31, p_1 - 32 * c1 - 1); c3 += 1)
-// AST:             Stmt3(32 * c0 + c2, 32 * c1 + c3);
+// AST:   for (int c0 = 0; c0 <= floord(p_0 - 1, 32); c0 += 1) {
+// AST:     for (int c1 = 0; c1 <= floord(p_1 - 1, 16); c1 += 1) {
+// AST:       for (int c2 = 0; c2 <= min(31, p_0 - 32 * c0 - 1); c2 += 1) {
+// AST:         for (int c3 = 0; c3 <= min(15, p_1 - 16 * c1 - 1); c3 += 1)
+// AST:           Stmt3(32 * c0 + c2, 16 * c1 + c3);
+// AST:       }
+// AST:     }
+// AST:   }
 // AST: else
-// AST:     {  /* original code */ }
+// AST:   {  /* original code */ }
 
 
 // TRANS:  %polly.indvar = phi i64 [ 0, %polly.loop_preheader ], [ %polly.indvar_next, %polly.loop_exit37 ]
