@@ -484,7 +484,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	return Result;
 }
 
- VirtualLoopInfo* LoopInfoStack::applyTiling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) {
+ VirtualLoopInfo* LoopInfoStack::applyTiling(const LoopTransformation &Transform,llvm::ArrayRef<VirtualLoopInfo*> On) {
 	 assert(On.size()>=1);
 	 assert(On.size() == Transform.TileSizes.size());
 	 auto N = On.size();
@@ -506,9 +506,10 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 		 auto FloorId =( i < Transform.TileFloorIds.size()) ? Transform.TileFloorIds[i] : StringRef();
 		 auto TileId = ( i < Transform.TileTileIds.size()) ?  Transform.TileTileIds[i]: StringRef();
 
-		 auto Outer = new VirtualLoopInfo();
+		 auto Outer = new VirtualLoopInfo(FloorId);
 		 OuterLoops.push_back(Outer);
 		 if (!FloorId.empty()) {
+			// Outer->Name = FloorId;
 			 NamedLoopMap[FloorId] = Outer;
 			 Outer->addTransformMD(MDNode::get( Ctx, { 
 				 MDString::get(Ctx, "llvm.loop.id"), 
@@ -516,9 +517,10 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 			 Outer->markNondefault();
 		 }
 
-		 auto Inner = new VirtualLoopInfo();
+		 auto Inner = new VirtualLoopInfo(TileId);
 		 InnerLoops.push_back(Inner);
 		 if (!TileId.empty()) {
+			// Inner->Name = TileId;
 			 NamedLoopMap[TileId] = Inner;
 			 Inner->addTransformMD(MDNode::get( Ctx, { 
 				 MDString::get(Ctx, "llvm.loop.id"), 
@@ -536,62 +538,100 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 			 MDString::get(Ctx, "llvm.loop.tile.size"), 
 			 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32,Transform.TileSizes[i]))) 
 			 }) );
-		 Orig->addFollowup("llvm.loop.tile.followup_floor",Outer );
-		 Orig->addFollowup("llvm.loop.tile.followup_tile",Inner );
+		 Orig->addFollowup("llvm.loop.tile.followup_floor",Outer);
+		 Orig->addFollowup("llvm.loop.tile.followup_tile",Inner);
 		 Orig->markDisableHeuristic();
 		 Orig->markNondefault();
 	 }
 
-	// On[0]->markNondefault();
-
 	 return nullptr;
+ }
+
+
+ VirtualLoopInfo* LoopInfoStack::applyInterchange(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) {
+	 auto N = On.size();
+	 assert(N>=2);
+	 assert(Transform.Permutation.size()==N);
+
+
+	 auto TopmostOrig = On[0];
+	 TopmostOrig->addTransformMD(MDNode::get( Ctx, { 
+		 MDString::get(Ctx, "llvm.loop.interchange.enable"), 
+		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) 
+		 }) );
+	 TopmostOrig->addTransformMD(MDNode::get( Ctx, { 
+		 MDString::get(Ctx, "llvm.loop.interchange.depth"), 
+		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
+		 }));
+
+
+	 StringMap<int> NewPos;
+	 for (auto PermutedName : Transform.Permutation) {
+		 //auto PermutedVInfo = NamedLoopMap.lookup(PermutedName);
+		 //assert(PermutedVInfo);
+		 NewPos.insert({PermutedName, NewPos.size()});
+	 }
+
+	 SmallVector<Metadata*,4> Permutation;
+	 Permutation.push_back(MDString::get(Ctx, "llvm.loop.interchange.permutation"));
+	 for (int i =0; i<N;i+=1) {
+		 auto LoopName = On[i]->Name;
+		 auto Pos = NewPos.lookup(LoopName);
+		 Permutation.push_back( ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, Pos))));
+	 }
+	 TopmostOrig->addTransformMD(MDNode::get( Ctx,Permutation));
+
+
+	 SmallVector<VirtualLoopInfo*,4> PermutedLoops;
+	 for (int i =0; i<N;i+=1) {
+		 auto Orig = On[i];
+		 auto Permuted = new VirtualLoopInfo();
+		 PermutedLoops.push_back(Permuted);
+
+		 // Inherit all attributes.
+		 for (auto X : Orig->Attributes)  
+			 Permuted->addAttribute(X);
+		 
+		 Orig->markDisableHeuristic();
+		 Orig->markNondefault();
+
+
+		 // TODO: Followups
+	 }
+
+	 return PermutedLoops[0];
 
 #if 0
 
- SmallVector<Metadata *, 4> TransformArgs;
- TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
+	 SmallVector<Metadata *, 4> TransformArgs;
+	 TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
 
- SmallVector<Metadata *, 4> ApplyOnArgs;
- if (Transform.ApplyOns.empty()) {
-	 // Apply on top loop
-	 assert(TopLoopId);
-	 ApplyOnArgs.push_back(TopLoopId);
- } else {
+	 SmallVector<Metadata *, 4> ApplyOnArgs;
+	 assert(!Transform.ApplyOns.empty());
+	 assert(Transform.ApplyOns.size() == Transform.Permutation.size());
+
 	 for (auto ApplyOn : Transform.ApplyOns) {
 		 assert(!ApplyOn.empty() && "Must specify loops to tile");
 		 ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
 	 }
- }
- TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
+	 TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
- SmallVector<Metadata *, 4> TileSizeArgs;
- for (auto TileSize : Transform.TileSizes) {
-	 assert(TileSize > 0 && "Must specify tile size");
-	 TileSizeArgs.push_back(ConstantAsMetadata::get(
-		 ConstantInt::get(Type::getInt64Ty(Ctx), TileSize)));
- }
- TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
+	 SmallVector<Metadata *, 4> PermutationArgs;
+	 for (auto PermuteItem : Transform.Permutation) {
+		 assert(!PermuteItem.empty() && "Must specify loop id");
+		 PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
+	 }
+	 TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
 
- SmallVector<Metadata *, 4> PitIdArgs;
- for (auto PitId : Transform.TileFloorIds)
-	 PitIdArgs.push_back(MDString::get(Ctx, PitId));
- TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
+	 auto MDTransform = MDNode::get(Ctx, TransformArgs);
+	 AdditionalTransforms.push_back(MDTransform);
+	 AllTransforms.push_back(MDTransform);
 
- SmallVector<Metadata *, 4> TileIdArgs;
- for (auto TileId : Transform.TileTileIds)
-	 TileIdArgs.push_back(MDString::get(Ctx, TileId));
- TransformArgs.push_back(MDNode::get(Ctx, TileIdArgs));
-
- assert(TileSizeArgs.empty() ||
-	 (TileSizeArgs.size() == ApplyOnArgs.size()));
- auto MDTransform = MDNode::get(Ctx, TransformArgs);
-
- AdditionalTransforms.push_back(MDTransform);
- AllTransforms.push_back(MDTransform);
-
- TopLoopId = nullptr; // No unique follow-up node
+	 TopLoopId = nullptr; // No unique follow-up node
 #endif
  }
+
+
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
 //	LLVMContext &Ctx = Header->getContext();
@@ -673,6 +713,13 @@ LoopInfo* LoopInfoStack::push(BasicBlock *Header, Function *F,
 VirtualLoopInfo::VirtualLoopInfo() {
 
 }
+
+
+
+VirtualLoopInfo::VirtualLoopInfo(StringRef Name) : Name(Name) {
+
+}
+
 
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
@@ -1089,8 +1136,9 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 	case LoopTransformation::Id:{
 		assert(ApplyTo.size()==1);
 		auto Name = Transform.Name;
-		auto X =	NamedLoopMap.insert({Name,ApplyTo[0]});
+		auto X = NamedLoopMap.insert({Name,ApplyTo[0]});
 		assert(X.second && "Name already given");
+		ApplyTo[0]->Name = Name;
 		ApplyTo[0]->addTransformMD(MDNode::get( Ctx, { 
 			MDString::get(Ctx, "llvm.loop.id"), 
 			MDString::get(Ctx, Name) }));
@@ -1101,40 +1149,13 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 		assert(ApplyTo.size()==1);
 		return applyReversal( Transform, ApplyTo[0]);
 	} break;
-
 	case LoopTransformation::Tiling: {
 		return applyTiling(Transform, ApplyTo);
-
-	
+	} break;
+	case LoopTransformation::Interchange: {
+		return applyInterchange(Transform,ApplyTo);
 	} break;
 #if 0
-	case LoopTransformation::Interchange: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
-
-		SmallVector<Metadata *, 4> ApplyOnArgs;
-		assert(!Transform.ApplyOns.empty());
-		assert(Transform.ApplyOns.size() == Transform.Permutation.size());
-
-		for (auto ApplyOn : Transform.ApplyOns) {
-			assert(!ApplyOn.empty() && "Must specify loops to tile");
-			ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
-		TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
-
-		SmallVector<Metadata *, 4> PermutationArgs;
-		for (auto PermuteItem : Transform.Permutation) {
-			assert(!PermuteItem.empty() && "Must specify loop id");
-			PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
-		}
-		TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
-
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		TopLoopId = nullptr; // No unique follow-up node
-	} break;
 	case LoopTransformation::Pack: {
 		SmallVector<Metadata *, 4> TransformArgs;
 		TransformArgs.push_back(MDString::get(Ctx, "llvm.data.pack"));

@@ -263,6 +263,7 @@ private:
 class VirtualLoopInfo {
 public:
 	VirtualLoopInfo();
+	VirtualLoopInfo(llvm::StringRef Name);
 
 	void markNondefault() {
 		IsDefault = false;
@@ -290,6 +291,8 @@ public:
 llvm::	MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
 //private:
+llvm::StringRef Name;
+
 bool IsDefault = true;
 bool DisableHeuristic = false;
 
@@ -402,7 +405,7 @@ public:
   VirtualLoopInfo * applyTransformation(const LoopTransformation &Transform, VirtualLoopInfo *TopLoopId = nullptr) ;
    VirtualLoopInfo* applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
    VirtualLoopInfo*  applyTiling(const LoopTransformation &TheTransform,llvm:: ArrayRef< VirtualLoopInfo *>On) ;
-
+   VirtualLoopInfo* applyInterchange(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) ;
 
   void finish();
 
