@@ -134,6 +134,7 @@ struct LoopTransformation {
                                        clang::DeclRefExpr *Array, bool OnHeap) {
     LoopTransformation Result;
     Result.Kind = Pack;
+	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);
     Result.Array = Array;
     Result.OnHeap = OnHeap;
@@ -144,6 +145,7 @@ struct LoopTransformation {
                                             int64_t Factor, bool Full) {
     LoopTransformation Result;
     Result.Kind = Unrolling;
+	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);
     Result.Factor = Factor;
     Result.Full = Full;
@@ -153,6 +155,7 @@ struct LoopTransformation {
   static LoopTransformation createThreadParallel(llvm::StringRef ApplyOn) {
     LoopTransformation Result;
     Result.Kind = ThreadParallel;
+	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);
     return Result;
   }
@@ -406,6 +409,8 @@ public:
    VirtualLoopInfo* applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) ;
    VirtualLoopInfo*  applyTiling(const LoopTransformation &TheTransform,llvm:: ArrayRef< VirtualLoopInfo *>On) ;
    VirtualLoopInfo* applyInterchange(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) ;
+   VirtualLoopInfo* applyUnrolling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On);
+
 
   void finish();
 

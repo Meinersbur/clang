@@ -600,35 +600,105 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	 }
 
 	 return PermutedLoops[0];
+ }
+
+
+
+ static Metadata *createUnsignedMetadataConstant(LLVMContext &Ctx, uint64_t Val) {
+	 APInt X{64, Val, false};
+	 APInt Y{X.getActiveBits()+1, Val, false}; // One bit more such that interpretation as signed or unsigned is not important.
+return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
+ }
+
+
+
+ static Metadata *createSignedMetadataConstant(LLVMContext &Ctx, int64_t Val) {
+	 APInt X{64, static_cast<uint64_t>( Val), true};
+	 APInt Y{X.getMinSignedBits ()+1, static_cast<uint64_t>( Val), true};
+	 return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
+ }
+
+
+ static Metadata *createBoolMetadataConstant(LLVMContext &Ctx, bool Val) {
+	 return ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, Val) ));
+ }
+
+
+ VirtualLoopInfo* LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) {
+	 assert(On.size()==1);
+	 auto Orig = On[0];
+
+	 auto Result = new VirtualLoopInfo();
+
+	 // Inherit all attributes.
+	 for (auto X : Orig->Attributes) 
+		 Result->addAttribute(X);
+
+	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.unroll.enable"),createBoolMetadataConstant(Ctx, true) }));
+	 
+	 auto UnrollFactor = Transform.Factor;
+	 auto IsFullUnroll = Transform.Full;
+	 if (UnrollFactor > 0 && IsFullUnroll) {
+		 llvm_unreachable("Contradicting state");
+	 } else if (UnrollFactor > 0) {
+		 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.unroll.count"), createUnsignedMetadataConstant(Ctx, UnrollFactor) }));
+	 } else if (IsFullUnroll) {
+		 Orig->addTransformMD(MDNode::get( Ctx,  MDString::get(Ctx, "llvm.loop.unroll.full")  ));
+	 } else {
+		 // Determine unroll factor heuristically
+	 }
 
 #if 0
-
 	 SmallVector<Metadata *, 4> TransformArgs;
-	 TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
+	 TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
 
-	 SmallVector<Metadata *, 4> ApplyOnArgs;
-	 assert(!Transform.ApplyOns.empty());
-	 assert(Transform.ApplyOns.size() == Transform.Permutation.size());
-
-	 for (auto ApplyOn : Transform.ApplyOns) {
-		 assert(!ApplyOn.empty() && "Must specify loops to tile");
-		 ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
+	 auto ApplyOn = Transform.getApplyOn();
+	 if (ApplyOn.empty()) {
+		 assert(TopLoopId);
+		 TransformArgs.push_back(TopLoopId);
+	 } else {
+		 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
 	 }
-	 TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
 
-	 SmallVector<Metadata *, 4> PermutationArgs;
-	 for (auto PermuteItem : Transform.Permutation) {
-		 assert(!PermuteItem.empty() && "Must specify loop id");
-		 PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
+	 auto UnrollFactor = Transform.Factor;
+	 auto IsFullUnroll = Transform.Full;
+	 if (UnrollFactor > 0 && IsFullUnroll) {
+		 llvm_unreachable("Contradicting state");
+	 } else if (UnrollFactor > 0) {
+		 TransformArgs.push_back(ConstantAsMetadata::get(
+			 ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)));
+	 } else if (IsFullUnroll) {
+		 TransformArgs.push_back(MDString::get(Ctx, "full"));
+	 } else {
+		 TransformArgs.push_back(
+			 nullptr); // Determine unroll factor heuristically
 	 }
-	 TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
 
 	 auto MDTransform = MDNode::get(Ctx, TransformArgs);
+	 Transform.TransformMD = MDTransform;
 	 AdditionalTransforms.push_back(MDTransform);
 	 AllTransforms.push_back(MDTransform);
 
-	 TopLoopId = nullptr; // No unique follow-up node
+	 // Follow-ups use this one
+	 TopLoopId = MDTransform;
 #endif
+	 
+	 
+	 Orig->addFollowup("llvm.loop.unroll.followup_unrolled", Result);
+	 Orig->markNondefault();
+	 Orig->markDisableHeuristic();
+	 invalidateVirtualLoop(Orig);
+
+	 if (!Transform.FollowupName.empty()) {
+		 assert(!NamedLoopMap.count(Transform.FollowupName));
+		 NamedLoopMap[Transform.FollowupName] = Result;
+		 Result->addTransformMD(MDNode::get( Ctx, { 
+			 MDString::get(Ctx, "llvm.loop.id"), 
+			 MDString::get(Ctx, Transform.FollowupName) }));
+		 Result->markNondefault();
+	 }
+
+	 return Result;
  }
 
 
@@ -1144,17 +1214,16 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 			MDString::get(Ctx, Name) }));
 		ApplyTo[0]->markNondefault();
 		return nullptr;
-	} break;
-	case LoopTransformation::Reversal: {
+	}
+	case LoopTransformation::Reversal: 
 		assert(ApplyTo.size()==1);
 		return applyReversal( Transform, ApplyTo[0]);
-	} break;
-	case LoopTransformation::Tiling: {
+	case LoopTransformation::Tiling: 
 		return applyTiling(Transform, ApplyTo);
-	} break;
-	case LoopTransformation::Interchange: {
+	case LoopTransformation::Interchange: 
 		return applyInterchange(Transform,ApplyTo);
-	} break;
+	case LoopTransformation::Unrolling: 
+		return applyUnrolling(Transform,ApplyTo);
 #if 0
 	case LoopTransformation::Pack: {
 		SmallVector<Metadata *, 4> TransformArgs;
@@ -1193,41 +1262,7 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 		TopLoopId = MDTransform;
 	} break;
 
-	case LoopTransformation::Unrolling: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
 
-		auto ApplyOn = Transform.getApplyOn();
-		if (ApplyOn.empty()) {
-			assert(TopLoopId);
-			TransformArgs.push_back(TopLoopId);
-		} else {
-			TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
-
-		auto UnrollFactor = Transform.Factor;
-		auto IsFullUnroll = Transform.Full;
-		if (UnrollFactor > 0 && IsFullUnroll) {
-			llvm_unreachable("Contradicting state");
-		} else if (UnrollFactor > 0) {
-			TransformArgs.push_back(ConstantAsMetadata::get(
-				ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)));
-		} else if (IsFullUnroll) {
-			TransformArgs.push_back(MDString::get(Ctx, "full"));
-		} else {
-			TransformArgs.push_back(
-				nullptr); // Determine unroll factor heuristically
-		}
-
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		Transform.TransformMD = MDTransform;
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		// Follow-ups use this one
-		TopLoopId = MDTransform;
-
-	} break;
 	case LoopTransformation::ThreadParallel: {
 		SmallVector<Metadata *, 4> TransformArgs;
 		TransformArgs.push_back(

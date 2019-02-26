@@ -65,6 +65,7 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
+#include "llvm/IR/OptBisect.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -411,6 +412,37 @@ static TargetMachine::CodeGenFileType getCodeGenFileType(BackendAction Action) {
   }
 }
 
+
+
+struct NoLegacyLoopTransformsPassGate : public llvm:: OptPassGate {
+	AnalysisID UnrollPassID;
+
+	NoLegacyLoopTransformsPassGate() {
+		auto UnrollPass =std:: unique_ptr<Pass>( createLoopUnrollPass());
+		UnrollPassID = UnrollPass->getPassID();
+	//	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
+	}
+
+	 bool isLegacyLoopPass(const Pass *P)const {
+		auto ID = P->getPassID();
+		auto Result= ID == UnrollPassID;
+//	if (Result)
+//		llvm::errs() << "## Matched unroll pass\n";
+	 return Result;
+	 } 
+
+	 bool shouldRunPass(const Pass *P, const Module &U) override { return !isLegacyLoopPass(P) ; }
+	 bool shouldRunPass(const Pass *P, const Function &U) override {return !isLegacyLoopPass(P); }
+	 bool shouldRunPass(const Pass *P, const BasicBlock &U) override { return !isLegacyLoopPass(P); }
+	 bool shouldRunPass(const Pass *P, const Region &U)override  { return !isLegacyLoopPass(P); }
+	 bool shouldRunPass(const Pass *P, const Loop &U) override { return ! isLegacyLoopPass(P); }
+	 bool shouldRunPass(const Pass *P, const CallGraphSCC &U) override { return !isLegacyLoopPass(P); }
+};
+
+
+static ManagedStatic<NoLegacyLoopTransformsPassGate> DisableLegacyLoopTransformsPassGate;
+
+
 static void initTargetOptions(llvm::TargetOptions &Options,
                               const CodeGenOptions &CodeGenOpts,
                               const clang::TargetOptions &TargetOpts,
@@ -704,6 +736,10 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
 
   PMBuilder.populateFunctionPassManager(FPM);
   PMBuilder.populateModulePassManager(MPM);
+
+  if (CodeGenOpts.DisableLegacyLoopTransformation) {
+	  TheModule->getContext().setOptPassGate(*DisableLegacyLoopTransformsPassGate);
+  }
 }
 
 static void setCommandLineOpts(const CodeGenOptions &CodeGenOpts) {
