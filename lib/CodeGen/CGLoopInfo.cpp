@@ -635,7 +635,9 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 		 Result->addAttribute(X);
 
 	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.unroll.enable"),createBoolMetadataConstant(Ctx, true) }));
-	 
+	 Orig->markDisableHeuristic();
+	 Orig->markNondefault();
+
 	 auto UnrollFactor = Transform.Factor;
 	 auto IsFullUnroll = Transform.Full;
 	 if (UnrollFactor > 0 && IsFullUnroll) {
