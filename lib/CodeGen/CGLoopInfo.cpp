@@ -650,42 +650,6 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 		 // Determine unroll factor heuristically
 	 }
 
-#if 0
-	 SmallVector<Metadata *, 4> TransformArgs;
-	 TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
-
-	 auto ApplyOn = Transform.getApplyOn();
-	 if (ApplyOn.empty()) {
-		 assert(TopLoopId);
-		 TransformArgs.push_back(TopLoopId);
-	 } else {
-		 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-	 }
-
-	 auto UnrollFactor = Transform.Factor;
-	 auto IsFullUnroll = Transform.Full;
-	 if (UnrollFactor > 0 && IsFullUnroll) {
-		 llvm_unreachable("Contradicting state");
-	 } else if (UnrollFactor > 0) {
-		 TransformArgs.push_back(ConstantAsMetadata::get(
-			 ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)));
-	 } else if (IsFullUnroll) {
-		 TransformArgs.push_back(MDString::get(Ctx, "full"));
-	 } else {
-		 TransformArgs.push_back(
-			 nullptr); // Determine unroll factor heuristically
-	 }
-
-	 auto MDTransform = MDNode::get(Ctx, TransformArgs);
-	 Transform.TransformMD = MDTransform;
-	 AdditionalTransforms.push_back(MDTransform);
-	 AllTransforms.push_back(MDTransform);
-
-	 // Follow-ups use this one
-	 TopLoopId = MDTransform;
-#endif
-	 
-	 
 	 Orig->addFollowup("llvm.loop.unroll.followup_unrolled", Result);
 	 Orig->markNondefault();
 	 Orig->markDisableHeuristic();
@@ -699,6 +663,52 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 			 MDString::get(Ctx, Transform.FollowupName) }));
 		 Result->markNondefault();
 	 }
+
+	 return Result;
+ }
+
+
+
+ VirtualLoopInfo* LoopInfoStack::applyPack(const LoopTransformation &Transform, llvm::ArrayRef<VirtualLoopInfo *>On) {
+	 assert(On.size()==1);
+	 auto Orig = On[0];
+	 assert(Orig);
+
+	 // auto Var = Transform.Array->getDecl();
+	 auto LVar = CGF.EmitLValue(Transform.Array);
+	 auto Addr = cast<AllocaInst>(LVar.getPointer());
+	 //assert(!Transform.ArrayBasePtr);
+	 //Transform.ArrayBasePtr = Addr;
+	 // TransformArgs.push_back(LocalAsMetadata::get(Addr));
+
+	auto ArrayName = Transform.Array->getNameInfo().getAsString();
+	MDNode *ArrayId;
+	if (ArrayName.empty())
+	  ArrayId =  MDNode::getDistinct(Ctx, {});
+	else 
+		ArrayId =  MDNode::getDistinct(Ctx, MDString::get(Ctx, ArrayName)  );
+	AccessesToTrack.push_back({Addr, ArrayId });
+
+	 auto Result = new VirtualLoopInfo();
+
+	 // Inherit all attributes.
+	 for (auto X : Orig->Attributes) 
+		 Result->addAttribute(X);
+
+
+	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.enable"),createBoolMetadataConstant(Ctx, true) }));
+	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.array"), ArrayId }));
+
+	 // FIXME: if no allocate() clause is specified, do no emit any llvm.array.pack.allocate
+ 	 if (Transform.OnHeap)
+		 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.allocate"), MDString::get(Ctx, "malloc") }));
+	 else
+		 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.allocate"), MDString::get(Ctx, "alloca") }));
+
+	 Orig->markDisableHeuristic();
+	 Orig->markNondefault();
+
+	 invalidateVirtualLoop(Orig);
 
 	 return Result;
  }
@@ -1048,6 +1058,8 @@ void LoopInfoStack::pop() {
   Active.pop_back();
 }
 
+
+
 static bool mayUseArray(AllocaInst *BasePtrAlloca, Value *PtrArg) {
   DenseSet<PHINode *> Closed;
   SmallVector<Value *, 16> Worklist;
@@ -1104,8 +1116,7 @@ static bool mayUseArray(AllocaInst *BasePtrAlloca, Value *PtrArg) {
   return false;
 }
 
-static void addArrayTransformUse(const LoopTransformation &Trans,
-                                 Instruction *MemAcc) {
+static void addArrayTransformUse(const LoopTransformation &Trans, Instruction *MemAcc) {
   auto AccessMD = MemAcc->getMetadata("llvm.access");
   if (!AccessMD) {
     AccessMD = MDNode::getDistinct(MemAcc->getContext(), {});
@@ -1157,8 +1168,9 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
     return;
   }
 
+#if 0
   if (I->mayReadOrWriteMemory()) {
-    SmallVector<Metadata *, 2> ParallelLoopIDs;
+    // SmallVector<Metadata *, 2> ParallelLoopIDs;
     for (const LoopInfo *AL : Active) {
       for (auto &Trans : AL->getAttributes().TransformationStack) {
         if (Trans.Kind == LoopTransformation::Pack) {
@@ -1166,12 +1178,14 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
           auto MNode = Trans.TransformMD;
           assert(BasePtr && MNode);
 
+
           if (mayUseArray(BasePtr, I))
             addArrayTransformUse(Trans, I);
         }
       }
     }
   }
+#endif
 }
 
 VirtualLoopInfo *LoopInfoStack::lookupNamedLoop(StringRef LoopName){
@@ -1226,45 +1240,10 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 		return applyInterchange(Transform,ApplyTo);
 	case LoopTransformation::Unrolling: 
 		return applyUnrolling(Transform,ApplyTo);
+	case LoopTransformation::Pack:
+		return applyPack(Transform,ApplyTo);
+
 #if 0
-	case LoopTransformation::Pack: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(MDString::get(Ctx, "llvm.data.pack"));
-
-		auto ApplyOn = Transform.getApplyOn();
-		if (ApplyOn.empty()) {
-			// Apply on TopLoopId
-			assert(TopLoopId);
-			TransformArgs.push_back(TopLoopId);
-		} else {
-			// Apply on Transform.ApplyOn
-			// TODO: Search for LoopID instead of using the name?
-			TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
-
-		// auto Var = Transform.Array->getDecl();
-		auto LVar = CGF->EmitLValue(Transform.Array);
-		auto Addr = cast<AllocaInst>(LVar.getPointer());
-		assert(!Transform.ArrayBasePtr);
-		Transform.ArrayBasePtr = Addr;
-		// TransformArgs.push_back(LocalAsMetadata::get(Addr));
-
-		auto Accesses = MDNode::get(Ctx, {});
-		TransformArgs.push_back(Accesses);
-
-		TransformArgs.push_back(Transform.OnHeap ? MDString::get(Ctx, "malloc")
-			: MDString::get(Ctx, "alloca"));
-
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		Transform.TransformMD = MDTransform;
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		// Follow-ups use this one
-		TopLoopId = MDTransform;
-	} break;
-
-
 	case LoopTransformation::ThreadParallel: {
 		SmallVector<Metadata *, 4> TransformArgs;
 		TransformArgs.push_back(
@@ -1309,6 +1288,80 @@ void LoopInfoStack::finish(){
 
 	for (auto L : OriginalLoops) {
 		L->finish(*this);
+	}
+
+	// FIXME: Only accesses within the array-packing loop would be sufficient.
+	for (auto X : AccessesToTrack) {
+		auto PtrVar = X.first;
+		auto MD = X.second;
+
+		DenseSet<Value *> Closed;
+		SmallVector<Value *, 16> Worklist;
+		SmallVector<Instruction *, 16> Accesses;
+
+		// Get the llvm::Value for the pointer.
+		for (auto U : PtrVar->users()) {
+			auto UserInst = dyn_cast<LoadInst>(U);
+			if (!UserInst)
+				continue;
+			assert(UserInst->getType()->isPointerTy());
+			Worklist.push_back(UserInst);
+		}
+
+
+		while (!Worklist.empty()) {
+			auto T = Worklist.pop_back_val();
+			if (Closed.count(T))
+				continue;
+			Closed.insert(T);
+
+			auto Inst = dyn_cast<Instruction>(T);
+			if (!Inst)
+				continue;
+
+
+
+	
+
+
+
+			// TODO: Whitelist of instructions that 'derive' from a pointer.
+			for (auto Op : T->users())  {
+				if (isa<Instruction>(Op)&& cast<Instruction>(Op)  ->mayReadOrWriteMemory())
+					Accesses.push_back(cast<Instruction>( Op));
+
+				// Only follow pointers.
+				if (!Op->getType()->isPointerTy())
+					continue;
+
+				// Don't follow memory indirections.
+				if (auto LI = dyn_cast<LoadInst>(Op)) 
+					continue;
+
+
+				// Don't know wheter a return by a function is relatated to the memory address.
+				if (auto CB = dyn_cast<CallBase>(Op)) {
+					switch (CB->getIntrinsicID()) {
+						// TODO: more whitelisted functions.
+					case Intrinsic::expect:
+						break;
+					default:
+						continue;
+					}
+				}
+
+
+				
+					Worklist.push_back(Op);
+			}
+		}
+
+
+		for (auto A : Accesses) {
+			assert(!A->getMetadata("llvm.access"));
+			A->setMetadata("llvm.access", MD);
+		}
+
 	}
 
 	for (auto L : OriginalLoops) {

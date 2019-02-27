@@ -69,7 +69,7 @@ struct LoopTransformation {
   // FIXME: This is set later at CGLoopInfo and forces the emission of this
   // pointer before its first use/even if it is not used. Maybe better hook into
   // CGF->EmitLValue when the array pointer is emited.
-  llvm::AllocaInst *ArrayBasePtr = nullptr;
+  //llvm::AllocaInst *ArrayBasePtr = nullptr;
 
   llvm::MDNode *TransformMD = nullptr;
 
@@ -289,7 +289,17 @@ public:
 		Followups.push_back({FollowupAttributeName, Followup});
 	}
 
+#if 0
+	void addOriginal(VirtualLoopInfo* VInfo) {
+		BasedOn.insert(VInfo);
+	}
 
+	void trackArray(llvm::AllocaInst *ArrayPtr ) {
+		TrackArrays.insert (ArrayPtr);
+		for (auto X: BasedOn)
+			X->trackArray(ArrayPtr);
+	}
+#endif
 
 llvm::	MDNode *makeLoopID(llvm::LLVMContext &Ctx);
 
@@ -303,6 +313,12 @@ bool DisableHeuristic = false;
 	llvm::SmallVector<llvm::Metadata*,4> Transforms;
 
 	llvm::SmallVector<std::pair<const char*, VirtualLoopInfo*> ,4> Followups;
+
+#if 0
+	llvm::SmallPtrSet<llvm::AllocaInst *, 4>  TrackArrays;
+	llvm::SmallPtrSet <VirtualLoopInfo*, 1> BasedOn;
+	//llvm::AllocaInst *ArrayBasePtr = nullptr;
+#endif
 };
 
 
@@ -314,7 +330,7 @@ class LoopInfoStack {
   void operator=(const LoopInfoStack &) = delete;
 
 public:
-  LoopInfoStack(llvm::LLVMContext &Ctx) : Ctx(Ctx) {}
+  LoopInfoStack(llvm::LLVMContext &Ctx, CodeGenFunction &CGF) : Ctx(Ctx), CGF(CGF) {}
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
@@ -410,7 +426,7 @@ public:
    VirtualLoopInfo*  applyTiling(const LoopTransformation &TheTransform,llvm:: ArrayRef< VirtualLoopInfo *>On) ;
    VirtualLoopInfo* applyInterchange(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) ;
    VirtualLoopInfo* applyUnrolling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On);
-
+   VirtualLoopInfo* applyPack(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On);
 
   void finish();
 
@@ -419,6 +435,8 @@ public:
 
 
 private:
+	CodeGenFunction &CGF;
+
   /// Returns true if there is LoopInfo on the stack.
   bool hasInfo() const { return !Active.empty(); }
   /// Return the LoopInfo for the current loop. HasInfo should be called
@@ -435,6 +453,8 @@ private:
   llvm::DenseMap<llvm::StringRef, VirtualLoopInfo*> NamedLoopMap;
   std::vector<LoopTransformation> PendingTransformations;
   llvm::LLVMContext &Ctx;
+
+  llvm::SmallVector<std::pair<llvm::AllocaInst*,llvm::MDNode *>,4> AccessesToTrack;
 };
 
 } // end namespace CodeGen
