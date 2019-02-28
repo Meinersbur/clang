@@ -427,6 +427,7 @@ public:
    VirtualLoopInfo* applyInterchange(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On) ;
    VirtualLoopInfo* applyUnrolling(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On);
    VirtualLoopInfo* applyPack(const LoopTransformation &Transform,llvm:: ArrayRef<VirtualLoopInfo *>On);
+   VirtualLoopInfo* applyThreadParallel(const LoopTransformation &Transform, VirtualLoopInfo * On) ;
 
   void finish();
 

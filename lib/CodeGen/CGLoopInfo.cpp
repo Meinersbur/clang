@@ -715,6 +715,72 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 
 
 
+ VirtualLoopInfo* LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform, VirtualLoopInfo * On) {
+	 assert(On);
+	 auto Orig = On;
+
+	 auto Result = new VirtualLoopInfo();
+
+	 // Inherit all attributes.
+	 for (auto X : Orig->Attributes) 
+		 Result->addAttribute(X);
+
+	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.llvm.loop.parallelize_thread.enable"),createBoolMetadataConstant(Ctx, true) }));
+	 Orig->markDisableHeuristic();
+	 Orig->markNondefault();
+	 invalidateVirtualLoop(Orig);
+
+	 return Result;
+
+
+
+#if 0
+	case LoopTransformation::ThreadParallel: {
+		 SmallVector<Metadata *, 4> TransformArgs;
+		 TransformArgs.push_back(
+			 MDString::get(Ctx, "llvm.loop.parallelize_thread"));
+
+		 auto ApplyOn = Transform.getApplyOn();
+		 if (ApplyOn.empty()) {
+			 assert(TopLoopId);
+			 TransformArgs.push_back(TopLoopId);
+		 } else {
+			 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+		 }
+
+		 auto MDTransform = MDNode::get(Ctx, TransformArgs);
+		 Transform.TransformMD = MDTransform;
+		 AdditionalTransforms.push_back(MDTransform);
+		 AllTransforms.push_back(MDTransform);
+
+		 // No further transformations after parallelizing
+	 } break;
+
+
+	 SmallVector<Metadata *, 4> TransformArgs;
+	 TransformArgs.push_back(
+		 MDString::get(Ctx, "llvm.loop.parallelize_thread"));
+
+	 auto ApplyOn = Transform.getApplyOn();
+	 if (ApplyOn.empty()) {
+		 assert(TopLoopId);
+		 TransformArgs.push_back(TopLoopId);
+	 } else {
+		 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
+	 }
+
+	 auto MDTransform = MDNode::get(Ctx, TransformArgs);
+	 Transform.TransformMD = MDTransform;
+	 AdditionalTransforms.push_back(MDTransform);
+	 AllTransforms.push_back(MDTransform);
+
+	 // No further transformations after parallelizing
+#endif
+
+ }
+
+
+
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
 //	LLVMContext &Ctx = Header->getContext();
 	auto TopLoopId = VInfo;
@@ -1242,29 +1308,12 @@ VirtualLoopInfo * LoopInfoStack::applyTransformation(const LoopTransformation &T
 		return applyUnrolling(Transform,ApplyTo);
 	case LoopTransformation::Pack:
 		return applyPack(Transform,ApplyTo);
+	case LoopTransformation::ThreadParallel:
+		assert(ApplyTo.size()==1);
+		return applyThreadParallel(Transform,ApplyTo[0]);
 
-#if 0
-	case LoopTransformation::ThreadParallel: {
-		SmallVector<Metadata *, 4> TransformArgs;
-		TransformArgs.push_back(
-			MDString::get(Ctx, "llvm.loop.parallelize_thread"));
 
-		auto ApplyOn = Transform.getApplyOn();
-		if (ApplyOn.empty()) {
-			assert(TopLoopId);
-			TransformArgs.push_back(TopLoopId);
-		} else {
-			TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		}
 
-		auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		Transform.TransformMD = MDTransform;
-		AdditionalTransforms.push_back(MDTransform);
-		AllTransforms.push_back(MDTransform);
-
-		// No further transformations after parallelizing
-	} break;
-#endif
 		}
 
 }
