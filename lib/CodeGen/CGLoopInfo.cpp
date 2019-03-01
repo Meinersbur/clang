@@ -264,12 +264,26 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
 
-	if (auto StartLoc = CGF.SourceLocToDebugLoc(TheTransform.Loc.getBegin())) {
+	if (TheTransform.BeginLoc ) {
+		if (TheTransform.EndLoc) 
+			On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.loc"),	TheTransform.BeginLoc	,TheTransform.EndLoc}	 ) );
+		else
+			On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.loc"),	TheTransform.BeginLoc}	 ) );
+	}
+
+#if 0
+	if (CGDebugInfo *DI = CGF. getDebugInfo()) {
+		auto BeginLoc = TheTransform.Loc.getBegin();
+	auto BeginDLoc = llvm::DebugLoc::get(DI->getLineNumber(BeginLoc),DI-> getColumnNumber(BeginLoc), TheTransform.Scope);
+
+	if (auto StartLoc = CGF.SourceLocToDebugLoc()) {
 		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.startloc"),	StartLoc		} ) );
 	}
 	if (auto EndLoc = CGF.SourceLocToDebugLoc(TheTransform.Loc.getEnd())) {
 		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.endloc"),	EndLoc		} ) );
 	}
+	}
+#endif
 
 	On->markNondefault();
 	On->markDisableHeuristic();
@@ -636,11 +650,10 @@ MDNode * VirtualLoopInfo :: makeLoopID(llvm::LLVMContext &Ctx){
 
 
 LoopInfo* LoopInfoStack::push(BasicBlock *Header, Function *F,
-                         clang::CodeGen::CodeGenFunction *CGF,
                          const llvm::DebugLoc &StartLoc,
                          const llvm::DebugLoc &EndLoc) {
 	auto *Parent = Active.empty() ? nullptr : Active.back();
-	auto NewLoop = new LoopInfo(Header, F, CGF, StagedAttrs, StartLoc, EndLoc,Parent );
+	auto NewLoop = new LoopInfo(Header, F,& CGF, StagedAttrs, StartLoc, EndLoc,Parent );
 	if (Parent)
 		Parent->addSubloop(NewLoop);
 	OriginalLoops.push_back(NewLoop);
@@ -665,7 +678,6 @@ VirtualLoopInfo::VirtualLoopInfo(StringRef Name) : Name(Name) {
 
 
 void LoopInfoStack::push(BasicBlock *Header, Function *F,
-                         clang::CodeGen::CodeGenFunction *CGF,
                          clang::ASTContext &Ctx,
                          ArrayRef<const clang::Attr *> Attrs,
                          const llvm::DebugLoc &StartLoc,
@@ -689,8 +701,9 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         // Apply on the loop with that name
       }
 
+	  // FIXME: CGF.SourceLocToDebugLoc expects a lexical scop, but what is it supposed to be?
 	  auto LocRange = LReversal->getRange();
-      addTransformation(LoopTransformation::createReversal(LocRange,ApplyOn, LReversal->getReversedId()));
+      addTransformation(LoopTransformation::createReversal(CGF.SourceLocToDebugLoc(LocRange.getBegin())  ,CGF.SourceLocToDebugLoc(LocRange.getEnd()) ,ApplyOn, LReversal->getReversedId()));
       continue;
     }
 
@@ -910,7 +923,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
   }
 
   /// Stage the attributes.
-  push(Header, F, CGF, StartLoc, EndLoc);
+  push(Header, F, StartLoc, EndLoc);
 }
 
 void LoopInfoStack::pop() {

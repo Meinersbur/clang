@@ -49,7 +49,13 @@ struct LoopTransformation {
   };
   TransformKind Kind;
 
+#if 1
+  llvm::DebugLoc BeginLoc;
+  llvm::DebugLoc EndLoc;
+#else
   SourceRange Loc;
+  llvm::MDNode *Scope=nullptr;
+#endif
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   // TODO: Make a union or class hierachy
@@ -90,10 +96,16 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createReversal(clang::SourceRange Loc, llvm::StringRef ApplyOn , llvm::StringRef ReversedId ) {
+  createReversal( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc , llvm::StringRef ApplyOn , llvm::StringRef ReversedId ) {
     LoopTransformation Result;
+#if 1
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
+#else
 	Result.Loc = Loc;
-    Result.Kind = Reversal;
+	Result.Scope = Scope;
+#endif
+	Result.Kind = Reversal;
 	if (!ApplyOn.empty())
 		Result.ApplyOns.push_back(ApplyOn);
 	Result.FollowupName=ReversedId;
@@ -337,14 +349,13 @@ public:
 
   /// Begin a new structured loop. The set of staged attributes will be
   /// applied to the loop and then cleared.
-  LoopInfo* push(llvm::BasicBlock *Header, llvm::Function *F,
-            clang::CodeGen::CodeGenFunction *CGF,
+  LoopInfo* push(llvm::BasicBlock *Header, llvm::Function *F,   
             const llvm::DebugLoc &StartLoc, const llvm::DebugLoc &EndLoc);
 
   /// Begin a new structured loop. Stage attributes from the Attrs list.
   /// The staged attributes are applied to the loop and then cleared.
   void push(llvm::BasicBlock *Header, llvm::Function *F,
-            clang::CodeGen::CodeGenFunction *CGF, clang::ASTContext &Ctx,
+            clang::ASTContext &Ctx,
             llvm::ArrayRef<const Attr *> Attrs, const llvm::DebugLoc &StartLoc,
             const llvm::DebugLoc &EndLoc);
 

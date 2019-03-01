@@ -1,6 +1,6 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -O3 -emit-llvm -mllvm -polly -mllvm -polly-process-unprofitable -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=WARN
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -O3 -emit-llvm -debug-info-kind=limited -mllvm -polly -mllvm -polly-process-unprofitable -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=WARN
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -O3 -emit-llvm -mllvm -polly -mllvm -polly-process-unprofitable -o /dev/null -mllvm -debug-only=polly-ast %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
 
 void pragma_id_reverse(double *A, int N) {
@@ -19,16 +19,25 @@ void pragma_id_reverse(double *A, int N) {
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_id_reverse(double* %A, i32 %N) #0 {
-// IR:         br label %for.cond, !llvm.loop !2
+// IR-LABEL: define dso_local void @pragma_id_reverse(double* %A, i32 %N) #0 !dbg !6 {
+// IR:         br label %for.cond, !dbg !19, !llvm.loop !22
 //
-// IR: !2 = distinct !{!2, !3, !4, !5}
-// IR: !3 = !{!"llvm.loop.disable_nonforced"}
-// IR: !4 = !{!"llvm.loop.id", !"myloop"}
-// IR: !5 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !6 = distinct !DISubprogram(name: "pragma_id_reverse", scope: !7, file: !7, line: 6, type: !8, scopeLine: 6, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !2)
+// IR: !17 = distinct !DILexicalBlock(scope: !6, file: !7, line: 9)
+// IR: !18 = !DILocation(line: 9, scope: !17)
+// IR: !22 = distinct !{!22, !18, !23, !24, !25, !26, !27}
+// IR: !23 = !DILocation(line: 10, scope: !17)
+// IR: !24 = !{!"llvm.loop.disable_nonforced"}
+// IR: !25 = !{!"llvm.loop.id", !"myloop"}
+// IR: !26 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !27 = !{!"llvm.loop.reverse.loc", !28, !28}
+// IR: !28 = !DILocation(line: 7, scope: !17)
 
 
-// WARN: pragma-id-reverse-illegal.c:6:6: warning: loop not reversed: reversing the loop would violate dependencies
+// WARN: pragma-id-reverse-illegal.c:7:1: warning: loop not reversed: reversing the loop would violate dependencies
+// WARN: #pragma clang loop(myloop) reverse
+// WARN: ^
+// WARN: 1 warning generated.
 
 
 // AST: if (1)
