@@ -156,220 +156,6 @@ static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
   MDNode *LoopID = MDNode::get(Ctx, Args);
   LoopID->replaceOperandWith(0, LoopID);
 
-#if 0
-  SmallVector<MDNode *, 4> AdditionalTransforms;
-  SmallVector<Metadata *, 8> AllTransforms;
-  auto FuncMD = F->getMetadata("looptransform");
-  if (FuncMD) {
-    for (auto &X : FuncMD->operands()) {
-      auto Op = cast<MDNode>(X.get());
-      AllTransforms.push_back(Op);
-    }
-  }
-
-  auto TopLoopId = LoopID;
-  for (auto &Transform : reverse(Attrs.TransformationStack)) {
-    switch (Transform.Kind) {
-    default:
-      llvm_unreachable("unexpected transformation");
-    case LoopTransformation::Reversal: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.reverse"));
-
-      auto ApplyOn = Transform.getApplyOn();
-      if (ApplyOn.empty()) {
-        // Apply on TopLoopId
-        assert(TopLoopId);
-        TransformArgs.push_back(TopLoopId);
-      } else {
-        // Apply on Transform.ApplyOn
-        // TODO: Search for LoopID instead of using the name?
-        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-      }
-
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-
-      // auto Transforms =  MDNode::get(Ctx, MDTransform); // FIXME: Allow
-      // multiple transformation
-      // F->addMetadata("looptransform", *Transforms);
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      // TODO: Different scheme for transformations that output more than one
-      TopLoopId = MDTransform;
-    } break;
-    case LoopTransformation::Tiling: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.tile"));
-
-      SmallVector<Metadata *, 4> ApplyOnArgs;
-      if (Transform.ApplyOns.empty()) {
-        // Apply on top loop
-        assert(TopLoopId);
-        ApplyOnArgs.push_back(TopLoopId);
-      } else {
-        for (auto ApplyOn : Transform.ApplyOns) {
-          assert(!ApplyOn.empty() && "Must specify loops to tile");
-          ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-        }
-      }
-      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
-
-      SmallVector<Metadata *, 4> TileSizeArgs;
-      for (auto TileSize : Transform.TileSizes) {
-        assert(TileSize > 0 && "Must specify tile size");
-        TileSizeArgs.push_back(ConstantAsMetadata::get(
-            ConstantInt::get(Type::getInt64Ty(Ctx), TileSize)));
-      }
-      TransformArgs.push_back(MDNode::get(Ctx, TileSizeArgs));
-
-      SmallVector<Metadata *, 4> PitIdArgs;
-      for (auto PitId : Transform.TileFloorIds)
-        PitIdArgs.push_back(MDString::get(Ctx, PitId));
-      TransformArgs.push_back(MDNode::get(Ctx, PitIdArgs));
-
-      SmallVector<Metadata *, 4> TileIdArgs;
-      for (auto TileId : Transform.TileTileIds)
-        TileIdArgs.push_back(MDString::get(Ctx, TileId));
-      TransformArgs.push_back(MDNode::get(Ctx, TileIdArgs));
-
-      assert(TileSizeArgs.empty() ||
-             (TileSizeArgs.size() == ApplyOnArgs.size()));
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      TopLoopId = nullptr; // No unique follow-up node
-    } break;
-    case LoopTransformation::Interchange: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.interchange"));
-
-      SmallVector<Metadata *, 4> ApplyOnArgs;
-      assert(!Transform.ApplyOns.empty());
-      assert(Transform.ApplyOns.size() == Transform.Permutation.size());
-
-      for (auto ApplyOn : Transform.ApplyOns) {
-        assert(!ApplyOn.empty() && "Must specify loops to tile");
-        ApplyOnArgs.push_back(MDString::get(Ctx, ApplyOn));
-      }
-      TransformArgs.push_back(MDNode::get(Ctx, ApplyOnArgs));
-
-      SmallVector<Metadata *, 4> PermutationArgs;
-      for (auto PermuteItem : Transform.Permutation) {
-        assert(!PermuteItem.empty() && "Must specify loop id");
-        PermutationArgs.push_back(MDString::get(Ctx, PermuteItem));
-      }
-      TransformArgs.push_back(MDNode::get(Ctx, PermutationArgs));
-
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      TopLoopId = nullptr; // No unique follow-up node
-    } break;
-    case LoopTransformation::Pack: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(MDString::get(Ctx, "llvm.data.pack"));
-
-      auto ApplyOn = Transform.getApplyOn();
-      if (ApplyOn.empty()) {
-        // Apply on TopLoopId
-        assert(TopLoopId);
-        TransformArgs.push_back(TopLoopId);
-      } else {
-        // Apply on Transform.ApplyOn
-        // TODO: Search for LoopID instead of using the name?
-        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-      }
-
-      // auto Var = Transform.Array->getDecl();
-      auto LVar = CGF->EmitLValue(Transform.Array);
-      auto Addr = cast<AllocaInst>(LVar.getPointer());
-      assert(!Transform.ArrayBasePtr);
-      Transform.ArrayBasePtr = Addr;
-      // TransformArgs.push_back(LocalAsMetadata::get(Addr));
-
-      auto Accesses = MDNode::get(Ctx, {});
-      TransformArgs.push_back(Accesses);
-
-      TransformArgs.push_back(Transform.OnHeap ? MDString::get(Ctx, "malloc")
-                                               : MDString::get(Ctx, "alloca"));
-
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      Transform.TransformMD = MDTransform;
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      // Follow-ups use this one
-      TopLoopId = MDTransform;
-    } break;
-
-    case LoopTransformation::Unrolling: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(MDString::get(Ctx, "llvm.loop.unroll"));
-
-      auto ApplyOn = Transform.getApplyOn();
-      if (ApplyOn.empty()) {
-        assert(TopLoopId);
-        TransformArgs.push_back(TopLoopId);
-      } else {
-        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-      }
-
-      auto UnrollFactor = Transform.Factor;
-      auto IsFullUnroll = Transform.Full;
-      if (UnrollFactor > 0 && IsFullUnroll) {
-        llvm_unreachable("Contradicting state");
-      } else if (UnrollFactor > 0) {
-        TransformArgs.push_back(ConstantAsMetadata::get(
-            ConstantInt::get(Type::getInt64Ty(Ctx), UnrollFactor)));
-      } else if (IsFullUnroll) {
-        TransformArgs.push_back(MDString::get(Ctx, "full"));
-      } else {
-        TransformArgs.push_back(
-            nullptr); // Determine unroll factor heuristically
-      }
-
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      Transform.TransformMD = MDTransform;
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      // Follow-ups use this one
-      TopLoopId = MDTransform;
-
-    } break;
-    case LoopTransformation::ThreadParallel: {
-      SmallVector<Metadata *, 4> TransformArgs;
-      TransformArgs.push_back(
-          MDString::get(Ctx, "llvm.loop.parallelize_thread"));
-
-      auto ApplyOn = Transform.getApplyOn();
-      if (ApplyOn.empty()) {
-        assert(TopLoopId);
-        TransformArgs.push_back(TopLoopId);
-      } else {
-        TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-      }
-
-      auto MDTransform = MDNode::get(Ctx, TransformArgs);
-      Transform.TransformMD = MDTransform;
-      AdditionalTransforms.push_back(MDTransform);
-      AllTransforms.push_back(MDTransform);
-
-      // No further transformations after parallelizing
-    } break;
-    }
-  }
-
-  if (!AdditionalTransforms.empty()) {
-    auto AllTransformsMD = MDNode::get(Ctx, AllTransforms);
-    F->setMetadata("looptransform", AllTransformsMD);
-  }
-#endif
-
   return LoopID;
 }
 
@@ -456,7 +242,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 }
 
 
- VirtualLoopInfo* LoopInfoStack:: applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
+ VirtualLoopInfo* LoopInfoStack::applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
 	assert(On);
 	auto Result = new VirtualLoopInfo();
 
@@ -477,6 +263,14 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
+
+	if (auto StartLoc = CGF.SourceLocToDebugLoc(TheTransform.Loc.getBegin())) {
+		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.startloc"),	StartLoc		} ) );
+	}
+	if (auto EndLoc = CGF.SourceLocToDebugLoc(TheTransform.Loc.getEnd())) {
+		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.endloc"),	EndLoc		} ) );
+	}
+
 	On->markNondefault();
 	On->markDisableHeuristic();
 	invalidateVirtualLoop(On);
@@ -895,7 +689,8 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         // Apply on the loop with that name
       }
 
-      addTransformation(LoopTransformation::createReversal(ApplyOn, LReversal->getReversedId()));
+	  auto LocRange = LReversal->getRange();
+      addTransformation(LoopTransformation::createReversal(LocRange,ApplyOn, LReversal->getReversedId()));
       continue;
     }
 

@@ -49,6 +49,8 @@ struct LoopTransformation {
   };
   TransformKind Kind;
 
+  SourceRange Loc;
+
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   // TODO: Make a union or class hierachy
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
@@ -88,8 +90,9 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createReversal(llvm::StringRef ApplyOn , llvm::StringRef ReversedId ) {
+  createReversal(clang::SourceRange Loc, llvm::StringRef ApplyOn , llvm::StringRef ReversedId ) {
     LoopTransformation Result;
+	Result.Loc = Loc;
     Result.Kind = Reversal;
 	if (!ApplyOn.empty())
 		Result.ApplyOns.push_back(ApplyOn);
