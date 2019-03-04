@@ -88,8 +88,10 @@ struct LoopTransformation {
     return ApplyOns[0];
   }
 
-  static LoopTransformation createId(llvm::StringRef Name) {
+  static LoopTransformation createId( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::StringRef Name) {
 	  LoopTransformation Result;
+	  Result.BeginLoc=BeginLoc;
+	  Result.EndLoc=EndLoc;
 	  Result.Kind = Id;
 	  Result.Name = Name;
 	  return Result;
@@ -113,11 +115,13 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createTiling(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+  createTiling( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::ArrayRef<llvm::StringRef> ApplyOns,
                llvm::ArrayRef<int64_t> TileSizes,
                llvm::ArrayRef<StringRef> PitIds,
                llvm::ArrayRef<StringRef> TileIds) {
     LoopTransformation Result;
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
     Result.Kind = Tiling;
     // TODO: list-intialize
     for (auto ApplyOn : ApplyOns)
@@ -133,9 +137,11 @@ struct LoopTransformation {
   }
 
   static LoopTransformation
-  createInterchange(llvm::ArrayRef<llvm::StringRef> ApplyOns,
+  createInterchange( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::ArrayRef<llvm::StringRef> ApplyOns,
                     llvm::ArrayRef<llvm::StringRef> Permutation) {
     LoopTransformation Result;
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
     Result.Kind = Interchange;
 
     for (auto ApplyOn : ApplyOns)
@@ -145,9 +151,11 @@ struct LoopTransformation {
     return Result;
   }
 
-  static LoopTransformation createPack(llvm::StringRef ApplyOn,
+  static LoopTransformation createPack( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::StringRef ApplyOn,
                                        clang::DeclRefExpr *Array, bool OnHeap) {
     LoopTransformation Result;
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
     Result.Kind = Pack;
 	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);
@@ -156,9 +164,11 @@ struct LoopTransformation {
     return Result;
   }
 
-  static LoopTransformation createUnrolling(llvm::StringRef ApplyOn,
+  static LoopTransformation createUnrolling( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::StringRef ApplyOn,
                                             int64_t Factor, bool Full) {
     LoopTransformation Result;
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
     Result.Kind = Unrolling;
 	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);
@@ -167,8 +177,10 @@ struct LoopTransformation {
     return Result;
   }
 
-  static LoopTransformation createThreadParallel(llvm::StringRef ApplyOn) {
+  static LoopTransformation createThreadParallel( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::StringRef ApplyOn) {
     LoopTransformation Result;
+	Result.BeginLoc=BeginLoc;
+	Result.EndLoc=EndLoc;
     Result.Kind = ThreadParallel;
 	if (!ApplyOn.empty())
     Result.ApplyOns.push_back(ApplyOn);

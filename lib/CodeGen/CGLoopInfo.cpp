@@ -242,6 +242,16 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 }
 
 
+static void addDebugLoc(llvm::LLVMContext &Ctx, StringRef AttrName, const LoopTransformation &TheTransform,  VirtualLoopInfo *On) {
+if (TheTransform.BeginLoc ) {
+	if (TheTransform.EndLoc) 
+		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, AttrName),	TheTransform.BeginLoc	,TheTransform.EndLoc}	 ) );
+	else
+		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, AttrName),	TheTransform.BeginLoc}	 ) );
+}
+
+}
+
  VirtualLoopInfo* LoopInfoStack::applyReversal(const LoopTransformation &TheTransform, VirtualLoopInfo *On) {
 	assert(On);
 	auto Result = new VirtualLoopInfo();
@@ -263,13 +273,8 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 	
 	On->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.reverse.enable"), 
 		                                   ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1))) }));
+	addDebugLoc(Ctx, "llvm.loop.reverse.loc", TheTransform, On);
 
-	if (TheTransform.BeginLoc ) {
-		if (TheTransform.EndLoc) 
-			On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.loc"),	TheTransform.BeginLoc	,TheTransform.EndLoc}	 ) );
-		else
-			On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.loc"),	TheTransform.BeginLoc}	 ) );
-	}
 
 #if 0
 	if (CGDebugInfo *DI = CGF. getDebugInfo()) {
@@ -308,6 +313,8 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 		 MDString::get(Ctx, "llvm.loop.tile.depth"), 
 		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
 		 }) );
+	 addDebugLoc(Ctx, "llvm.loop.tile.loc", Transform, On[0]);
+
 
 	 for (auto i = 0; i < N;i+=1) {
 		 auto Orig = On[i];
@@ -371,6 +378,7 @@ llvm::MDNode *LoopInfo::getLoopID() const {
 		 MDString::get(Ctx, "llvm.loop.interchange.depth"), 
 		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
 		 }));
+	 addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, On[0]);
 
 
 	 StringMap<int> NewPos;
@@ -457,6 +465,7 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 	 } else {
 		 // Determine unroll factor heuristically
 	 }
+	 addDebugLoc(Ctx, "llvm.loop.unroll.loc", Transform, On[0]);
 
 	 Orig->addFollowup("llvm.loop.unroll.followup_unrolled", Result);
 	 Orig->markNondefault();
@@ -512,7 +521,7 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 		 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.allocate"), MDString::get(Ctx, "malloc") }));
 	 else
 		 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.data.pack.allocate"), MDString::get(Ctx, "alloca") }));
-
+	 addDebugLoc(Ctx, "llvm.data.pack.loc", Transform, On[0]);
 	 Orig->markDisableHeuristic();
 	 Orig->markNondefault();
 
@@ -533,7 +542,8 @@ return ConstantAsMetadata::get(ConstantInt::get(Ctx, Y));
 	 for (auto X : Orig->Attributes) 
 		 Result->addAttribute(X);
 
-	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.llvm.loop.parallelize_thread.enable"),createBoolMetadataConstant(Ctx, true) }));
+	 Orig->addTransformMD(MDNode::get( Ctx, { MDString::get(Ctx, "llvm.loop.parallelize_thread.enable"),createBoolMetadataConstant(Ctx, true) }));
+	 addDebugLoc(Ctx, "llvm.loop.parallelize_thread.loc", Transform, On);
 	 Orig->markDisableHeuristic();
 	 Orig->markNondefault();
 	 invalidateVirtualLoop(Orig);
@@ -685,11 +695,15 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
 
   // Identify loop hint attributes from Attrs.
   for (const auto *Attr : Attrs) {
+	  auto LocRange = Attr->getRange();
+	  auto LocBegin = CGF.SourceLocToDebugLoc(LocRange.getBegin()) ;
+	  auto LocEnd = CGF.SourceLocToDebugLoc(LocRange.getEnd()) ;
+
     if (auto LId = dyn_cast<LoopIdAttr>(Attr)) {
 	//	assert( LId->getApplyOn().empty());
      auto Name = LId->getLoopName();
 	 assert(Name.size()>0);
-	 addTransformation(LoopTransformation::createId(Name));
+	 addTransformation(LoopTransformation::createId(LocBegin, LocEnd ,Name));
       continue;
     }
 
@@ -702,8 +716,8 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
       }
 
 	  // FIXME: CGF.SourceLocToDebugLoc expects a lexical scop, but what is it supposed to be?
-	  auto LocRange = LReversal->getRange();
-      addTransformation(LoopTransformation::createReversal(CGF.SourceLocToDebugLoc(LocRange.getBegin())  ,CGF.SourceLocToDebugLoc(LocRange.getEnd()) ,ApplyOn, LReversal->getReversedId()));
+
+      addTransformation(LoopTransformation::createReversal(LocBegin, LocEnd ,ApplyOn, LReversal->getReversedId()));
       continue;
     }
 
@@ -715,7 +729,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         TileSizes.push_back(ValueInt);
       }
 
-      addTransformation(LoopTransformation::createTiling(
+      addTransformation(LoopTransformation::createTiling(LocBegin, LocEnd ,
           makeArrayRef(LTiling->applyOn_begin(), LTiling->applyOn_size()),
           TileSizes,
           makeArrayRef(LTiling->floorIds_begin(), LTiling->floorIds_size()),
@@ -724,7 +738,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
     }
 
     if (auto LInterchange = dyn_cast<LoopInterchangeAttr>(Attr)) {
-      addTransformation(LoopTransformation::createInterchange(
+      addTransformation(LoopTransformation::createInterchange(LocBegin, LocEnd ,
           makeArrayRef(LInterchange->applyOn_begin(),
                        LInterchange->applyOn_size()),
           makeArrayRef(LInterchange->permutation_begin(),
@@ -733,7 +747,7 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
     }
 
     if (auto Pack = dyn_cast<PackAttr>(Attr)) {
-      addTransformation(LoopTransformation::createPack(
+      addTransformation(LoopTransformation::createPack(LocBegin, LocEnd ,
           Pack->getApplyOn(), cast<DeclRefExpr>(Pack->getArray()),
           Pack->getOnHeap()));
       continue;
@@ -746,13 +760,13 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
         llvm::APSInt FactorAPS = Fac->EvaluateKnownConstInt(Ctx);
         FactorInt = FactorAPS.getSExtValue();
       }
-      addTransformation(LoopTransformation::createUnrolling(
+      addTransformation(LoopTransformation::createUnrolling(LocBegin, LocEnd ,
           Unrolling->getApplyOn(), FactorInt, Unrolling->getFull()));
       continue;
     }
 
     if (auto ThreadParallel = dyn_cast<LoopParallelizeThreadAttr>(Attr)) {
-      addTransformation(LoopTransformation::createThreadParallel(
+      addTransformation(LoopTransformation::createThreadParallel(LocBegin, LocEnd ,
           ThreadParallel->getApplyOn()));
       continue;
     }

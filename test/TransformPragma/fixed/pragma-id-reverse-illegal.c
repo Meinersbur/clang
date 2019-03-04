@@ -34,7 +34,7 @@ void pragma_id_reverse(double *A, int N) {
 // IR: !28 = !DILocation(line: 7, scope: !17)
 
 
-// WARN: pragma-id-reverse-illegal.c:7:1: warning: loop not reversed: reversing the loop would violate dependencies
+// WARN: pragma-id-reverse-illegal.c:7:1: warning: loop not reversed: transformation would violate dependencies
 // WARN: #pragma clang loop(myloop) reverse
 // WARN: ^
 // WARN: 1 warning generated.
