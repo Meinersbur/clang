@@ -743,7 +743,7 @@ static const Stmt *getSingleCompoundChild(ASTContext &Ctx, const Stmt *Body) {
                   isa<PragmaDetectMismatchDecl>(D) || isa<UsingDecl>(D) ||
                   isa<UsingDirectiveDecl>(D) ||
                   isa<OMPDeclareReductionDecl>(D) ||
-                  isa<OMPThreadPrivateDecl>(D))
+                  isa<OMPThreadPrivateDecl>(D) || isa<OMPAllocateDecl>(D))
                 return true;
               const auto *VD = dyn_cast<VarDecl>(D);
               if (!VD)
@@ -835,6 +835,7 @@ static bool hasNestedSPMDDirective(ASTContext &Ctx,
     case OMPD_cancellation_point:
     case OMPD_ordered:
     case OMPD_threadprivate:
+    case OMPD_allocate:
     case OMPD_task:
     case OMPD_simd:
     case OMPD_sections:
@@ -904,6 +905,7 @@ static bool supportsSPMDExecutionMode(ASTContext &Ctx,
   case OMPD_cancellation_point:
   case OMPD_ordered:
   case OMPD_threadprivate:
+  case OMPD_allocate:
   case OMPD_task:
   case OMPD_simd:
   case OMPD_sections:
@@ -1055,6 +1057,7 @@ static bool hasNestedLightweightDirective(ASTContext &Ctx,
     case OMPD_cancellation_point:
     case OMPD_ordered:
     case OMPD_threadprivate:
+    case OMPD_allocate:
     case OMPD_task:
     case OMPD_simd:
     case OMPD_sections:
@@ -1129,6 +1132,7 @@ static bool supportsLightweightRuntime(ASTContext &Ctx,
   case OMPD_cancellation_point:
   case OMPD_ordered:
   case OMPD_threadprivate:
+  case OMPD_allocate:
   case OMPD_task:
   case OMPD_simd:
   case OMPD_sections:
@@ -4438,6 +4442,10 @@ CGOpenMPRuntimeNVPTX::translateParameter(const FieldDecl *FD,
     if (Attr->getCaptureKind() == OMPC_map) {
       PointeeTy = CGM.getContext().getAddrSpaceQualType(PointeeTy,
                                                         LangAS::opencl_global);
+    } else if (Attr->getCaptureKind() == OMPC_firstprivate &&
+               PointeeTy.isConstant(CGM.getContext())) {
+      PointeeTy = CGM.getContext().getAddrSpaceQualType(PointeeTy,
+                                                        LangAS::opencl_generic);
     }
   }
   ArgType = CGM.getContext().getPointerType(PointeeTy);
@@ -4823,6 +4831,10 @@ void CGOpenMPRuntimeNVPTX::adjustTargetSpecificDataForLambdas(
       CGF.EmitStoreOfScalar(VDAddr.getPointer(), VarLVal);
     }
   }
+}
+
+unsigned CGOpenMPRuntimeNVPTX::getDefaultFirstprivateAddressSpace() const {
+  return CGM.getContext().getTargetAddressSpace(LangAS::cuda_constant);
 }
 
 // Get current CudaArch and ignore any unknown values
