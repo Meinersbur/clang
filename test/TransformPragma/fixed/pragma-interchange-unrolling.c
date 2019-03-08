@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -debug-only=polly-ast -mllvm -polly-use-llvm-names -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -o - %s | FileCheck --check-prefix=TRANS %s
@@ -7,12 +7,14 @@
 
 __attribute__((noinline))
 void pragma_id_interchange(int n, int m, double C[m][n], double A[n][m]) {
-#pragma clang loop(i, j) interchange permutation(j, i)
+#pragma clang loop(i) unrolling factor(2)
+#pragma clang loop(j) unrolling factor(3)
+#pragma clang loop(i,j) interchange permutation(j,i)
 #pragma clang loop id(i)
-  for (int i = 0; i < m; i += 1)
+	for (int i = 0; i < m; i += 1)
 #pragma clang loop id(j)
-    for (int j = 0; j < n; j += 1)
-      C[i][j] = A[j][i] + i + j;
+		for (int j = 0; j < n; j += 1)
+			C[i][j] = A[j][i] + i + j;
 }
 
 #ifdef MAIN
@@ -32,7 +34,9 @@ int main() {
 
 
 // PRINT-LABEL: void pragma_id_interchange(int n, int m, double C[m][n], double A[n][m]) __attribute__((noinline)) {
-// PRINT-NEXT:  #pragma clang loop(i, j) interchange permutation(j, i)
+// PRINT-NEXT:  #pragma clang loop(i) unrolling factor(2)
+// PRINT-NEXT:  #pragma clang loop(j) unrolling factor(3)
+// PRINT-NEXT:  #pragma clang loop(i,j) interchange permutation(j,i)
 // PRINT-NEXT:  #pragma clang loop id(i)
 // PRINT-NEXT:      for (int i = 0; i < m; i += 1)
 // PRINT-NEXT:  #pragma clang loop id(j)

@@ -1151,7 +1151,7 @@ enum class TransformClauseKind {
   Sizes,       // tile
   Permutation, // interchange
   Array,       // pack
-  PitIds,      // tile
+  FloorIds,      // tile
   TileIds,     // tile
   Allocate,    // pack
   Factor,      // unrolling
@@ -1175,7 +1175,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("sizes", TransformClauseKind::Sizes)
                   .Case("permutation", TransformClauseKind::Permutation)
                   .Case("array", TransformClauseKind::Array)
-                  .Case("pit_ids", TransformClauseKind::PitIds)
+                  .Case("floor_ids", TransformClauseKind::FloorIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
                   .Case("allocate", TransformClauseKind::Allocate)
                   .Case("factor", TransformClauseKind::Factor)
@@ -1242,7 +1242,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     return TransformClauseKind::Sizes;
   } break;
 
-  case TransformClauseKind::PitIds:
+  case TransformClauseKind::FloorIds:
   case TransformClauseKind::TileIds:
   case TransformClauseKind::Permutation: {
     assert(Toks[i + 1].is(tok::l_paren));
@@ -1363,13 +1363,90 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   llvm_unreachable("Unknown clause");
 }
 
+
+static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok, ArrayRef<Token> Toks, int &Count, bool ExpectComma) {
+	// TODO: Use BalancedDelimiterTracker
+	auto NumOpenParens = 0;
+	int i = 0;
+	while (true) {
+		if (i >= Toks.size())
+			break;
+		auto &Tok = Toks[i];
+		if (Tok.is(tok::l_paren))
+			NumOpenParens += 1;
+		else if (Tok.is(tok::r_paren)) {
+			if (NumOpenParens <= 0)
+				break;
+			NumOpenParens -= 1;
+		} else if (ExpectComma && Tok.is(tok::comma))
+			break;
+		i += 1;
+	}
+	Count += i;
+
+	auto ClauseValue = Toks.slice(0, i);
+
+	//Token Annotation;
+	//PP.Lex(Annotation);
+
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+
+	SourceLocation AfterEndLoc;
+	if ( i < Toks.size()) {
+		AfterEndLoc = Toks[i].getLocation();
+	} else {
+		Token AfterAnnotation;
+		PP.Lex(AfterAnnotation);
+		AfterEndLoc = AfterAnnotation.getLocation();
+		PP.EnterTokenStream(AfterAnnotation, false);
+	}
+
+	// Push back end marker that does not get accidentally consumed.
+	Token Eof;
+	Eof.startToken();
+	Eof.setKind(tok::eod);
+	Eof.setLocation(AfterEndLoc);
+	PP.EnterTokenStream(Eof, true);
+
+	// Push back the tokens on the stack so we can parse them.
+	PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/false);
+
+	// Save current Parser.Tok to restore later.
+	Token Annotation = Tok;
+
+	// ParseConstantExpression() takes Parser.Tok as first token.
+	PP.Lex(Tok);
+
+	ExprResult R = Parse.ParseConstantExpression();
+
+	// Restore state
+	if (Tok.isNot(tok::eod))
+		PP.DiscardUntilEndOfDirective();
+	Tok = Annotation;
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+	return R;
+}
+
 bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
                                        SourceRange &Range,
                                        SmallVectorImpl<ArgsUnion> &ArgHints) {
   assert(Tok.is(tok::annot_pragma_loop_transform));
   assert(ArgHints.size() == 0);
-  PragmaLoopHintInfo *Info =
-      static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
+  PragmaLoopHintInfo *Info = static_cast<PragmaLoopHintInfo *>(Tok.getAnnotationValue());
 
   auto &Toks = Info->Toks;
 
@@ -1384,10 +1461,24 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   // Parse loop name this applies to.
   // SmallVector<StringRef,4> ApplyOns;
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
+  Expr* ApplyOnFollowing = nullptr;
   // StringRef ApplyOn;
   if (Toks[i].is(tok::l_paren)) {
     i += 1;
 
+	auto &LoopCountTok = Toks[i];
+	if (LoopCountTok.is(tok::numeric_constant)) { // TODO: Allow arbitrary expressions.
+		int Count = 0;
+		auto R = parseExpression(  
+			PP, *this, Tok, Toks.slice(i),  Count, false
+		);
+		assert(R.isUsable());
+		ApplyOnFollowing = R.get();
+
+		i+=Count;
+		assert(Toks[i].is(tok::r_paren));
+		i+=1;
+	} else {
     while (true) {
       auto &LoopNameTok = Toks[i];
       assert(LoopNameTok.is(tok::identifier));
@@ -1411,6 +1502,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
       llvm_unreachable("unexpected token");
     }
+	}
   }
 
   auto &IdTok = Toks[i];
@@ -1421,6 +1513,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
   if (IdTok.getIdentifierInfo()->getName() == "id") {
     assert(ApplyOnLocs.empty() && "No id on already named loop");
+	assert(!ApplyOnFollowing && "Id always applies to nest loop only" );
     auto &LParTok = Toks[i];
     auto &NameTok = Toks[i + 1];
     auto &RParTok = Toks[i + 2];
@@ -1447,6 +1540,8 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     // TODO: With ApplyOn, could appear anywhere (in the function?)
     // Use Sema::ActOnXYZ instead of adding a token
     assert(ApplyOnLocs.size() <= 1 && "only single loop supported for reverse");
+	assert(!ApplyOnFollowing && "Reverse applies on only one next loop");
+
 
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
@@ -1490,12 +1585,17 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
   if (IdTok.getIdentifierInfo()->getName() == "tile") {
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+
+	assert(!ApplyOnFollowing || ApplyOnLocs.empty());
+	if (ApplyOnFollowing)
+		ArgHints.push_back(ApplyOnFollowing);
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
     ArgHints.push_back((IdentifierLoc *)nullptr);
 
     SmallVector<ArgsUnion, 4> TileSizes;
-    SmallVector<ArgsUnion, 4> PitIds;
+    SmallVector<ArgsUnion, 4> FloorIds;
     SmallVector<ArgsUnion, 4> TileIds;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
@@ -1510,10 +1610,10 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         assert(TileSizes.empty());
         TileSizes = std::move(ClauseArgs);
         break;
-      case TransformClauseKind::PitIds:
+      case TransformClauseKind::FloorIds:
         assert(!ClauseArgs.empty());
-        assert(PitIds.empty());
-        PitIds = std::move(ClauseArgs);
+        assert(FloorIds.empty());
+        FloorIds = std::move(ClauseArgs);
         break;
       case TransformClauseKind::TileIds:
         assert(!ClauseArgs.empty());
@@ -1526,7 +1626,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     for (auto TileSize : TileSizes)
       ArgHints.push_back(TileSize);
     ArgHints.push_back((Expr *)nullptr);
-    for (auto PitId : PitIds)
+    for (auto PitId : FloorIds)
       ArgHints.push_back(PitId);
     ArgHints.push_back((IdentifierLoc *)nullptr);
     for (auto TileId : TileIds)
@@ -1545,6 +1645,9 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
   if (IdTok.getIdentifierInfo()->getName() == "interchange") {
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
+	assert(!ApplyOnFollowing || ApplyOnLocs.empty());
+	if (ApplyOnFollowing)
+		ArgHints.push_back(ApplyOnFollowing);
     for (auto NameLoc : ApplyOnLocs)
       ArgHints.push_back(NameLoc);
     ArgHints.push_back((IdentifierLoc *)nullptr);
@@ -1583,6 +1686,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
 
     assert(ApplyOnLocs.size() <= 1 && "only single loop supported for pack");
+	assert(!ApplyOnFollowing && "pack applies to single loop only");
     if (ApplyOnLocs.empty())
       // Apply on following loop
       ArgHints.push_back((IdentifierLoc *)nullptr);
@@ -1629,6 +1733,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
     assert(ApplyOnLocs.size() <= 1 &&
            "only single loop supported for unrolling");
+	assert(!ApplyOnFollowing && "unrolling applies to single loop only");
     if (ApplyOnLocs.empty())
       // Apply on following loop
       ArgHints.push_back((IdentifierLoc *)nullptr);
@@ -1675,6 +1780,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     assert(ApplyOnLocs.size() <= 1 &&
            "only single loop supported for thread-parallelism; use collapse "
            "before to parallelize multiple loops");
+	assert(!ApplyOnFollowing && "parallelize_thread applies to single loop only");
     if (ApplyOnLocs.empty())
       // Apply on following loop
       ArgHints.push_back((IdentifierLoc *)nullptr);

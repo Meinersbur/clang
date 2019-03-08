@@ -2959,12 +2959,13 @@ def LoopReversal : Attr {
 
 def LoopTiling : Attr {
   // #pragma clang loop tile
+  // #pragma clang loop(depth) tile
   // #pragma clang loop(loopname1, loopname2, ...) tile
 
   let Spellings = [Pragma<"", "tile">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [VariadicStringArgument<"ApplyOn">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">];
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2980,6 +2981,8 @@ def LoopTiling : Attr {
 						First = false;
 					}
 				OS << ")";
+			} else if (getApplyOnDepth() > 0) {
+				OS << "(" << getApplyOnDepth() << ")";
 			}
 
 			OS << " tile";
@@ -3031,11 +3034,12 @@ def LoopTiling : Attr {
 def LoopInterchange : Attr {
   // #pragma clang loop interchange
   // #pragma clang loop(loopname1, loopname2, ...) interchange
+  // #pragma clang loop(depth) interchange
 
   let Spellings = [Pragma<"", "interchange">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [VariadicStringArgument<"ApplyOn">, VariadicStringArgument<"Permutation">];
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicStringArgument<"Permutation">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -3050,6 +3054,8 @@ def LoopInterchange : Attr {
 						First = false;
 					}
 				OS << ")";
+			} else if (getApplyOnDepth() > 0) {
+				OS << "(" << getApplyOnDepth() << ")";
 			}
 
 			OS << " interchange";

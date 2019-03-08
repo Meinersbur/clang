@@ -368,6 +368,8 @@ if (TheTransform.BeginLoc ) {
 	 assert(N>=2);
 	 assert(Transform.Permutation.size()==N);
 
+	 for (auto OldLoop : On) 
+		 invalidateVirtualLoop(OldLoop);
 
 	 auto TopmostOrig = On[0];
 	 TopmostOrig->addTransformMD(MDNode::get( Ctx, { 
@@ -378,13 +380,11 @@ if (TheTransform.BeginLoc ) {
 		 MDString::get(Ctx, "llvm.loop.interchange.depth"), 
 		 ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N))) 
 		 }));
-	 addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, On[0]);
+	 addDebugLoc(Ctx, "llvm.loop.interchange.loc", Transform, TopmostOrig);
 
 
 	 StringMap<int> NewPos;
 	 for (auto PermutedName : Transform.Permutation) {
-		 //auto PermutedVInfo = NamedLoopMap.lookup(PermutedName);
-		 //assert(PermutedVInfo);
 		 NewPos.insert({PermutedName, NewPos.size()});
 	 }
 
@@ -412,7 +412,11 @@ if (TheTransform.BeginLoc ) {
 		 Orig->markNondefault();
 
 
-		 // TODO: Followups
+		 Permuted->addFollowup("llvm.loop.interchange.followup_interchanged", Permuted);
+	 }
+
+	 for (auto NewLoop : PermutedLoops) {
+	
 	 }
 
 	 return PermutedLoops[0];

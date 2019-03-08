@@ -103,18 +103,26 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
   assert(A.getNumArgs() >= 1);
 
   // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) tile
-  // pit_ids(<pitid1>, <pitid2>) tile_ids(<tileid1>, <tileid2>)
+  // floor_ids(<pitid1>, <pitid2>) tile_ids(<tileid1>, <tileid2>)
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
   SmallVector<StringRef, 4> ApplyOns;
+  Expr *ApplyOnDepth = nullptr;
   auto NumArgs = A.getNumArgs();
   unsigned i = 0;
-  while (true) {
-    auto Ident = A.getArgAsIdent(i);
-    i += 1;
-    if (!Ident)
-      break;
-    ApplyOnLocs.push_back(Ident);
-    ApplyOns.push_back(Ident->Ident->getName());
+  if (A.isArgExpr(i)) {
+	  ApplyOnDepth = A.getArgAsExpr(i);
+	  i+=1;
+	  assert( A.getArgAsIdent(i)==nullptr);
+	  i+=1;
+  } else {
+	  while (true) {
+		auto Ident = A.getArgAsIdent(i);
+		i += 1;
+		if (!Ident)
+		  break;
+		ApplyOnLocs.push_back(Ident);
+		ApplyOns.push_back(Ident->Ident->getName());
+	  }
   }
 
   SmallVector<Expr *, 4> Sizes;
@@ -127,7 +135,7 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     Sizes.push_back(Expr);
   }
 
-  SmallVector<IdentifierLoc *, 4> PitIds;
+  SmallVector<IdentifierLoc *, 4> FloorIds;
   SmallVector<StringRef, 4> PitIdNames;
   while (true) {
     auto Id = A.getArgAsIdent(i);
@@ -135,7 +143,7 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     if (!Id)
       break;
 
-    PitIds.push_back(Id);
+    FloorIds.push_back(Id);
     PitIdNames.push_back(Id->Ident->getName());
   }
 
@@ -158,17 +166,23 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     // support only one loop in this case (stripmining)
     // TODO: Support arbitrary many nested (vertical) loops
     assert(Sizes.size() <= 1);
-    return LoopTilingAttr::CreateImplicit(S.Context, nullptr, 0, Sizes.data(),
-                                          Sizes.size(), PitIdNames.data(),
-                                          PitIdNames.size(), TileIdNames.data(),
-                                          TileIdNames.size(), A.getRange());
+    return LoopTilingAttr::CreateImplicit(S.Context, 
+		nullptr, 0, 
+		ApplyOnDepth,
+		Sizes.data(), Sizes.size(), 
+		PitIdNames.data(), PitIdNames.size(), 
+		TileIdNames.data(), TileIdNames.size(), 
+		A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());
-  return LoopTilingAttr::CreateImplicit(
-      S.Context, ApplyOns.data(), ApplyOns.size(), Sizes.data(), Sizes.size(),
-      PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
-      TileIdNames.size(), A.getRange());
+  return LoopTilingAttr::CreateImplicit(S.Context, 
+	  ApplyOns.data(), ApplyOns.size(), 
+	  ApplyOnDepth,
+	  Sizes.data(), Sizes.size(),
+      PitIdNames.data(), PitIdNames.size(), 
+	  TileIdNames.data(), TileIdNames.size(), 
+	  A.getRange());
 }
 
 static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -178,8 +192,15 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
   // <loopid>s as in #pragma clang loop(<loopid1>, <loopid2>) interchange
   SmallVector<IdentifierLoc *, 4> ApplyOnLocs;
   SmallVector<StringRef, 4> ApplyOns;
+  Expr *ApplyOnDepth = nullptr;
   auto NumArgs = A.getNumArgs();
   unsigned i = 0;
+  if (A.isArgExpr(i)) {
+	  ApplyOnDepth = A.getArgAsExpr(i);
+	  i+=1;
+	  assert( A.getArgAsIdent(i)==nullptr);
+	  i+=1;
+  } else {
   while (true) {
     auto Ident = A.getArgAsIdent(i);
     i += 1;
@@ -187,7 +208,7 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
       break;
     ApplyOnLocs.push_back(Ident);
     ApplyOns.push_back(Ident->Ident->getName());
-  }
+  }}
 
   SmallVector<IdentifierLoc *, 4> PermutationLocs;
   SmallVector<StringRef, 4> Permutation;
@@ -203,7 +224,7 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
   assert(ApplyOns.size() >= 2);
   assert(ApplyOns.size() == Permutation.size());
   return LoopInterchangeAttr::CreateImplicit(
-      S.Context, ApplyOns.data(), ApplyOns.size(), Permutation.data(),
+      S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth, Permutation.data(),
       Permutation.size(), A.getRange());
 }
 

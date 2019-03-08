@@ -117,7 +117,7 @@ struct LoopTransformation {
   static LoopTransformation
   createTiling( llvm::DebugLoc BeginLoc, llvm::DebugLoc EndLoc ,llvm::ArrayRef<llvm::StringRef> ApplyOns,
                llvm::ArrayRef<int64_t> TileSizes,
-               llvm::ArrayRef<StringRef> PitIds,
+               llvm::ArrayRef<StringRef> FloorIds,
                llvm::ArrayRef<StringRef> TileIds) {
     LoopTransformation Result;
 	Result.BeginLoc=BeginLoc;
@@ -128,7 +128,7 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     for (auto TileSize : TileSizes)
       Result.TileSizes.push_back(TileSize);
-    for (auto PitId : PitIds)
+    for (auto PitId : FloorIds)
       Result.TileFloorIds.push_back(PitId);
     for (auto TileId : TileIds)
       Result.TileTileIds.push_back(TileId);
