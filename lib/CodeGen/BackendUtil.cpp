@@ -431,12 +431,12 @@ struct NoLegacyLoopTransformsPassGate : public llvm:: OptPassGate {
 	 return Result;
 	 } 
 
-	 bool shouldRunPass(const Pass *P, const Module &U) override { return !isLegacyLoopPass(P) ; }
-	 bool shouldRunPass(const Pass *P, const Function &U) override {return !isLegacyLoopPass(P); }
-	 bool shouldRunPass(const Pass *P, const BasicBlock &U) override { return !isLegacyLoopPass(P); }
-	 bool shouldRunPass(const Pass *P, const Region &U)override  { return !isLegacyLoopPass(P); }
-	 bool shouldRunPass(const Pass *P, const Loop &U) override { return ! isLegacyLoopPass(P); }
-	 bool shouldRunPass(const Pass *P, const CallGraphSCC &U) override { return !isLegacyLoopPass(P); }
+	  bool shouldRunPass(const Pass *P, StringRef IRDescription)override {
+		 return  !isLegacyLoopPass(P) ;
+	 }
+
+	 /// isEnabled should return true before calling shouldRunPass
+	  bool isEnabled() const override { return true; }
 };
 
 

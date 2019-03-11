@@ -401,22 +401,26 @@ if (TheTransform.BeginLoc ) {
 	 SmallVector<VirtualLoopInfo*,4> PermutedLoops;
 	 for (int i =0; i<N;i+=1) {
 		 auto Orig = On[i];
-		 auto Permuted = new VirtualLoopInfo();
+		 auto Permuted = new VirtualLoopInfo(Orig->Name);
 		 PermutedLoops.push_back(Permuted);
 
 		 // Inherit all attributes.
 		 for (auto X : Orig->Attributes)  
 			 Permuted->addAttribute(X);
-		 
+		 if (!Permuted->Name.empty()) {
+			 Permuted->addTransformMD(MDNode::get( Ctx, { 
+			 MDString::get(Ctx, "llvm.loop.id"), 
+			 MDString::get(Ctx, Permuted->Name) }));
+		 }
 		 Orig->markDisableHeuristic();
 		 Orig->markNondefault();
 
 
-		 Permuted->addFollowup("llvm.loop.interchange.followup_interchanged", Permuted);
+		 Orig->addFollowup("llvm.loop.interchange.followup_interchanged", Permuted);
 	 }
 
 	 for (auto NewLoop : PermutedLoops) {
-	
+		 NamedLoopMap.insert({ NewLoop->Name, NewLoop });
 	 }
 
 	 return PermutedLoops[0];
@@ -1156,7 +1160,8 @@ void LoopInfoStack::invalidateVirtualLoop(VirtualLoopInfo *VLI) {
 void LoopInfoStack::finish(){
 	//TODO: Replace TempLoopID with non-temp MDNodes
 
-	for (auto T : PendingTransformations) {
+	// FIXME: transformations of inner loops should be executed first. This should be guaranteed already if the #pragmas converning the inner loops is located inside the outer loop's body, but what if not?
+	for (auto T : reverse( PendingTransformations)) {
 		applyTransformation(T);
 	}
 	PendingTransformations.clear();
