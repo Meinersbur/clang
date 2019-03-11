@@ -39,7 +39,7 @@ int main() {
   matmul(16,32,64,C,A,B);
   printf("(%0.0f)\n", C[1][4]); // C[1][4] = A[1][2]*B[2][4] + A[1][3]*B[3][4] = 2*5 + 3*7 = 10 + 21 = 31
   return 0;
-}#
+}
 #endif
 
 
@@ -58,32 +58,25 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias nonnull %C, double* noalias nonnull %A, double* noalias nonnull %B) #0 !looptransform !2 {
-// IR: !"llvm.loop.tile"
-// IR: !"llvm.loop.interchange"
-// IR: !"llvm.data.pack"
-// IR: !"llvm.data.pack"
+// IR-LABEL: define dso_local void @matmul(i32 %M, i32 %N, i32 %K, double* noalias nonnull %C, double* noalias nonnull %A, double* noalias nonnull %B) #0 {
+// IR-DAG:   !"llvm.loop.tile.enable"
+// IR-DAG:   !"llvm.loop.interchange.enable"
+// IR-DAG:   !"llvm.data.pack.enable"
 
 
 // AST: if (1
 // AST:     if (M >= 1) {
-// AST:       // Loop: j1
 // AST:       for (int c0 = 0; c0 <= floord(N - 1, 2048); c0 += 1) {
-// AST:         // Loop: k1
 // AST:         for (int c1 = 0; c1 <= floord(K - 1, 256); c1 += 1) {
 // AST:           for (int c4 = 0; c4 <= min(2047, N - 2048 * c0 - 1); c4 += 1)
 // AST:             for (int c5 = 0; c5 <= min(255, K - 256 * c1 - 1); c5 += 1)
-// AST:               CopyStmt_0(c0, c1, c4, c5);
-// AST:           // Loop: i1
+// AST:               CopyStmt_2(c0, c1, c4, c5);
 // AST:           for (int c2 = 0; c2 <= floord(M - 1, 96); c2 += 1) {
 // AST:             for (int c6 = 0; c6 <= min(95, M - 96 * c2 - 1); c6 += 1)
 // AST:               for (int c7 = 0; c7 <= min(255, K - 256 * c1 - 1); c7 += 1)
-// AST:                 CopyStmt_2(c0, c1, c2, c6, c7);
-// AST:             // Loop: j2
+// AST:                 CopyStmt_0(c0, c1, c2, c6, c7);
 // AST:             for (int c3 = 0; c3 <= min(2047, N - 2048 * c0 - 1); c3 += 1) {
-// AST:               // Loop: i2
 // AST:               for (int c4 = 0; c4 <= min(95, M - 96 * c2 - 1); c4 += 1) {
-// AST:                 // Loop: k2
 // AST:                 for (int c5 = 0; c5 <= min(255, K - 256 * c1 - 1); c5 += 1)
 // AST:                   Stmt_for_body8_us_us(96 * c2 + c4, 2048 * c0 + c3, 256 * c1 + c5);
 // AST:               }
@@ -96,8 +89,8 @@ int main() {
 // AST:     {  /* original code */ }
 
 
-// TRANS: %malloccall = tail call i8* @malloc(i64 4194304)
-// TRANS: %malloccall87 = tail call i8* @malloc(i64 196608)
+// TRANS: %malloccall = tail call i8* @malloc(i64 196608)
+// TRANS: %malloccall87 = tail call i8* @malloc(i64 4194304)
 // TRANS: tail call void @free(i8* %malloccall)
 // TRANS: tail call void @free(i8* %malloccall87)
 // TRANS-DAG: Packed_MemRef_A
