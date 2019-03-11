@@ -94,8 +94,10 @@ static Attr *handleLoopReversal(Sema &S, Stmt *St, const ParsedAttr &A,
   IdentifierLoc *ReversedIdLoc = A.getArgAsIdent(1);
 
   auto ApplyOn = ApplyOnLoc ? ApplyOnLoc->Ident->getName() : StringRef();
-  auto ReversedId = ReversedIdLoc ? ReversedIdLoc->Ident->getName() : StringRef();
-  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, ReversedId, A.getRange());
+  auto ReversedId =
+      ReversedIdLoc ? ReversedIdLoc->Ident->getName() : StringRef();
+  return LoopReversalAttr::CreateImplicit(S.Context, ApplyOn, ReversedId,
+                                          A.getRange());
 }
 
 static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -110,19 +112,19 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
   auto NumArgs = A.getNumArgs();
   unsigned i = 0;
   if (A.isArgExpr(i)) {
-	  ApplyOnDepth = A.getArgAsExpr(i);
-	  i+=1;
-	  assert( A.getArgAsIdent(i)==nullptr);
-	  i+=1;
+    ApplyOnDepth = A.getArgAsExpr(i);
+    i += 1;
+    assert(A.getArgAsIdent(i) == nullptr);
+    i += 1;
   } else {
-	  while (true) {
-		auto Ident = A.getArgAsIdent(i);
-		i += 1;
-		if (!Ident)
-		  break;
-		ApplyOnLocs.push_back(Ident);
-		ApplyOns.push_back(Ident->Ident->getName());
-	  }
+    while (true) {
+      auto Ident = A.getArgAsIdent(i);
+      i += 1;
+      if (!Ident)
+        break;
+      ApplyOnLocs.push_back(Ident);
+      ApplyOns.push_back(Ident->Ident->getName());
+    }
   }
 
   SmallVector<Expr *, 4> Sizes;
@@ -166,23 +168,17 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     // support only one loop in this case (stripmining)
     // TODO: Support arbitrary many nested (vertical) loops
     assert(Sizes.size() <= 1);
-    return LoopTilingAttr::CreateImplicit(S.Context, 
-		nullptr, 0, 
-		ApplyOnDepth,
-		Sizes.data(), Sizes.size(), 
-		PitIdNames.data(), PitIdNames.size(), 
-		TileIdNames.data(), TileIdNames.size(), 
-		A.getRange());
+    return LoopTilingAttr::CreateImplicit(
+        S.Context, nullptr, 0, ApplyOnDepth, Sizes.data(), Sizes.size(),
+        PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
+        TileIdNames.size(), A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());
-  return LoopTilingAttr::CreateImplicit(S.Context, 
-	  ApplyOns.data(), ApplyOns.size(), 
-	  ApplyOnDepth,
-	  Sizes.data(), Sizes.size(),
-      PitIdNames.data(), PitIdNames.size(), 
-	  TileIdNames.data(), TileIdNames.size(), 
-	  A.getRange());
+  return LoopTilingAttr::CreateImplicit(
+      S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth, Sizes.data(),
+      Sizes.size(), PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
+      TileIdNames.size(), A.getRange());
 }
 
 static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -196,19 +192,20 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
   auto NumArgs = A.getNumArgs();
   unsigned i = 0;
   if (A.isArgExpr(i)) {
-	  ApplyOnDepth = A.getArgAsExpr(i);
-	  i+=1;
-	  assert( A.getArgAsIdent(i)==nullptr);
-	  i+=1;
-  } else {
-  while (true) {
-    auto Ident = A.getArgAsIdent(i);
+    ApplyOnDepth = A.getArgAsExpr(i);
     i += 1;
-    if (!Ident)
-      break;
-    ApplyOnLocs.push_back(Ident);
-    ApplyOns.push_back(Ident->Ident->getName());
-  }}
+    assert(A.getArgAsIdent(i) == nullptr);
+    i += 1;
+  } else {
+    while (true) {
+      auto Ident = A.getArgAsIdent(i);
+      i += 1;
+      if (!Ident)
+        break;
+      ApplyOnLocs.push_back(Ident);
+      ApplyOns.push_back(Ident->Ident->getName());
+    }
+  }
 
   SmallVector<IdentifierLoc *, 4> PermutationLocs;
   SmallVector<StringRef, 4> Permutation;
@@ -224,8 +221,8 @@ static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,
   assert(ApplyOns.size() >= 2);
   assert(ApplyOns.size() == Permutation.size());
   return LoopInterchangeAttr::CreateImplicit(
-      S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth, Permutation.data(),
-      Permutation.size(), A.getRange());
+      S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth,
+      Permutation.data(), Permutation.size(), A.getRange());
 }
 
 static Attr *handlePack(Sema &S, Stmt *St, const ParsedAttr &A, SourceRange) {

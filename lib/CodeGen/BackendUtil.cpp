@@ -31,6 +31,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/IR/OptBisect.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -65,7 +66,6 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
-#include "llvm/IR/OptBisect.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -399,36 +399,33 @@ static TargetMachine::CodeGenFileType getCodeGenFileType(BackendAction Action) {
   }
 }
 
+struct NoLegacyLoopTransformsPassGate : public llvm::OptPassGate {
+  AnalysisID UnrollPassID;
 
+  NoLegacyLoopTransformsPassGate() {
+    auto UnrollPass = std::unique_ptr<Pass>(createLoopUnrollPass());
+    UnrollPassID = UnrollPass->getPassID();
+    //	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
+  }
 
-struct NoLegacyLoopTransformsPassGate : public llvm:: OptPassGate {
-	AnalysisID UnrollPassID;
+  bool isLegacyLoopPass(const Pass *P) const {
+    auto ID = P->getPassID();
+    auto Result = ID == UnrollPassID;
+    //	if (Result)
+    //		llvm::errs() << "## Matched unroll pass\n";
+    return Result;
+  }
 
-	NoLegacyLoopTransformsPassGate() {
-		auto UnrollPass =std:: unique_ptr<Pass>( createLoopUnrollPass());
-		UnrollPassID = UnrollPass->getPassID();
-	//	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
-	}
+  bool shouldRunPass(const Pass *P, StringRef IRDescription) override {
+    return !isLegacyLoopPass(P);
+  }
 
-	 bool isLegacyLoopPass(const Pass *P)const {
-		auto ID = P->getPassID();
-		auto Result= ID == UnrollPassID;
-//	if (Result)
-//		llvm::errs() << "## Matched unroll pass\n";
-	 return Result;
-	 } 
-
-	  bool shouldRunPass(const Pass *P, StringRef IRDescription)override {
-		 return  !isLegacyLoopPass(P) ;
-	 }
-
-	 /// isEnabled should return true before calling shouldRunPass
-	  bool isEnabled() const override { return true; }
+  /// isEnabled should return true before calling shouldRunPass
+  bool isEnabled() const override { return true; }
 };
 
-
-static ManagedStatic<NoLegacyLoopTransformsPassGate> DisableLegacyLoopTransformsPassGate;
-
+static ManagedStatic<NoLegacyLoopTransformsPassGate>
+    DisableLegacyLoopTransformsPassGate;
 
 static void initTargetOptions(llvm::TargetOptions &Options,
                               const CodeGenOptions &CodeGenOpts,
@@ -734,7 +731,8 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   PMBuilder.populateModulePassManager(MPM);
 
   if (CodeGenOpts.DisableLegacyLoopTransformation) {
-	  TheModule->getContext().setOptPassGate(*DisableLegacyLoopTransformsPassGate);
+    TheModule->getContext().setOptPassGate(
+        *DisableLegacyLoopTransformsPassGate);
   }
 }
 

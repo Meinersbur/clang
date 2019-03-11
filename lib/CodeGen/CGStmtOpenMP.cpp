@@ -1343,7 +1343,8 @@ void CodeGenFunction::EmitOMPInnerLoop(
   auto CondBlock = createBasicBlock("omp.inner.for.cond");
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
-  LoopStack.push(CondBlock, CurFn,  SourceLocToDebugLoc(R.getBegin()), SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(CondBlock, CurFn, SourceLocToDebugLoc(R.getBegin()),
+                 SourceLocToDebugLoc(R.getEnd()));
 
   // If there are any cleanups between here and the loop-exit scope,
   // create a block to stage a loop exit along.
@@ -1799,7 +1800,8 @@ void CodeGenFunction::EmitOMPOuterLoop(
   llvm::BasicBlock *CondBlock = createBasicBlock("omp.dispatch.cond");
   EmitBlock(CondBlock);
   const SourceRange R = S.getSourceRange();
-  LoopStack.push(CondBlock, CurFn, SourceLocToDebugLoc(R.getBegin()), SourceLocToDebugLoc(R.getEnd()));
+  LoopStack.push(CondBlock, CurFn, SourceLocToDebugLoc(R.getBegin()),
+                 SourceLocToDebugLoc(R.getEnd()));
 
   llvm::Value *BoolCondVal = nullptr;
   if (!DynamicOrOrdered) {
