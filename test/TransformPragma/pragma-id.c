@@ -7,11 +7,13 @@ void pragma_id(double *A, int N) {
     A[i] = A[i] + 1;
 }
 
+
 // PRINT-LABEL: void pragma_id(double *A, int N) {
 // PRINT-NEXT:  #pragma clang loop id(myloop)
 // PRINT-NEXT:    for (int i = 0; i < N; i += 1)
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }
+
 
 // IR-LABEL: define dso_local void @pragma_id(double* %A, i32 %N) #0 {
 // IR:         br label %for.cond, !llvm.loop !2

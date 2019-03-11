@@ -1328,6 +1328,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.PassPlugins = Args.getAllArgValues(OPT_fpass_plugin_EQ);
 
+  Opts.DisableLegacyLoopTransformation = Args.hasArg(OPT_disable_legacy_loop_transformations);
+
   return Success;
 }
 

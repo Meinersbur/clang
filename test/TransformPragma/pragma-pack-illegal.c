@@ -1,10 +1,9 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -fno-unroll-loops -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
-// RUN: %clang -DMAIN -std=c99 -O3 -fno-unroll-loops -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
-// RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -debug-info-kind=limited -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -emit-llvm -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -debug-info-kind=limited -o /dev/null %s 2>&1 > /dev/null | FileCheck %s --check-prefix=WARN
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -fno-unroll-loops -O3 -emit-llvm -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-allow-nonaffine -mllvm -polly-use-llvm-names -o /dev/null -mllvm -debug-only=polly-ast %s 2>&1 > /dev/null | FileCheck %s --check-prefix=AST
 
-__attribute__((noinline))
+
 void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
   for (int i = 0; i < 16; i += 1)
     #pragma clang loop pack array(A)
@@ -12,42 +11,47 @@ void pragma_pack(double C[restrict 16][32], double A[restrict 16*32][16]) {
       C[i][j] = A[j*i][i] + i + j;
 }
 
-#ifdef MAIN
-#include <stdio.h>
-#include <string.h>
-int main() {
-  double C[16][32];
-  double A[16*32][16];
-  memset(A, 0, sizeof(A));
-  A[6][2] = 42;
-  pragma_pack(C,A);
-  printf("(%0.0f)\n", C[2][3]);
-  return 0;
-}
-#endif
 
 
-// PRINT-LABEL: void pragma_pack(double C[restrict 16][32], double A[restrict 512][16]) __attribute__((noinline)) {
+// PRINT-LABEL: void pragma_pack(double C[restrict 16][32], double A[restrict 512][16]) {
 // PRINT-NEXT:     for (int i = 0; i < 16; i += 1)
-// PRINT-NEXT: #pragma clang loop pack array(A)
+// PRINT-NEXT:  #pragma clang loop pack array(A)
 // PRINT-NEXT:         for (int j = 0; j < 32; j += 1)
 // PRINT-NEXT:             C[i][j] = A[j * i][i] + i + j;
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_pack([32 x double]* noalias %C, [16 x double]* noalias %A) #0 !looptransform !2 {
-//
+// IR-LABEL: define dso_local void @pragma_pack([32 x double]* noalias %C, [16 x double]* noalias %A) #0 !dbg !6 {
 // IR:         %A.addr = alloca [16 x double]*, align 8
-// IR:         load double, double* %arrayidx5, align 8, !llvm.access !6
+// IR:         %6 = load double, double* %arrayidx5, align 8, !dbg !35, !llvm.access !36
+// IR:         br label %for.cond1, !dbg !33, !llvm.loop !37
+// IR:         br label %for.cond, !dbg !28, !llvm.loop !45
 //
-// IR:       !2 = !{!3}
-// IR:       !3 = !{!"llvm.data.pack", !4, !5, !"alloca"}
-// IR:       !4 = distinct !{!4}
-// IR:       !5 = !{!6}
-// IR:       !6 = distinct !{}
+// IR: !6 = distinct !DISubprogram(name: "pragma_pack", scope: !7, file: !7, line: 7, type: !8, scopeLine: 7, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: !0, retainedNodes: !2)
+// IR: !25 = distinct !DILexicalBlock(scope: !6, file: !7, line: 8)
+// IR: !29 = distinct !DILexicalBlock(scope: !25, file: !7, line: 8)
+// IR: !31 = distinct !DILexicalBlock(scope: !29, file: !7, line: 10)
+// IR: !32 = !DILocation(line: 10, scope: !31)
+// IR: !36 = distinct !{!"A"}
+// IR: !37 = distinct !{!37, !32, !38, !39, !40, !41, !42, !43}
+// IR: !38 = !DILocation(line: 11, scope: !31)
+// IR: !39 = !{!"llvm.loop.disable_nonforced"}
+// IR: !40 = !{!"llvm.data.pack.enable", i1 true}
+// IR: !41 = !{!"llvm.data.pack.array", !36}
+// IR: !42 = !{!"llvm.data.pack.allocate", !"alloca"}
+// IR: !43 = !{!"llvm.data.pack.loc", !44, !44}
+// IR: !44 = !DILocation(line: 9, scope: !31)
 
 
-// TRANS-LABEL: @pragma_pack
-// TRANS-NOT: Packed_MemRef_
+// WARN: pragma-pack-illegal.c:9:1: warning: array not packed: All array accesses must be affine
+// WARN: #pragma clang loop pack array(A)
+// WARN: ^
+// WARN: 1 warning generated.
 
-// RESULT: (47)
+
+// AST: if (1)
+// AST:   for (int c2 = 0; c2 <= 15; c2 += 1)
+// AST:     for (int c3 = 0; c3 <= 31; c3 += 1)
+// AST:       Stmt_for_body4(c2, c3);
+// AST: else
+// AST:   {  /* original code */ }

@@ -6,9 +6,8 @@
 // RUN: %t_pragma_reverse%exeext | FileCheck --check-prefix=RESULT --match-full-lines %s
 
 __attribute__((noinline))
-void pragma_id_reverse(int n, double A[n]) {
-#pragma clang loop(myloop) reverse
-#pragma clang loop id(myloop)
+void pragma_reverse(int n, double A[n]) {
+  #pragma clang loop reverse reversed_id(myreversedloop)
   for (int i = n - 1; i >= 0; i--)
     A[i] = A[i] + 1;
 }
@@ -20,28 +19,29 @@ int main() {
 	double A[2048];
 	memset(A, 0, sizeof(A));
 	A[2] = 42;
-	pragma_id_reverse(2048,A);
+	pragma_reverse(2048,A);
 	printf("(%0.0f)\n", A[2]);
 	return 0;
 }
 #endif
 
 
-// PRINT-LABEL: void pragma_id_reverse(int n, double A[n]) __attribute__((noinline)) {
-// PRINT-NEXT:  #pragma clang loop(myloop) reverse
-// PRINT-NEXT:  #pragma clang loop id(myloop)
+// PRINT-LABEL: void pragma_reverse(int n, double A[n]) __attribute__((noinline)) {
+// PRINT-NEXT:  #pragma clang loop reverse reversed_id(myreversedloop)
 // PRINT-NEXT:    for (int i = n - 1; i >= 0; i--)
 // PRINT-NEXT:      A[i] = A[i] + 1;
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_id_reverse(i32 %n, double* %A) #0 {
+// IR-LABEL: define dso_local void @pragma_reverse(i32 %n, double* %A) #0 {
 // IR:         br label %for.cond, !llvm.loop !2
 //
 // IR: !2 = distinct !{!2, !3, !4, !5}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
-// IR: !4 = !{!"llvm.loop.id", !"myloop"}
-// IR: !5 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !4 = !{!"llvm.loop.reverse.enable", i1 true}
+// IR: !5 = !{!"llvm.loop.reverse.followup_reversed", !6}
+// IR: !6 = distinct !{!6, !7}
+// IR: !7 = !{!"llvm.loop.id", !"myreversedloop"}
 
 
 // AST: if (1)
@@ -51,7 +51,7 @@ int main() {
 // AST:   {  /* original code */ }
 
 
-// TRANS-LABEL: @pragma_id_reverse(
+// TRANS-LABEL: @pragma_reverse(
 // TRANS:         %polly.indvar_next = add nsw i64 %polly.indvar, 1
 // TRANS:         %polly.loop_cond = icmp slt i64 %polly.indvar, 0
 

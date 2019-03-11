@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -ast-print %s | FileCheck --check-prefix=PRINT --match-full-lines %s
-// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR %s
+// RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -disable-llvm-passes -o - %s | FileCheck --check-prefix=IR --match-full-lines %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -mllvm -debug-only=polly-ast -o /dev/null %s 2>&1 > /dev/null | FileCheck --check-prefix=AST %s
 // RUN: %clang_cc1 -triple x86_64-pc-windows-msvc19.0.24215 -std=c99 -emit-llvm -O3 -mllvm -polly -mllvm -polly-process-unprofitable -mllvm -polly-use-llvm-names -o - %s | FileCheck --check-prefix=TRANS %s
 // RUN: %clang -DMAIN -std=c99 -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
@@ -36,16 +36,16 @@ int main() {
 // PRINT-NEXT: }
 
 
-// IR-LABEL: define dso_local void @pragma_pack([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 !looptransform !2 {
-//
+// IR-LABEL: define dso_local void @pragma_pack([128 x double]* noalias dereferenceable(262144) %C, [256 x double]* noalias dereferenceable(262144) %A) #0 {
 // IR:         %A.addr = alloca [256 x double]*, align 8
-// IR:         load double, double* %arrayidx5, align 8, !llvm.access !6
+// IR:         %5 = load double, double* %arrayidx5, align 8, !llvm.access !2
 //
-// IR:       !2 = !{!3}
-// IR:       !3 = !{!"llvm.data.pack", !4, !5, !"alloca"}
-// IR:       !4 = distinct !{!4}
-// IR:       !5 = !{!6}
-// IR:       !6 = distinct !{}
+// IR: !2 = distinct !{!"A"}
+// IR: !3 = distinct !{!3, !4, !5, !6, !7}
+// IR: !4 = !{!"llvm.loop.disable_nonforced"}
+// IR: !5 = !{!"llvm.data.pack.enable", i1 true}
+// IR: !6 = !{!"llvm.data.pack.array", !2}
+// IR: !7 = !{!"llvm.data.pack.allocate", !"alloca"}
 
 
 // AST: if (1)

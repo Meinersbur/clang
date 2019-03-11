@@ -65,6 +65,7 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
+#include "llvm/IR/OptBisect.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -319,19 +320,6 @@ static void addDataFlowSanitizerPass(const PassManagerBuilder &Builder,
   PM.add(createDataFlowSanitizerPass(LangOpts.SanitizerBlacklistFiles));
 }
 
-static void addEfficiencySanitizerPass(const PassManagerBuilder &Builder,
-                                       legacy::PassManagerBase &PM) {
-  const PassManagerBuilderWrapper &BuilderWrapper =
-      static_cast<const PassManagerBuilderWrapper&>(Builder);
-  const LangOptions &LangOpts = BuilderWrapper.getLangOpts();
-  EfficiencySanitizerOptions Opts;
-  if (LangOpts.Sanitize.has(SanitizerKind::EfficiencyCacheFrag))
-    Opts.ToolType = EfficiencySanitizerOptions::ESAN_CacheFrag;
-  else if (LangOpts.Sanitize.has(SanitizerKind::EfficiencyWorkingSet))
-    Opts.ToolType = EfficiencySanitizerOptions::ESAN_WorkingSet;
-  PM.add(createEfficiencySanitizerPass(Opts));
-}
-
 static TargetLibraryInfoImpl *createTLII(llvm::Triple &TargetTriple,
                                          const CodeGenOptions &CodeGenOpts) {
   TargetLibraryInfoImpl *TLII = new TargetLibraryInfoImpl(TargetTriple);
@@ -410,6 +398,37 @@ static TargetMachine::CodeGenFileType getCodeGenFileType(BackendAction Action) {
     return TargetMachine::CGFT_AssemblyFile;
   }
 }
+
+
+
+struct NoLegacyLoopTransformsPassGate : public llvm:: OptPassGate {
+	AnalysisID UnrollPassID;
+
+	NoLegacyLoopTransformsPassGate() {
+		auto UnrollPass =std:: unique_ptr<Pass>( createLoopUnrollPass());
+		UnrollPassID = UnrollPass->getPassID();
+	//	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
+	}
+
+	 bool isLegacyLoopPass(const Pass *P)const {
+		auto ID = P->getPassID();
+		auto Result= ID == UnrollPassID;
+//	if (Result)
+//		llvm::errs() << "## Matched unroll pass\n";
+	 return Result;
+	 } 
+
+	  bool shouldRunPass(const Pass *P, StringRef IRDescription)override {
+		 return  !isLegacyLoopPass(P) ;
+	 }
+
+	 /// isEnabled should return true before calling shouldRunPass
+	  bool isEnabled() const override { return true; }
+};
+
+
+static ManagedStatic<NoLegacyLoopTransformsPassGate> DisableLegacyLoopTransformsPassGate;
+
 
 static void initTargetOptions(llvm::TargetOptions &Options,
                               const CodeGenOptions &CodeGenOpts,
@@ -656,13 +675,6 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
                            addDataFlowSanitizerPass);
   }
 
-  if (LangOpts.Sanitize.hasOneOf(SanitizerKind::Efficiency)) {
-    PMBuilder.addExtension(PassManagerBuilder::EP_OptimizerLast,
-                           addEfficiencySanitizerPass);
-    PMBuilder.addExtension(PassManagerBuilder::EP_EnabledOnOptLevel0,
-                           addEfficiencySanitizerPass);
-  }
-
   // Set up the per-function pass manager.
   FPM.add(new TargetLibraryInfoWrapperPass(*TLII));
   if (CodeGenOpts.VerifyModule)
@@ -720,6 +732,10 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
 
   PMBuilder.populateFunctionPassManager(FPM);
   PMBuilder.populateModulePassManager(MPM);
+
+  if (CodeGenOpts.DisableLegacyLoopTransformation) {
+	  TheModule->getContext().setOptPassGate(*DisableLegacyLoopTransformsPassGate);
+  }
 }
 
 static void setCommandLineOpts(const CodeGenOptions &CodeGenOpts) {
