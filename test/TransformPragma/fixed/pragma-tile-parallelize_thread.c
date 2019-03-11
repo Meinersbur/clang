@@ -10,7 +10,7 @@
 __attribute__((noinline))
 void pragma_tile_parallelize_thread(double C[const restrict static 256], double A[const restrict static 256]) {
   #pragma clang loop(outer) parallelize_thread
-  #pragma clang loop tile sizes(32) pit_ids(outer)
+  #pragma clang loop tile sizes(32) floor_ids(outer)
   for (int i = 0; i < 256; i += 1)
     C[i] = A[i] + i;
 }
@@ -49,7 +49,7 @@ int main() {
 // IR: !7 = !{!"llvm.loop.tile.followup_floor", !8}
 // IR: !8 = distinct !{!8, !3, !9, !10}
 // IR: !9 = !{!"llvm.loop.id", !"outer"}
-// IR: !10 = !{!"llvm.loop.llvm.loop.parallelize_thread.enable", i1 true}
+// IR: !10 = !{!"llvm.loop.parallelize_thread.enable", i1 true}
 
 
 // AST: if (1)
