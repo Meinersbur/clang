@@ -672,10 +672,16 @@ def warn_assume_side_effects : Warning<
   "the argument to %0 has side effects that will be discarded">,
   InGroup<DiagGroup<"assume">>;
 
-def warn_memcpy_chk_overflow : Warning<
+def warn_builtin_chk_overflow : Warning<
   "'%0' will always overflow; destination buffer has size %1,"
   " but size argument is %2">,
   InGroup<DiagGroup<"builtin-memcpy-chk-size">>;
+
+def warn_fortify_source_overflow
+  : Warning<warn_builtin_chk_overflow.Text>, InGroup<FortifySource>;
+def warn_fortify_source_size_mismatch : Warning<
+  "'%0' size argument is too large; destination buffer has size %1,"
+  " but size argument is %2">, InGroup<FortifySource>;
 
 /// main()
 // static main() is not an error in C, just in C++.
@@ -9251,6 +9257,8 @@ def err_coroutine_objc_method : Error<
   "Objective-C methods as coroutines are not yet supported">;
 def err_coroutine_unevaluated_context : Error<
   "'%0' cannot be used in an unevaluated context">;
+def err_coroutine_within_handler : Error<
+  "'%0' cannot be used in the handler of a try block">;
 def err_coroutine_outside_function : Error<
   "'%0' cannot be used outside a function">;
 def err_coroutine_invalid_func_context : Error<
