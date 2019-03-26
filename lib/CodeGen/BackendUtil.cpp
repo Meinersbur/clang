@@ -31,6 +31,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/IR/OptBisect.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -65,7 +66,6 @@
 #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
 #include "llvm/Transforms/Utils/NameAnonGlobals.h"
 #include "llvm/Transforms/Utils/SymbolRewriter.h"
-#include "llvm/IR/OptBisect.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -399,36 +399,33 @@ static TargetMachine::CodeGenFileType getCodeGenFileType(BackendAction Action) {
   }
 }
 
+struct NoLegacyLoopTransformsPassGate : public llvm::OptPassGate {
+  AnalysisID UnrollPassID;
 
+  NoLegacyLoopTransformsPassGate() {
+    auto UnrollPass = std::unique_ptr<Pass>(createLoopUnrollPass());
+    UnrollPassID = UnrollPass->getPassID();
+    //	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
+  }
 
-struct NoLegacyLoopTransformsPassGate : public llvm:: OptPassGate {
-	AnalysisID UnrollPassID;
+  bool isLegacyLoopPass(const Pass *P) const {
+    auto ID = P->getPassID();
+    auto Result = ID == UnrollPassID;
+    //	if (Result)
+    //		llvm::errs() << "## Matched unroll pass\n";
+    return Result;
+  }
 
-	NoLegacyLoopTransformsPassGate() {
-		auto UnrollPass =std:: unique_ptr<Pass>( createLoopUnrollPass());
-		UnrollPassID = UnrollPass->getPassID();
-	//	llvm::errs() << "## CreatedNoLegacyLoopTransformsPassGate\n";
-	}
+  bool shouldRunPass(const Pass *P, StringRef IRDescription) override {
+    return !isLegacyLoopPass(P);
+  }
 
-	 bool isLegacyLoopPass(const Pass *P)const {
-		auto ID = P->getPassID();
-		auto Result= ID == UnrollPassID;
-//	if (Result)
-//		llvm::errs() << "## Matched unroll pass\n";
-	 return Result;
-	 } 
-
-	  bool shouldRunPass(const Pass *P, StringRef IRDescription)override {
-		 return  !isLegacyLoopPass(P) ;
-	 }
-
-	 /// isEnabled should return true before calling shouldRunPass
-	  bool isEnabled() const override { return true; }
+  /// isEnabled should return true before calling shouldRunPass
+  bool isEnabled() const override { return true; }
 };
 
-
-static ManagedStatic<NoLegacyLoopTransformsPassGate> DisableLegacyLoopTransformsPassGate;
-
+static ManagedStatic<NoLegacyLoopTransformsPassGate>
+    DisableLegacyLoopTransformsPassGate;
 
 static void initTargetOptions(llvm::TargetOptions &Options,
                               const CodeGenOptions &CodeGenOpts,
@@ -734,7 +731,8 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
   PMBuilder.populateModulePassManager(MPM);
 
   if (CodeGenOpts.DisableLegacyLoopTransformation) {
-	  TheModule->getContext().setOptPassGate(*DisableLegacyLoopTransformsPassGate);
+    TheModule->getContext().setOptPassGate(
+        *DisableLegacyLoopTransformsPassGate);
   }
 }
 
@@ -1376,6 +1374,7 @@ static void runThinLTOBackend(ModuleSummaryIndex *CombinedIndex, Module *M,
   Conf.DebugPassManager = CGOpts.DebugPassManager;
   Conf.RemarksWithHotness = CGOpts.DiagnosticsWithHotness;
   Conf.RemarksFilename = CGOpts.OptRecordFile;
+  Conf.RemarksPasses = CGOpts.OptRecordPasses;
   Conf.DwoPath = CGOpts.SplitDwarfFile;
   switch (Action) {
   case Backend_EmitNothing:
@@ -1482,6 +1481,9 @@ static const char* getSectionNameForBitcode(const Triple &T) {
   case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmbc";
+  case Triple::XCOFF:
+    llvm_unreachable("XCOFF is not yet implemented");
+    break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");
 }
@@ -1495,6 +1497,9 @@ static const char* getSectionNameForCommandline(const Triple &T) {
   case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     return ".llvmcmd";
+  case Triple::XCOFF:
+    llvm_unreachable("XCOFF is not yet implemented");
+    break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");
 }

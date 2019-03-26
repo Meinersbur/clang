@@ -148,32 +148,20 @@ namespace clang {
     // Use this to import pointers of specific type.
     template <typename ImportT>
     LLVM_NODISCARD Error importInto(ImportT *&To, ImportT *From) {
-      auto ToI = Importer.Import(From);
-      if (!ToI && From)
-        return make_error<ImportError>();
-      To = cast_or_null<ImportT>(ToI);
-      return Error::success();
-      // FIXME: This should be the final code.
-      //auto ToOrErr = Importer.Import(From);
-      //if (ToOrErr) {
-      //  To = cast_or_null<ImportT>(*ToOrErr);
-      //}
-      //return ToOrErr.takeError();
+      auto ToOrErr = Importer.Import_New(From);
+      if (ToOrErr)
+        To = cast_or_null<ImportT>(*ToOrErr);
+      return ToOrErr.takeError();
     }
 
     // Call the import function of ASTImporter for a baseclass of type `T` and
     // cast the return value to `T`.
     template <typename T>
     Expected<T *> import(T *From) {
-      auto *To = Importer.Import(From);
-      if (!To && From)
-        return make_error<ImportError>();
-      return cast_or_null<T>(To);
-      // FIXME: This should be the final code.
-      //auto ToOrErr = Importer.Import(From);
-      //if (!ToOrErr)
-      //  return ToOrErr.takeError();
-      //return cast_or_null<T>(*ToOrErr);
+      auto ToOrErr = Importer.Import_New(From);
+      if (!ToOrErr)
+        return ToOrErr.takeError();
+      return cast_or_null<T>(*ToOrErr);
     }
 
     template <typename T>
@@ -184,13 +172,7 @@ namespace clang {
     // Call the import function of ASTImporter for type `T`.
     template <typename T>
     Expected<T> import(const T &From) {
-      T To = Importer.Import(From);
-      T DefaultT;
-      if (To == DefaultT && !(From == DefaultT))
-        return make_error<ImportError>();
-      return To;
-      // FIXME: This should be the final code.
-      //return Importer.Import(From);
+      return Importer.Import_New(From);
     }
 
     template <class T>
@@ -282,12 +264,29 @@ namespace clang {
     void InitializeImportedDecl(Decl *FromD, Decl *ToD) {
       ToD->IdentifierNamespace = FromD->IdentifierNamespace;
       if (FromD->hasAttrs())
-        for (const Attr *FromAttr : FromD->getAttrs())
-          ToD->addAttr(Importer.Import(FromAttr));
+        for (const Attr *FromAttr : FromD->getAttrs()) {
+          // FIXME: Return of the error here is not possible until store of
+          // import errors is implemented.
+          auto ToAttrOrErr = import(FromAttr);
+          if (ToAttrOrErr)
+            ToD->addAttr(*ToAttrOrErr);
+          else
+            llvm::consumeError(ToAttrOrErr.takeError());
+        }
       if (FromD->isUsed())
         ToD->setIsUsed();
       if (FromD->isImplicit())
         ToD->setImplicit();
+    }
+
+    // Check if we have found an existing definition.  Returns with that
+    // definition if yes, otherwise returns null.
+    Decl *FindAndMapDefinition(FunctionDecl *D, FunctionDecl *FoundFunction) {
+      const FunctionDecl *Definition = nullptr;
+      if (D->doesThisDeclarationHaveABody() &&
+          FoundFunction->hasBody(Definition))
+        return Importer.MapImported(D, const_cast<FunctionDecl *>(Definition));
+      return nullptr;
     }
 
   public:
@@ -392,8 +391,6 @@ namespace clang {
     Error ImportDefinition(
         ObjCProtocolDecl *From, ObjCProtocolDecl *To,
         ImportDefinitionKind Kind = IDK_Default);
-    Expected<TemplateParameterList *> ImportTemplateParameterList(
-        TemplateParameterList *Params);
     Error ImportTemplateArguments(
         const TemplateArgument *FromArgs, unsigned NumFromArgs,
         SmallVectorImpl<TemplateArgument> &ToArgs);
@@ -634,15 +631,6 @@ namespace clang {
     Expected<FunctionDecl *> FindFunctionTemplateSpecialization(
         FunctionDecl *FromFD);
   };
-
-// FIXME: Temporary until every import returns Expected.
-template <>
-Expected<TemplateName> ASTNodeImporter::import(const TemplateName &From) {
-  TemplateName To = Importer.Import(From);
-  if (To.isNull() && !From.isNull())
-    return make_error<ImportError>();
-  return To;
-}
 
 template <typename InContainerTy>
 Error ASTNodeImporter::ImportTemplateArgumentListInfo(
@@ -1684,15 +1672,10 @@ Error ASTNodeImporter::ImportImplicitMethods(
 static Error setTypedefNameForAnonDecl(TagDecl *From, TagDecl *To,
                                        ASTImporter &Importer) {
   if (TypedefNameDecl *FromTypedef = From->getTypedefNameForAnonDecl()) {
-    Decl *ToTypedef = Importer.Import(FromTypedef);
-    if (!ToTypedef)
-      return make_error<ImportError>();
-    To->setTypedefNameForAnonDecl(cast<TypedefNameDecl>(ToTypedef));
-    // FIXME: This should be the final code.
-    //if (Expected<Decl *> ToTypedefOrErr = Importer.Import(FromTypedef))
-    //  To->setTypedefNameForAnonDecl(cast<TypedefNameDecl>(*ToTypedefOrErr));
-    //else
-    //  return ToTypedefOrErr.takeError();
+    if (ExpectedDecl ToTypedefOrErr = Importer.Import_New(FromTypedef))
+      To->setTypedefNameForAnonDecl(cast<TypedefNameDecl>(*ToTypedefOrErr));
+    else
+      return ToTypedefOrErr.takeError();
   }
   return Error::success();
 }
@@ -1887,40 +1870,6 @@ Error ASTNodeImporter::ImportDefinition(
                          From->getNumPositiveBits(),
                          From->getNumNegativeBits());
   return Error::success();
-}
-
-// FIXME: Remove this, use `import` instead.
-Expected<TemplateParameterList *> ASTNodeImporter::ImportTemplateParameterList(
-    TemplateParameterList *Params) {
-  SmallVector<NamedDecl *, 4> ToParams(Params->size());
-  if (Error Err = ImportContainerChecked(*Params, ToParams))
-    return std::move(Err);
-
-  Expr *ToRequiresClause;
-  if (Expr *const R = Params->getRequiresClause()) {
-    if (Error Err = importInto(ToRequiresClause, R))
-      return std::move(Err);
-  } else {
-    ToRequiresClause = nullptr;
-  }
-
-  auto ToTemplateLocOrErr = import(Params->getTemplateLoc());
-  if (!ToTemplateLocOrErr)
-    return ToTemplateLocOrErr.takeError();
-  auto ToLAngleLocOrErr = import(Params->getLAngleLoc());
-  if (!ToLAngleLocOrErr)
-    return ToLAngleLocOrErr.takeError();
-  auto ToRAngleLocOrErr = import(Params->getRAngleLoc());
-  if (!ToRAngleLocOrErr)
-    return ToRAngleLocOrErr.takeError();
-
-  return TemplateParameterList::Create(
-      Importer.getToContext(),
-      *ToTemplateLocOrErr,
-      *ToLAngleLocOrErr,
-      ToParams,
-      *ToRAngleLocOrErr,
-      ToRequiresClause);
 }
 
 Error ASTNodeImporter::ImportTemplateArguments(
@@ -2973,8 +2922,8 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     if (!FoundFunctionOrErr)
       return FoundFunctionOrErr.takeError();
     if (FunctionDecl *FoundFunction = *FoundFunctionOrErr) {
-      if (D->doesThisDeclarationHaveABody() && FoundFunction->hasBody())
-        return Importer.MapImported(D, FoundFunction);
+      if (Decl *Def = FindAndMapDefinition(D, FoundFunction))
+        return Def;
       FoundByLookup = FoundFunction;
     }
   }
@@ -2993,11 +2942,8 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
           continue;
 
         if (IsStructuralMatch(D, FoundFunction)) {
-          const FunctionDecl *Definition = nullptr;
-          if (D->doesThisDeclarationHaveABody() &&
-              FoundFunction->hasBody(Definition))
-            return Importer.MapImported(D,
-                                        const_cast<FunctionDecl *>(Definition));
+          if (Decl *Def = FindAndMapDefinition(D, FoundFunction))
+            return Def;
           FoundByLookup = FoundFunction;
           break;
         }
@@ -3415,9 +3361,6 @@ ExpectedDecl ASTNodeImporter::VisitIndirectFieldDecl(IndirectFieldDecl *D) {
     // FIXME here we leak `NamedChain` which is allocated before
     return ToIndirectField;
 
-  for (const auto *Attr : D->attrs())
-    ToIndirectField->addAttr(Importer.Import(Attr));
-
   ToIndirectField->setAccess(D->getAccess());
   ToIndirectField->setLexicalDeclContext(LexicalDC);
   LexicalDC->addDeclInternal(ToIndirectField);
@@ -3472,7 +3415,7 @@ ExpectedDecl ASTNodeImporter::VisitFriendDecl(FriendDecl *D) {
   SmallVector<TemplateParameterList *, 1> ToTPLists(D->NumTPLists);
   auto **FromTPLists = D->getTrailingObjects<TemplateParameterList *>();
   for (unsigned I = 0; I < D->NumTPLists; I++) {
-    if (auto ListOrErr = ImportTemplateParameterList(FromTPLists[I]))
+    if (auto ListOrErr = import(FromTPLists[I]))
       ToTPLists[I] = *ListOrErr;
     else
       return ListOrErr.takeError();
@@ -4907,8 +4850,7 @@ ASTNodeImporter::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
     return LocationOrErr.takeError();
 
   // Import template parameters.
-  auto TemplateParamsOrErr = ImportTemplateParameterList(
-      D->getTemplateParameters());
+  auto TemplateParamsOrErr = import(D->getTemplateParameters());
   if (!TemplateParamsOrErr)
     return TemplateParamsOrErr.takeError();
 
@@ -4995,8 +4937,7 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
     return std::move(Err);
 
   // Create the class template declaration itself.
-  auto TemplateParamsOrErr = ImportTemplateParameterList(
-      D->getTemplateParameters());
+  auto TemplateParamsOrErr = import(D->getTemplateParameters());
   if (!TemplateParamsOrErr)
     return TemplateParamsOrErr.takeError();
 
@@ -5052,17 +4993,6 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
 
 ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
                                           ClassTemplateSpecializationDecl *D) {
-  // If this record has a definition in the translation unit we're coming from,
-  // but this particular declaration is not that definition, import the
-  // definition and map to that.
-  TagDecl *Definition = D->getDefinition();
-  if (Definition && Definition != D) {
-    if (ExpectedDecl ImportedDefOrErr = import(Definition))
-      return Importer.MapImported(D, *ImportedDefOrErr);
-    else
-      return ImportedDefOrErr.takeError();
-  }
-
   ClassTemplateDecl *ClassTemplate;
   if (Error Err = importInto(ClassTemplate, D->getSpecializedTemplate()))
     return std::move(Err);
@@ -5080,154 +5010,140 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
 
   // Try to find an existing specialization with these template arguments.
   void *InsertPos = nullptr;
-  ClassTemplateSpecializationDecl *D2 = nullptr;
+  ClassTemplateSpecializationDecl *PrevDecl = nullptr;
   ClassTemplatePartialSpecializationDecl *PartialSpec =
             dyn_cast<ClassTemplatePartialSpecializationDecl>(D);
   if (PartialSpec)
-    D2 = ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos);
+    PrevDecl =
+        ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos);
   else
-    D2 = ClassTemplate->findSpecialization(TemplateArgs, InsertPos);
-  ClassTemplateSpecializationDecl * const PrevDecl = D2;
-  RecordDecl *FoundDef = D2 ? D2->getDefinition() : nullptr;
-  if (FoundDef) {
-    if (!D->isCompleteDefinition()) {
-      // The "From" translation unit only had a forward declaration; call it
-      // the same declaration.
-      // TODO Handle the redecl chain properly!
-      return Importer.MapImported(D, FoundDef);
-    }
+    PrevDecl = ClassTemplate->findSpecialization(TemplateArgs, InsertPos);
 
-    if (IsStructuralMatch(D, FoundDef)) {
+  if (PrevDecl) {
+    if (IsStructuralMatch(D, PrevDecl)) {
+      if (D->isThisDeclarationADefinition() && PrevDecl->getDefinition()) {
+        Importer.MapImported(D, PrevDecl->getDefinition());
+        // Import those default field initializers which have been
+        // instantiated in the "From" context, but not in the "To" context.
+        for (auto *FromField : D->fields())
+          Importer.Import(FromField);
 
-      Importer.MapImported(D, FoundDef);
+        // Import those methods which have been instantiated in the
+        // "From" context, but not in the "To" context.
+        for (CXXMethodDecl *FromM : D->methods())
+          Importer.Import(FromM);
 
-      // Import those those default field initializers which have been
-      // instantiated in the "From" context, but not in the "To" context.
-      for (auto *FromField : D->fields()) {
-        auto ToOrErr = import(FromField);
-        if (!ToOrErr)
-          // FIXME: return the error?
-          consumeError(ToOrErr.takeError());
+        // TODO Import instantiated default arguments.
+        // TODO Import instantiated exception specifications.
+        //
+        // Generally, ASTCommon.h/DeclUpdateKind enum gives a very good hint
+        // what else could be fused during an AST merge.
+        return PrevDecl;
       }
-
-      // Import those methods which have been instantiated in the
-      // "From" context, but not in the "To" context.
-      for (CXXMethodDecl *FromM : D->methods()) {
-        auto ToOrErr = import(FromM);
-        if (!ToOrErr)
-          // FIXME: return the error?
-          consumeError(ToOrErr.takeError());
-      }
-
-      // TODO Import instantiated default arguments.
-      // TODO Import instantiated exception specifications.
-      //
-      // Generally, ASTCommon.h/DeclUpdateKind enum gives a very good hint what
-      // else could be fused during an AST merge.
-
-      return FoundDef;
+    } else { // ODR violation.
+      // FIXME HandleNameConflict
+      return nullptr;
     }
-  } else { // We either couldn't find any previous specialization in the "To"
-           // context,  or we found one but without definition.  Let's create a
-           // new specialization and register that at the class template.
+  }
 
-    // Import the location of this declaration.
-    ExpectedSLoc BeginLocOrErr = import(D->getBeginLoc());
-    if (!BeginLocOrErr)
-      return BeginLocOrErr.takeError();
-    ExpectedSLoc IdLocOrErr = import(D->getLocation());
-    if (!IdLocOrErr)
-      return IdLocOrErr.takeError();
+  // Import the location of this declaration.
+  ExpectedSLoc BeginLocOrErr = import(D->getBeginLoc());
+  if (!BeginLocOrErr)
+    return BeginLocOrErr.takeError();
+  ExpectedSLoc IdLocOrErr = import(D->getLocation());
+  if (!IdLocOrErr)
+    return IdLocOrErr.takeError();
 
-    if (PartialSpec) {
-      // Import TemplateArgumentListInfo.
-      TemplateArgumentListInfo ToTAInfo;
-      const auto &ASTTemplateArgs = *PartialSpec->getTemplateArgsAsWritten();
-      if (Error Err = ImportTemplateArgumentListInfo(ASTTemplateArgs, ToTAInfo))
-        return std::move(Err);
+  // Create the specialization.
+  ClassTemplateSpecializationDecl *D2 = nullptr;
+  if (PartialSpec) {
+    // Import TemplateArgumentListInfo.
+    TemplateArgumentListInfo ToTAInfo;
+    const auto &ASTTemplateArgs = *PartialSpec->getTemplateArgsAsWritten();
+    if (Error Err = ImportTemplateArgumentListInfo(ASTTemplateArgs, ToTAInfo))
+      return std::move(Err);
 
-      QualType CanonInjType;
-      if (Error Err = importInto(
-          CanonInjType, PartialSpec->getInjectedSpecializationType()))
-        return std::move(Err);
-      CanonInjType = CanonInjType.getCanonicalType();
+    QualType CanonInjType;
+    if (Error Err = importInto(
+        CanonInjType, PartialSpec->getInjectedSpecializationType()))
+      return std::move(Err);
+    CanonInjType = CanonInjType.getCanonicalType();
 
-      auto ToTPListOrErr = ImportTemplateParameterList(
-          PartialSpec->getTemplateParameters());
-      if (!ToTPListOrErr)
-        return ToTPListOrErr.takeError();
+    auto ToTPListOrErr = import(PartialSpec->getTemplateParameters());
+    if (!ToTPListOrErr)
+      return ToTPListOrErr.takeError();
 
-      if (GetImportedOrCreateDecl<ClassTemplatePartialSpecializationDecl>(
-              D2, D, Importer.getToContext(), D->getTagKind(), DC,
-              *BeginLocOrErr, *IdLocOrErr, *ToTPListOrErr, ClassTemplate,
-              llvm::makeArrayRef(TemplateArgs.data(), TemplateArgs.size()),
-              ToTAInfo, CanonInjType,
-              cast_or_null<ClassTemplatePartialSpecializationDecl>(PrevDecl)))
-        return D2;
+    if (GetImportedOrCreateDecl<ClassTemplatePartialSpecializationDecl>(
+            D2, D, Importer.getToContext(), D->getTagKind(), DC,
+            *BeginLocOrErr, *IdLocOrErr, *ToTPListOrErr, ClassTemplate,
+            llvm::makeArrayRef(TemplateArgs.data(), TemplateArgs.size()),
+            ToTAInfo, CanonInjType,
+            cast_or_null<ClassTemplatePartialSpecializationDecl>(PrevDecl)))
+      return D2;
 
-      // Update InsertPos, because preceding import calls may have invalidated
-      // it by adding new specializations.
-      if (!ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos))
-        // Add this partial specialization to the class template.
-        ClassTemplate->AddPartialSpecialization(
-            cast<ClassTemplatePartialSpecializationDecl>(D2), InsertPos);
+    // Update InsertPos, because preceding import calls may have invalidated
+    // it by adding new specializations.
+    if (!ClassTemplate->findPartialSpecialization(TemplateArgs, InsertPos))
+      // Add this partial specialization to the class template.
+      ClassTemplate->AddPartialSpecialization(
+          cast<ClassTemplatePartialSpecializationDecl>(D2), InsertPos);
 
-    } else { // Not a partial specialization.
-      if (GetImportedOrCreateDecl(
-              D2, D, Importer.getToContext(), D->getTagKind(), DC,
-              *BeginLocOrErr, *IdLocOrErr, ClassTemplate, TemplateArgs,
-              PrevDecl))
-        return D2;
+  } else { // Not a partial specialization.
+    if (GetImportedOrCreateDecl(
+            D2, D, Importer.getToContext(), D->getTagKind(), DC,
+            *BeginLocOrErr, *IdLocOrErr, ClassTemplate, TemplateArgs,
+            PrevDecl))
+      return D2;
 
-      // Update InsertPos, because preceding import calls may have invalidated
-      // it by adding new specializations.
-      if (!ClassTemplate->findSpecialization(TemplateArgs, InsertPos))
-        // Add this specialization to the class template.
-        ClassTemplate->AddSpecialization(D2, InsertPos);
-    }
+    // Update InsertPos, because preceding import calls may have invalidated
+    // it by adding new specializations.
+    if (!ClassTemplate->findSpecialization(TemplateArgs, InsertPos))
+      // Add this specialization to the class template.
+      ClassTemplate->AddSpecialization(D2, InsertPos);
+  }
 
-    D2->setSpecializationKind(D->getSpecializationKind());
+  D2->setSpecializationKind(D->getSpecializationKind());
 
-    // Import the qualifier, if any.
-    if (auto LocOrErr = import(D->getQualifierLoc()))
-      D2->setQualifierInfo(*LocOrErr);
+  // Set the context of this specialization/instantiation.
+  D2->setLexicalDeclContext(LexicalDC);
+
+  // Add to the DC only if it was an explicit specialization/instantiation.
+  if (D2->isExplicitInstantiationOrSpecialization()) {
+    LexicalDC->addDeclInternal(D2);
+  }
+
+  // Import the qualifier, if any.
+  if (auto LocOrErr = import(D->getQualifierLoc()))
+    D2->setQualifierInfo(*LocOrErr);
+  else
+    return LocOrErr.takeError();
+
+  if (auto *TSI = D->getTypeAsWritten()) {
+    if (auto TInfoOrErr = import(TSI))
+      D2->setTypeAsWritten(*TInfoOrErr);
+    else
+      return TInfoOrErr.takeError();
+
+    if (auto LocOrErr = import(D->getTemplateKeywordLoc()))
+      D2->setTemplateKeywordLoc(*LocOrErr);
     else
       return LocOrErr.takeError();
 
-    if (auto *TSI = D->getTypeAsWritten()) {
-      if (auto TInfoOrErr = import(TSI))
-        D2->setTypeAsWritten(*TInfoOrErr);
-      else
-        return TInfoOrErr.takeError();
-
-      if (auto LocOrErr = import(D->getTemplateKeywordLoc()))
-        D2->setTemplateKeywordLoc(*LocOrErr);
-      else
-        return LocOrErr.takeError();
-
-      if (auto LocOrErr = import(D->getExternLoc()))
-        D2->setExternLoc(*LocOrErr);
-      else
-        return LocOrErr.takeError();
-    }
-
-    if (D->getPointOfInstantiation().isValid()) {
-      if (auto POIOrErr = import(D->getPointOfInstantiation()))
-        D2->setPointOfInstantiation(*POIOrErr);
-      else
-        return POIOrErr.takeError();
-    }
-
-    D2->setTemplateSpecializationKind(D->getTemplateSpecializationKind());
-
-    // Set the context of this specialization/instantiation.
-    D2->setLexicalDeclContext(LexicalDC);
-
-    // Add to the DC only if it was an explicit specialization/instantiation.
-    if (D2->isExplicitInstantiationOrSpecialization()) {
-      LexicalDC->addDeclInternal(D2);
-    }
+    if (auto LocOrErr = import(D->getExternLoc()))
+      D2->setExternLoc(*LocOrErr);
+    else
+      return LocOrErr.takeError();
   }
+
+  if (D->getPointOfInstantiation().isValid()) {
+    if (auto POIOrErr = import(D->getPointOfInstantiation()))
+      D2->setPointOfInstantiation(*POIOrErr);
+    else
+      return POIOrErr.takeError();
+  }
+
+  D2->setTemplateSpecializationKind(D->getTemplateSpecializationKind());
+
   if (D->isCompleteDefinition())
     if (Error Err = ImportDefinition(D, D2))
       return std::move(Err);
@@ -5307,8 +5223,7 @@ ExpectedDecl ASTNodeImporter::VisitVarTemplateDecl(VarTemplateDecl *D) {
     return std::move(Err);
 
   // Create the variable template declaration itself.
-  auto TemplateParamsOrErr = ImportTemplateParameterList(
-      D->getTemplateParameters());
+  auto TemplateParamsOrErr = import(D->getTemplateParameters());
   if (!TemplateParamsOrErr)
     return TemplateParamsOrErr.takeError();
 
@@ -5413,8 +5328,7 @@ ExpectedDecl ASTNodeImporter::VisitVarTemplateSpecializationDecl(
           *FromTAArgsAsWritten, ArgInfos))
         return std::move(Err);
 
-      auto ToTPListOrErr = ImportTemplateParameterList(
-          FromPartial->getTemplateParameters());
+      auto ToTPListOrErr = import(FromPartial->getTemplateParameters());
       if (!ToTPListOrErr)
         return ToTPListOrErr.takeError();
 
@@ -5522,8 +5436,7 @@ ASTNodeImporter::VisitFunctionTemplateDecl(FunctionTemplateDecl *D) {
     }
   }
 
-  auto ParamsOrErr = ImportTemplateParameterList(
-      D->getTemplateParameters());
+  auto ParamsOrErr = import(D->getTemplateParameters());
   if (!ParamsOrErr)
     return ParamsOrErr.takeError();
 
@@ -7843,6 +7756,12 @@ Expected<Decl *> ASTImporter::Import_New(Decl *FromD) {
     return ToDOrErr;
   ToD = *ToDOrErr;
 
+  // FIXME Use getImportDeclErrorIfAny() here (and return with the error) once
+  // the error handling is finished in GetImportedOrCreateSpecialDecl().
+  if (!ToD) {
+    return nullptr;
+  }
+
   // Once the decl is connected to the existing declarations, i.e. when the
   // redecl chain is properly set then we populate the lookup again.
   // This way the primary context will be able to find all decls.
@@ -8092,8 +8011,11 @@ ASTImporter::Import_New(NestedNameSpecifierLoc FromNNS) {
 
     case NestedNameSpecifier::TypeSpec:
     case NestedNameSpecifier::TypeSpecWithTemplate: {
+      SourceLocation ToTLoc;
+      if (Error Err = importInto(ToTLoc, NNS.getTypeLoc().getBeginLoc()))
+        return std::move(Err);
       TypeSourceInfo *TSI = getToContext().getTrivialTypeSourceInfo(
-            QualType(Spec->getAsType(), 0));
+            QualType(Spec->getAsType(), 0), ToTLoc);
       Builder.Extend(getToContext(), ToLocalBeginLoc, TSI->getTypeLoc(),
                      ToLocalEndLoc);
       break;
@@ -8457,44 +8379,41 @@ Error ASTImporter::ImportDefinition_New(Decl *From) {
   if (!To)
     return llvm::make_error<ImportError>();
 
-  if (auto *FromDC = cast<DeclContext>(From)) {
-    ASTNodeImporter Importer(*this);
+  auto *FromDC = cast<DeclContext>(From);
+  ASTNodeImporter Importer(*this);
 
-    if (auto *ToRecord = dyn_cast<RecordDecl>(To)) {
-      if (!ToRecord->getDefinition()) {
-        return Importer.ImportDefinition(
-            cast<RecordDecl>(FromDC), ToRecord,
-            ASTNodeImporter::IDK_Everything);
-      }
+  if (auto *ToRecord = dyn_cast<RecordDecl>(To)) {
+    if (!ToRecord->getDefinition()) {
+      return Importer.ImportDefinition(
+          cast<RecordDecl>(FromDC), ToRecord,
+          ASTNodeImporter::IDK_Everything);
     }
-
-    if (auto *ToEnum = dyn_cast<EnumDecl>(To)) {
-      if (!ToEnum->getDefinition()) {
-        return Importer.ImportDefinition(
-            cast<EnumDecl>(FromDC), ToEnum, ASTNodeImporter::IDK_Everything);
-      }
-    }
-
-    if (auto *ToIFace = dyn_cast<ObjCInterfaceDecl>(To)) {
-      if (!ToIFace->getDefinition()) {
-        return Importer.ImportDefinition(
-            cast<ObjCInterfaceDecl>(FromDC), ToIFace,
-            ASTNodeImporter::IDK_Everything);
-      }
-    }
-
-    if (auto *ToProto = dyn_cast<ObjCProtocolDecl>(To)) {
-      if (!ToProto->getDefinition()) {
-        return Importer.ImportDefinition(
-            cast<ObjCProtocolDecl>(FromDC), ToProto,
-            ASTNodeImporter::IDK_Everything);
-      }
-    }
-
-    return Importer.ImportDeclContext(FromDC, true);
   }
 
-  return Error::success();
+  if (auto *ToEnum = dyn_cast<EnumDecl>(To)) {
+    if (!ToEnum->getDefinition()) {
+      return Importer.ImportDefinition(
+          cast<EnumDecl>(FromDC), ToEnum, ASTNodeImporter::IDK_Everything);
+    }
+  }
+
+  if (auto *ToIFace = dyn_cast<ObjCInterfaceDecl>(To)) {
+    if (!ToIFace->getDefinition()) {
+      return Importer.ImportDefinition(
+          cast<ObjCInterfaceDecl>(FromDC), ToIFace,
+          ASTNodeImporter::IDK_Everything);
+    }
+  }
+
+  if (auto *ToProto = dyn_cast<ObjCProtocolDecl>(To)) {
+    if (!ToProto->getDefinition()) {
+      return Importer.ImportDefinition(
+          cast<ObjCProtocolDecl>(FromDC), ToProto,
+          ASTNodeImporter::IDK_Everything);
+    }
+  }
+
+  return Importer.ImportDeclContext(FromDC, true);
 }
 
 void ASTImporter::ImportDefinition(Decl *From) {
