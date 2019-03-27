@@ -4083,7 +4083,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   const char *SplitDWARFOut;
   if (SplitDWARF) {
     CmdArgs.push_back("-split-dwarf-file");
-    SplitDWARFOut = SplitDebugName(Args, Output);
+    SplitDWARFOut = SplitDebugName(Args, Input, Output);
     CmdArgs.push_back(SplitDWARFOut);
   }
 
@@ -5931,6 +5931,15 @@ void ClangAs::AddX86TargetArgs(const ArgList &Args,
   }
 }
 
+void ClangAs::AddRISCVTargetArgs(const ArgList &Args,
+                               ArgStringList &CmdArgs) const {
+  const llvm::Triple &Triple = getToolChain().getTriple();
+  StringRef ABIName = riscv::getRISCVABI(Args, Triple);
+
+  CmdArgs.push_back("-target-abi");
+  CmdArgs.push_back(ABIName.data());
+}
+
 void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
                            const InputInfo &Output, const InputInfoList &Inputs,
                            const ArgList &Args,
@@ -6100,6 +6109,11 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-arm-add-build-attributes");
     }
     break;
+
+  case llvm::Triple::riscv32:
+  case llvm::Triple::riscv64:
+    AddRISCVTargetArgs(Args, CmdArgs);
+    break;
   }
 
   // Consume all the warning flags. Usually this would be handled more
@@ -6123,7 +6137,7 @@ void ClangAs::ConstructJob(Compilation &C, const JobAction &JA,
   if ((getDebugFissionKind(D, Args, A) == DwarfFissionKind::Split) &&
       (T.isOSLinux() || T.isOSFuchsia())) {
     CmdArgs.push_back("-split-dwarf-file");
-    CmdArgs.push_back(SplitDebugName(Args, Output));
+    CmdArgs.push_back(SplitDebugName(Args, Input, Output));
   }
 
   assert(Input.isFilename() && "Invalid input.");
