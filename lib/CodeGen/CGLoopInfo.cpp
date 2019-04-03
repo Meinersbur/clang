@@ -410,146 +410,6 @@ MDNode *LoopInfo::createMetadata(
   return createFullUnrollMetadata(Attrs, LoopProperties, HasUserTransforms);
 }
 
-#if 0
-static MDNode *createMetadata(LLVMContext &Ctx, Function *F,
-                              CodeGenFunction *CGF, const LoopAttributes &Attrs,
-                              const llvm::DebugLoc &StartLoc,
-                              const llvm::DebugLoc &EndLoc, MDNode *AccGroup) {
-
-  if (!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
-      Attrs.InterleaveCount == 0 && Attrs.UnrollCount == 0 &&
-      Attrs.UnrollAndJamCount == 0 && !Attrs.PipelineDisabled &&
-      Attrs.PipelineInitiationInterval == 0 &&
-      Attrs.VectorizeEnable == LoopAttributes::Unspecified &&
-      Attrs.UnrollEnable == LoopAttributes::Unspecified &&
-      Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
-      Attrs.DistributeEnable == LoopAttributes::Unspecified && !StartLoc &&
-      !EndLoc && Attrs.LoopId.empty() && Attrs.TransformationStack.empty())
-    return nullptr;
-
-  SmallVector<Metadata *, 4> Args;
-  // Reserve operand 0 for loop id self reference.
-  auto TempNode = MDNode::getTemporary(Ctx, None);
-  Args.push_back(TempNode.get());
-
-  // If we have a valid start debug location for the loop, add it.
-  if (StartLoc) {
-    Args.push_back(StartLoc.getAsMDNode());
-
-    // If we also have a valid end debug location for the loop, add it.
-    if (EndLoc)
-      Args.push_back(EndLoc.getAsMDNode());
-  }
-
-  // Setting vectorize.width
-  if (Attrs.VectorizeWidth > 0) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.vectorize.width"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt32Ty(Ctx), Attrs.VectorizeWidth))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting interleave.count
-  if (Attrs.InterleaveCount > 0) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.interleave.count"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt32Ty(Ctx), Attrs.InterleaveCount))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting unroll.count
-  if (Attrs.UnrollCount > 0) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.unroll.count"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt32Ty(Ctx), Attrs.UnrollCount))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting unroll_and_jam.count
-  if (Attrs.UnrollAndJamCount > 0) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.unroll_and_jam.count"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt32Ty(Ctx), Attrs.UnrollAndJamCount))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting vectorize.enable
-  if (Attrs.VectorizeEnable != LoopAttributes::Unspecified) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.vectorize.enable"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt1Ty(Ctx), (Attrs.VectorizeEnable ==
-                                                   LoopAttributes::Enable)))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting unroll.full or unroll.disable
-  if (Attrs.UnrollEnable != LoopAttributes::Unspecified) {
-    std::string Name;
-    if (Attrs.UnrollEnable == LoopAttributes::Enable)
-      Name = "llvm.loop.unroll.enable";
-    else if (Attrs.UnrollEnable == LoopAttributes::Full)
-      Name = "llvm.loop.unroll.full";
-    else
-      Name = "llvm.loop.unroll.disable";
-    Metadata *Vals[] = {MDString::get(Ctx, Name)};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Setting unroll_and_jam.full or unroll_and_jam.disable
-  if (Attrs.UnrollAndJamEnable != LoopAttributes::Unspecified) {
-    std::string Name;
-    if (Attrs.UnrollAndJamEnable == LoopAttributes::Enable)
-      Name = "llvm.loop.unroll_and_jam.enable";
-    else if (Attrs.UnrollAndJamEnable == LoopAttributes::Full)
-      Name = "llvm.loop.unroll_and_jam.full";
-    else
-      Name = "llvm.loop.unroll_and_jam.disable";
-    Metadata *Vals[] = {MDString::get(Ctx, Name)};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  if (Attrs.DistributeEnable != LoopAttributes::Unspecified) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.distribute.enable"),
-                        ConstantAsMetadata::get(ConstantInt::get(
-                            Type::getInt1Ty(Ctx), (Attrs.DistributeEnable ==
-                                                   LoopAttributes::Enable)))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  if (AccGroup)
-    Args.push_back(MDNode::get(
-        Ctx, {MDString::get(Ctx, "llvm.loop.parallel_accesses"), AccGroup}));
-
-  if (Attrs.PipelineDisabled) {
-    Metadata *Vals[] = {
-        MDString::get(Ctx, "llvm.loop.pipeline.disable"),
-        ConstantAsMetadata::get(ConstantInt::get(
-            Type::getInt1Ty(Ctx), (Attrs.PipelineDisabled == true)))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  if (Attrs.PipelineInitiationInterval > 0) {
-    Metadata *Vals[] = {
-        MDString::get(Ctx, "llvm.loop.pipeline.initiationinterval"),
-        ConstantAsMetadata::get(ConstantInt::get(
-            Type::getInt32Ty(Ctx), Attrs.PipelineInitiationInterval))};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  if (!Attrs.LoopId.empty()) {
-    Metadata *Vals[] = {MDString::get(Ctx, "llvm.loop.id"),
-                        MDString::get(Ctx, Attrs.LoopId)};
-    Args.push_back(MDNode::get(Ctx, Vals));
-  }
-
-  // Set the first operand to itself.
-  MDNode *LoopID = MDNode::get(Ctx, Args);
-  LoopID->replaceOperandWith(0, LoopID);
-
-  return LoopID;
-}
-#endif
-
 LoopAttributes::LoopAttributes(bool IsParallel)
     : IsParallel(IsParallel), VectorizeEnable(LoopAttributes::Unspecified),
       UnrollEnable(LoopAttributes::Unspecified),
@@ -607,18 +467,6 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
     }
   }
 
-#if 0
-	bool HasLagacyTransformation =!(!Attrs.IsParallel && Attrs.VectorizeWidth == 0 &&
-		Attrs.InterleaveCount == 0 && Attrs.UnrollCount == 0 &&
-		Attrs.UnrollAndJamCount == 0 && !Attrs.PipelineDisabled &&
-		Attrs.PipelineInitiationInterval == 0 &&
-		Attrs.VectorizeEnable == LoopAttributes::Unspecified &&
-		Attrs.UnrollEnable == LoopAttributes::Unspecified &&
-		Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
-		Attrs.DistributeEnable == LoopAttributes::Unspecified && !StartLoc &&
-		!EndLoc && !AccGroup);
-#endif
-
   this->InTransformation =
       HasOrderedTransformation || AncestorHasOrderedTransformation;
 }
@@ -670,20 +518,6 @@ LoopInfoStack::applyReversal(const LoopTransformation &TheTransform,
       Ctx, {MDString::get(Ctx, "llvm.loop.reverse.enable"),
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(1, 1)))}));
   addDebugLoc(Ctx, "llvm.loop.reverse.loc", TheTransform, On);
-
-#if 0
-	if (CGDebugInfo *DI = CGF. getDebugInfo()) {
-		auto BeginLoc = TheTransform.Loc.getBegin();
-	auto BeginDLoc = llvm::DebugLoc::get(DI->getLineNumber(BeginLoc),DI-> getColumnNumber(BeginLoc), TheTransform.Scope);
-
-	if (auto StartLoc = CGF.SourceLocToDebugLoc()) {
-		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.startloc"),	StartLoc		} ) );
-	}
-	if (auto EndLoc = CGF.SourceLocToDebugLoc(TheTransform.Loc.getEnd())) {
-		On->addTransformMD( MDNode::get(Ctx, {  MDString::get(Ctx, "llvm.loop.reverse.endloc"),	EndLoc		} ) );
-	}
-	}
-#endif
 
   On->markNondefault();
   On->markDisableHeuristic();
@@ -965,49 +799,6 @@ LoopInfoStack::applyThreadParallel(const LoopTransformation &Transform,
   invalidateVirtualLoop(Orig);
 
   return Result;
-
-#if 0
-	case LoopTransformation::ThreadParallel: {
-		 SmallVector<Metadata *, 4> TransformArgs;
-		 TransformArgs.push_back(
-			 MDString::get(Ctx, "llvm.loop.parallelize_thread"));
-
-		 auto ApplyOn = Transform.getApplyOn();
-		 if (ApplyOn.empty()) {
-			 assert(TopLoopId);
-			 TransformArgs.push_back(TopLoopId);
-		 } else {
-			 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-		 }
-
-		 auto MDTransform = MDNode::get(Ctx, TransformArgs);
-		 Transform.TransformMD = MDTransform;
-		 AdditionalTransforms.push_back(MDTransform);
-		 AllTransforms.push_back(MDTransform);
-
-		 // No further transformations after parallelizing
-	 } break;
-
-
-	 SmallVector<Metadata *, 4> TransformArgs;
-	 TransformArgs.push_back(
-		 MDString::get(Ctx, "llvm.loop.parallelize_thread"));
-
-	 auto ApplyOn = Transform.getApplyOn();
-	 if (ApplyOn.empty()) {
-		 assert(TopLoopId);
-		 TransformArgs.push_back(TopLoopId);
-	 } else {
-		 TransformArgs.push_back(MDString::get(Ctx, ApplyOn));
-	 }
-
-	 auto MDTransform = MDNode::get(Ctx, TransformArgs);
-	 Transform.TransformMD = MDTransform;
-	 AdditionalTransforms.push_back(MDTransform);
-	 AllTransforms.push_back(MDTransform);
-
-	 // No further transformations after parallelizing
-#endif
 }
 
 void LoopInfo::afterLoop(LoopInfoStack &LIS) {
@@ -1450,14 +1241,6 @@ static bool mayUseArray(AllocaInst *BasePtrAlloca, Value *PtrArg) {
     if (!isa<PointerType>(Ty))
       continue;
 
-#if 0
-        if (auto CurGEP = dyn_cast< GetElementPtrInst>(Cur)) {
-            // Fallback instead into the llvm::Operator case to also traverse indices?
-            Worklist.push_back(CurGEP->getPointerOperand());
-            continue;
-        }
-#endif
-
     if (auto CurL = dyn_cast<LoadInst>(Cur)) {
       if (CurL->getPointerOperand() == BasePtrAlloca)
         return true;
@@ -1527,25 +1310,6 @@ void LoopInfoStack::InsertHelper(Instruction *I) const {
       }
     return;
   }
-
-#if 0
-  if (I->mayReadOrWriteMemory()) {
-    // SmallVector<Metadata *, 2> ParallelLoopIDs;
-    for (const LoopInfo *AL : Active) {
-      for (auto &Trans : AL->getAttributes().TransformationStack) {
-        if (Trans.Kind == LoopTransformation::Pack) {
-          auto BasePtr = Trans.ArrayBasePtr;
-          auto MNode = Trans.TransformMD;
-          assert(BasePtr && MNode);
-
-
-          if (mayUseArray(BasePtr, I))
-            addArrayTransformUse(Trans, I);
-        }
-      }
-    }
-  }
-#endif
 }
 
 VirtualLoopInfo *LoopInfoStack::lookupNamedLoop(StringRef LoopName) {
@@ -1555,16 +1319,6 @@ VirtualLoopInfo *LoopInfoStack::lookupNamedLoop(StringRef LoopName) {
 VirtualLoopInfo *
 LoopInfoStack::applyTransformation(const LoopTransformation &Transform,
                                    VirtualLoopInfo *PrevLoop) {
-#if 0
-	if (!Transform.ApplyOns.empty()) {
-
-
-		// Do not apply any more transformation without apply-on clause.
-		TopLoopId=nullptr; 
-		continue;
-	}
-#endif
-
   SmallVector<VirtualLoopInfo *, 4> ApplyTo;
   if (!Transform.ApplyOns.empty()) {
     for (auto LN : Transform.ApplyOns) {
