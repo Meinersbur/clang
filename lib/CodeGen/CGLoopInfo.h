@@ -297,7 +297,6 @@ private:
   clang::CodeGen::CodeGenFunction *CGF;
   bool InTransformation = false;
 
-  
   /// If this loop has unroll-and-jam metadata, this can be set by the inner
   /// loop's LoopInfo to set the llvm.loop.unroll_and_jam.followup_inner
   /// metadata.
@@ -305,8 +304,7 @@ private:
 
   /// Create a LoopID without any transformations.
   llvm::MDNode *
-	  createLoopPropertiesMetadata(llvm::ArrayRef<llvm::Metadata *> LoopProperties);
-
+  createLoopPropertiesMetadata(llvm::ArrayRef<llvm::Metadata *> LoopProperties);
 
   /// Create a LoopID for transformations.
   ///
@@ -326,29 +324,29 @@ private:
   ///         annotation or followup-attribute.
   /// @{
   llvm::MDNode *
-	  createPipeliningMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createPipeliningMetadata(const LoopAttributes &Attrs,
+                           llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                           bool &HasUserTransforms);
   llvm::MDNode *
-	  createPartialUnrollMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createPartialUnrollMetadata(const LoopAttributes &Attrs,
+                              llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                              bool &HasUserTransforms);
   llvm::MDNode *
-	  createUnrollAndJamMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createUnrollAndJamMetadata(const LoopAttributes &Attrs,
+                             llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                             bool &HasUserTransforms);
   llvm::MDNode *
-	  createLoopVectorizeMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createLoopVectorizeMetadata(const LoopAttributes &Attrs,
+                              llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                              bool &HasUserTransforms);
   llvm::MDNode *
-	  createLoopDistributeMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createLoopDistributeMetadata(const LoopAttributes &Attrs,
+                               llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                               bool &HasUserTransforms);
   llvm::MDNode *
-	  createFullUnrollMetadata(const LoopAttributes &Attrs,
-		  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-		  bool &HasUserTransforms);
+  createFullUnrollMetadata(const LoopAttributes &Attrs,
+                           llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                           bool &HasUserTransforms);
   /// @}
 
   /// Create a LoopID for this loop, including transformation-unspecific
@@ -364,8 +362,8 @@ private:
   /// @return A LoopID (metadata node) that can be used for the llvm.loop
   ///         annotation.
   llvm::MDNode *createMetadata(const LoopAttributes &Attrs,
-	  llvm::ArrayRef<llvm::Metadata *> LoopProperties,
-	  bool &HasUserTransforms);
+                               llvm::ArrayRef<llvm::Metadata *> LoopProperties,
+                               bool &HasUserTransforms);
 };
 
 class VirtualLoopInfo {
