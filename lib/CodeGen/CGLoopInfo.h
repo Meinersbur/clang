@@ -58,7 +58,7 @@ struct LoopTransformation {
 #endif
 
   // TODO: If ApplyOn is set, should not appear in the transformation stack
-  // TODO: Make a union or class hierachy
+  // TODO: Make a union or class hierarchy
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
 
   llvm::StringRef Name;
@@ -128,7 +128,7 @@ struct LoopTransformation {
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
     Result.Kind = Tiling;
-    // TODO: list-intialize
+    // TODO: list-initialize
     for (auto ApplyOn : ApplyOns)
       Result.ApplyOns.push_back(ApplyOn);
     for (auto TileSize : TileSizes)
