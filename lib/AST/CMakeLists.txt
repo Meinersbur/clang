@@ -67,6 +67,7 @@ add_clang_library(clangAST
   StmtOpenMP.cpp
   StmtPrinter.cpp
   StmtProfile.cpp
+  StmtTransform.cpp
   StmtViz.cpp
   TemplateBase.cpp
   TemplateName.cpp

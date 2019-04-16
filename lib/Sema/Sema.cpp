@@ -2207,6 +2207,7 @@ bool Sema::checkOpenCLDisabledDecl(const NamedDecl &D, const Expr &E) {
 }
 
 
+
 StmtResult Sema::ActOnLoopTransformDirective(TransformDirectiveKind Kind, Stmt *AStmt, SourceRange Loc) {
 	llvm_unreachable("unimplemented");
 }
