@@ -20,6 +20,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/TypoCorrection.h"
+#include "clang/Basic/TransformKinds.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -384,6 +385,10 @@ Retry:
   case tok::annot_pragma_loop_transform:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+
+ case tok::annot_pragma_transform:
+    ProhibitAttributes(Attrs);
+    return ParsePragmaTransform(StmtCtx);
 
   case tok::annot_pragma_dump:
     HandlePragmaDump();
@@ -2068,6 +2073,42 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
 
   Attrs.takeAllFrom(TempAttrs);
   return S;
+}
+
+/// Parse: #pragma clang transform ...
+///   ... transform reverse
+StmtResult Parser:: ParsePragmaTransform(ParsedStmtContext StmtCtx) {
+	assert(Tok.is(tok::annot_pragma_transform) && "Not a transform directive!");
+	ParenBraceBracketBalancer BalancerRAIIObj(*this);
+
+	// ... Tok=tok::annot_pragma_transform | <transform> <...> tok::annot_pragma_transform_end ...
+	SourceLocation BeginLoc = ConsumeAnnotationToken();
+
+	// ... Tok=<transform> | <...> tok::annot_pragma_transform_end ...
+	auto DirectiveStr = PP.getSpelling(Tok);
+	auto DirectiveKind = getTransformDirectiveKind(DirectiveStr);
+
+
+
+	switch (DirectiveKind)	{
+	case TransformDirectiveKind::reverse:
+		break;
+	default:
+		Diag(Tok, diag::err_pragma_transform_unknown_directive);
+		SkipUntil(tok::annot_pragma_transform_end);
+		return {};
+	}
+
+	SourceLocation EndLoc = ConsumeAnnotationToken();
+
+	StmtResult AssociatedStmt;
+	{
+		Sema::CompoundScopeRAII CompoundStmt(Actions);
+		AssociatedStmt = ParseStatement();
+	}
+	auto Result = Actions.ActOnLoopTransformDirective(DirectiveKind, AssociatedStmt.get(), { BeginLoc, EndLoc });
+
+	return Result;
 }
 
 Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {

@@ -818,6 +818,9 @@ ANNOTATION(pragma_openmp_end)
 ANNOTATION(pragma_loop_hint)
 ANNOTATION(pragma_loop_transform)
 
+ANNOTATION(pragma_transform)
+ANNOTATION(pragma_transform_end)
+
 ANNOTATION(pragma_fp)
 
 // Annotation for the attribute pragma directives - #pragma clang attribute ...
