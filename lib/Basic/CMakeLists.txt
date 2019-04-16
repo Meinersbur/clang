@@ -85,6 +85,7 @@ add_clang_library(clangBasic
   Targets/X86.cpp
   Targets/XCore.cpp
   TokenKinds.cpp
+  TransformKinds.cpp
   Version.cpp
   Warnings.cpp
   XRayInstr.cpp

@@ -14054,3 +14054,4 @@ void Sema::CheckAddressOfPackedMember(Expr *rhs) {
       rhs, std::bind(&Sema::AddPotentialMisalignedMembers, std::ref(*this), _1,
                      _2, _3, _4));
 }
+
