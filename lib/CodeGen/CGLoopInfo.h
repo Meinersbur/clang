@@ -45,6 +45,7 @@ struct LoopTransformation {
     Interchange,
     Pack,
     Unrolling,
+	UnrollingAndJam,
     ThreadParallel
   };
   TransformKind Kind;
@@ -366,6 +367,8 @@ private:
                                bool &HasUserTransforms);
 };
 
+
+
 class VirtualLoopInfo {
 public:
   VirtualLoopInfo();
@@ -374,8 +377,6 @@ public:
   void markNondefault() { IsDefault = false; }
   void markDisableHeuristic() { DisableHeuristic = true; }
 
-  // llvm::MDNode *getLoopID() {return TempLoopID.get();}
-
   void addAttribute(llvm::Metadata *Node) { Attributes.push_back(Node); }
 
   void addTransformMD(llvm::Metadata *Node) { Transforms.push_back(Node); }
@@ -383,6 +384,10 @@ public:
   void addFollowup(const char *FollowupAttributeName,
                    VirtualLoopInfo *Followup) {
     Followups.push_back({FollowupAttributeName, Followup});
+  }
+
+  void addSubloop(VirtualLoopInfo *Subloop) {
+	  Subloops.push_back(Subloop);
   }
 
 #if 0
@@ -408,13 +413,15 @@ public:
   llvm::SmallVector<llvm::Metadata *, 8> Attributes; // inheritable
   llvm::SmallVector<llvm::Metadata *, 4> Transforms;
 
-  llvm::SmallVector<std::pair<const char *, VirtualLoopInfo *>, 4> Followups;
+  llvm::SmallVector<std::pair<const char *, VirtualLoopInfo *>, 1> Followups;
 
 #if 0
 	llvm::SmallPtrSet<llvm::AllocaInst *, 4>  TrackArrays;
 	llvm::SmallPtrSet <VirtualLoopInfo*, 1> BasedOn;
 	//llvm::AllocaInst *ArrayBasePtr = nullptr;
 #endif
+
+	llvm::SmallVector<VirtualLoopInfo *, 1>  Subloops;
 };
 
 /// A stack of loop information corresponding to loop nesting levels.
@@ -524,6 +531,7 @@ public:
                                     llvm::ArrayRef<VirtualLoopInfo *> On);
   VirtualLoopInfo *applyUnrolling(const LoopTransformation &Transform,
                                   llvm::ArrayRef<VirtualLoopInfo *> On);
+  VirtualLoopInfo *applyUnrollingAndJam(const LoopTransformation &Transform, llvm::ArrayRef<VirtualLoopInfo *> On);
   VirtualLoopInfo *applyPack(const LoopTransformation &Transform,
                              llvm::ArrayRef<VirtualLoopInfo *> On);
   VirtualLoopInfo *applyThreadParallel(const LoopTransformation &Transform,

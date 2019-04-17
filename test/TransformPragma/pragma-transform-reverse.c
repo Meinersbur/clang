@@ -5,6 +5,8 @@
 // RUN: %clang -DMAIN -std=c99 -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_reverse%exeext
 // RUN: %t_pragma_reverse%exeext | FileCheck --check-prefix=RESULT --match-full-lines %s
 
+// XFAIL: *
+
 __attribute__((noinline))
 void pragma_reverse(int n, double A[n]) {
   #pragma clang transform reverse

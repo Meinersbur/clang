@@ -726,6 +726,72 @@ LoopInfoStack::applyUnrolling(const LoopTransformation &Transform,
 }
 
 VirtualLoopInfo *
+LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform, llvm::ArrayRef<VirtualLoopInfo *> On) {
+	assert(On.size() == 1);
+	auto Orig = On[0];
+
+	// Find innermost loop
+	auto OrigInner = Orig;
+	while (true) {
+		assert(OrigInner->Subloops.size() <= 1 && "Must be perfectly nested loops");
+		if (OrigInner->Subloops.empty()) {
+			// Reached innermost loop
+			break;
+		}
+
+			OrigInner = OrigInner->Subloops[0];
+	}
+	
+	assert(OrigInner != Orig && "Unrolling-and-Jam requires a nested loop");
+	// ... but could also be interpreted as simple unrolling
+
+	auto Result = new VirtualLoopInfo();
+	auto ResultInner = new VirtualLoopInfo();
+
+	// Inherit all attributes.
+	for (auto X : Orig->Attributes)
+		Result->addAttribute(X);
+
+	Orig->addTransformMD(
+		MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.unroll_and_jam.enable"),
+			createBoolMetadataConstant(Ctx, true)}));
+	Orig->markDisableHeuristic();
+	Orig->markNondefault();
+
+	auto UnrollFactor = Transform.Factor;
+	auto IsFullUnroll = Transform.Full;
+	if (UnrollFactor > 0 && IsFullUnroll) {
+		llvm_unreachable("Contradicting state");
+	} else if (UnrollFactor > 0) {
+		Orig->addTransformMD(
+			MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.unroll_and_jam.count"),
+				createUnsignedMetadataConstant(Ctx, UnrollFactor)}));
+	} else if (IsFullUnroll) {
+		Orig->addTransformMD(
+			MDNode::get(Ctx, MDString::get(Ctx, "llvm.loop.unroll_and_jam.full")));
+	} else {
+		// Determine unroll factor heuristically
+	}
+	addDebugLoc(Ctx, "llvm.loop.unroll_and_jam.loc", Transform, On[0]);
+
+	Orig->addFollowup("llvm.loop.unroll_and_jam.followup_unrolled", Result);
+	Orig->markNondefault();
+	Orig->markDisableHeuristic();
+	invalidateVirtualLoop(Orig);
+
+	if (!Transform.FollowupName.empty()) {
+		assert(!NamedLoopMap.count(Transform.FollowupName));
+		NamedLoopMap[Transform.FollowupName] = Result;
+		Result->addTransformMD(
+			MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.id"),
+				MDString::get(Ctx, Transform.FollowupName)}));
+		Result->markNondefault();
+	}
+
+	return Result;
+}
+
+VirtualLoopInfo *
 LoopInfoStack::applyPack(const LoopTransformation &Transform,
                          llvm::ArrayRef<VirtualLoopInfo *> On) {
   assert(On.size() == 1);
@@ -1354,6 +1420,8 @@ LoopInfoStack::applyTransformation(const LoopTransformation &Transform,
     return applyInterchange(Transform, ApplyTo);
   case LoopTransformation::Unrolling:
     return applyUnrolling(Transform, ApplyTo);
+  case LoopTransformation::UnrollingAndJam:
+	  return applyUnrollingAndJam(Transform, ApplyTo);
   case LoopTransformation::Pack:
     return applyPack(Transform, ApplyTo);
   case LoopTransformation::ThreadParallel:

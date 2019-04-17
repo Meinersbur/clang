@@ -1165,8 +1165,8 @@ enum class TransformClauseKind {
   FloorIds,    // tile
   TileIds,     // tile
   Allocate,    // pack
-  Factor,      // unrolling
-  Full,        // unrolling
+  Factor,      // unrolling, unrollingandjam
+  Full,        // unrolling, unrollingandjam
 };
 
 // TODO: Introduce enum for clause names
@@ -1781,6 +1781,54 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
     return true;
   }
+
+  if (IdTok.getIdentifierInfo()->getName() == "unrollingandjam") {
+	  Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());
+
+	  assert(ApplyOnLocs.size() <= 1 &&
+		  "only single loop supported for unrollingandjam");
+	  assert(!ApplyOnFollowing && "unrollingandjam applies to single loop only");
+	  if (ApplyOnLocs.empty())
+		  // Apply on following loop
+		  ArgHints.push_back((IdentifierLoc *)nullptr);
+	  else
+		  ArgHints.push_back(ApplyOnLocs[0]);
+
+	  ArgsUnion Factor{(Expr *)nullptr};
+	  ArgsUnion Full{(IdentifierLoc *)nullptr}; // Only presence matters
+	  while (true) {
+		  // TODO: Unroll-and-Jam not necessarily jams the innermost loop, might also jam some loop in-between. Add clause for this option. Maybe by having two loops in the "on" clause?
+		  SmallVector<ArgsUnion, 4> ClauseArgs;
+		  auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
+		  if (Kind == TransformClauseKind::None)
+			  break;
+		  switch (Kind) {
+		  default:
+			  llvm_unreachable("unsupported clause for unrollingandjam");
+		  case TransformClauseKind::Factor:
+			  assert(ClauseArgs.size() == 1);
+			  Factor = ClauseArgs[0];
+			  break;
+		  case TransformClauseKind::Full:
+			  assert(ClauseArgs.size() == 1);
+			  Full = ClauseArgs[0];
+			  break;
+		  }
+	  }
+
+	  assert((!Factor || !Full) && "factor(n) and full contradicting");
+	  ArgHints.push_back(Factor);
+	  ArgHints.push_back(Full);
+
+	  auto &EofTok = Toks[i];
+	  assert(EofTok.is(tok::eof));
+	  i += 1;
+
+	  assert(Toks.size() == i); // Nothing following
+	  PP.Lex(Tok);              // ConsumeAnnotationToken(); or rparen
+	  return true;
+  }
+
 
   if (IdTok.getIdentifierInfo()->getName() == "parallelize_thread") {
     Range = SourceRange(IdTok.getLocation(), IdTok.getLocation());

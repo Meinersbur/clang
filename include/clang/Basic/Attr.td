@@ -3155,6 +3155,44 @@ def LoopUnrolling : Attr {
   let Documentation = [];
 }
 
+
+// TODO: 'interleave' would also be defined with arbitrary loop nests.
+def LoopUnrollingAndJam : Attr {
+  // #pragma clang loop unrollingandjam [factor(n)] [full]
+  // #pragma clang loop(loopname) unrollingandjam [factor(n)] [full]
+
+  // This exists only to make ClangAttrEmitter emit a printPretty(OS, Policy) function which prints "#pragma" and then calls printPrettyPragma(OS, Policy)
+  let Spellings = [Pragma<"", "unrollingandjam">];
+  let PrettyPrintSpelling = 0;
+
+    let Args = [StringArgument<"ApplyOn">, ExprArgument<"Factor">, BoolArgument<"Full">];
+
+
+  let AdditionalMembers = [{
+		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+			OS << "clang loop";
+			if (!getApplyOn().empty()) {
+						OS << "(" << getApplyOn() << ")";
+			}
+
+			OS << " unrollingandjam";
+
+			if (getFactor()) {
+				OS << " factor(";
+				getFactor()->printPretty(OS, nullptr, Policy);
+				OS << ")";
+			}
+
+			if (getFull()) {
+				OS << " full";
+			}
+		}
+  }];
+
+   let Documentation = [];
+}
+
+
 def LoopParallelizeThread : Attr {
   // #pragma clang loop thread_parallel
   // #pragma clang loop(loopname) thread_parallel
