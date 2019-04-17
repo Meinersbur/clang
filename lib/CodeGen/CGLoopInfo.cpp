@@ -458,6 +458,8 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
   if (HasLegacyTransformation || HasOrderedTransformation ||
       AncestorHasOrderedTransformation) {
     VInfo = new VirtualLoopInfo();
+	if (Parent)
+		Parent->VInfo->addSubloop(VInfo);
     if (HasLegacyTransformation)
       VInfo->markNondefault();
     TempLoopID = MDNode::getTemporary(Header->getContext(), None);
@@ -774,10 +776,14 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform, llvm::A
 	}
 	addDebugLoc(Ctx, "llvm.loop.unroll_and_jam.loc", Transform, On[0]);
 
-	Orig->addFollowup("llvm.loop.unroll_and_jam.followup_unrolled", Result);
+	Orig->addFollowup("llvm.loop.unroll_and_jam.followup_outer_unrolled", Result);
+	OrigInner->addFollowup("llvm.loop.unroll_and_jam.followup_inner_unrolled", ResultInner);
 	Orig->markNondefault();
+	OrigInner->markNondefault();
 	Orig->markDisableHeuristic();
+	OrigInner->markDisableHeuristic();
 	invalidateVirtualLoop(Orig);
+	invalidateVirtualLoop(OrigInner);
 
 	if (!Transform.FollowupName.empty()) {
 		assert(!NamedLoopMap.count(Transform.FollowupName));
@@ -1093,6 +1099,21 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           Unrolling->getFull()));
       continue;
     }
+
+
+	if (auto Unrolling = dyn_cast<LoopUnrollingAndJamAttr>(Attr)) {
+		auto Fac = Unrolling->getFactor();
+		int64_t FactorInt = -1;
+		if (Fac) {
+			llvm::APSInt FactorAPS = Fac->EvaluateKnownConstInt(Ctx);
+			FactorInt = FactorAPS.getSExtValue();
+		}
+		addTransformation(LoopTransformation::createUnrollingAndJam(
+			LocBegin, LocEnd, Unrolling->getApplyOn(), FactorInt,
+			Unrolling->getFull()));
+		continue;
+	}
+
 
     if (auto ThreadParallel = dyn_cast<LoopParallelizeThreadAttr>(Attr)) {
       addTransformation(LoopTransformation::createThreadParallel(

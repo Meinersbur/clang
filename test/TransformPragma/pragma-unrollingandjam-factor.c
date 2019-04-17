@@ -32,7 +32,7 @@ int main() {
 // PRINT-NEXT:  #pragma clang loop unrollingandjam factor(4)
 // PRINT-NEXT:  for (int i = 0; i < 128; i += 1)
 // PRINT-NEXT:  	for (int j = 0; j < 128; j += 1)
-// PRINT-NEXT:  		C[i+j] += A[i+j] + i + j;
+// PRINT-NEXT:  		C[i + j] += A[i + j] + i + j;
 // PRINT-NEXT:  }
 
 

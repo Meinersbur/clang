@@ -188,6 +188,21 @@ struct LoopTransformation {
     return Result;
   }
 
+  static LoopTransformation createUnrollingAndJam(llvm::DebugLoc BeginLoc,
+	  llvm::DebugLoc EndLoc,
+	  llvm::StringRef ApplyOn,
+	  int64_t Factor, bool Full) {
+	  LoopTransformation Result;
+	  Result.BeginLoc = BeginLoc;
+	  Result.EndLoc = EndLoc;
+	  Result.Kind = UnrollingAndJam;
+	  if (!ApplyOn.empty())
+		  Result.ApplyOns.push_back(ApplyOn);
+	  Result.Factor = Factor;
+	  Result.Full = Full;
+	  return Result;
+  }
+
   static LoopTransformation createThreadParallel(llvm::DebugLoc BeginLoc,
                                                  llvm::DebugLoc EndLoc,
                                                  llvm::StringRef ApplyOn) {
