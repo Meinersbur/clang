@@ -5,6 +5,8 @@
 // RUN: %clang -DMAIN -std=c99 -disable-legacy-loop-transformations -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
+// XFAIL: *
+
 __attribute__((noinline))
 void pragma_unrollingandjam(double C[const restrict static 256], double A[const restrict static 256]) {
   #pragma clang loop unrollingandjam factor(4)

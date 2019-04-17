@@ -458,8 +458,8 @@ LoopInfo::LoopInfo(llvm::BasicBlock *Header, llvm::Function *F,
   if (HasLegacyTransformation || HasOrderedTransformation ||
       AncestorHasOrderedTransformation) {
     VInfo = new VirtualLoopInfo();
-	if (Parent)
-		Parent->VInfo->addSubloop(VInfo);
+		if (Parent && Parent->VInfo)
+			Parent->VInfo->addSubloop(VInfo);
     if (HasLegacyTransformation)
       VInfo->markNondefault();
     TempLoopID = MDNode::getTemporary(Header->getContext(), None);
