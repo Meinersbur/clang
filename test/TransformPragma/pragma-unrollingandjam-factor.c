@@ -23,11 +23,11 @@ int main() {
   memset(A, 0, sizeof(A));
   A[1] = 42;
   pragma_unrollingandjam(C,A);
+  // C[1] = C[0+1] + C[1+0] = (A[0+1] + 0 + 1) + (A[1+0] + 1 + 0) = (42 + 0 + 1) + (42 + 0 + 1) = 43 + 43 = 86
   printf("(%0.0f)\n", C[1]);
   return 0;
 }
 #endif
-
 
 // PRINT-LABEL: void pragma_unrollingandjam(double C[const restrict static 256], double A[const restrict static 256]) __attribute__((noinline)) {
 // PRINT-NEXT:  #pragma clang loop unrollingandjam factor(4)
@@ -49,21 +49,23 @@ int main() {
 
 
 // AST: if (1)
-// AST:     for (int c0 = 0; c0 <= 255; c0 += 4) {
-// AST:       Stmt_for_body(c0);
-// AST:       Stmt_for_body(c0 + 1);
-// AST:       Stmt_for_body(c0 + 2);
-// AST:       Stmt_for_body(c0 + 3);
-// AST:     }
+// AST:   for (int c0 = 0; c0 <= 127; c0 += 4) {
+// AST: 	for (int c1 = 0; c1 <= 127; c1 += 1) {
+// AST: 		Stmt_for_body4(c0, c1);
+// AST: 		Stmt_for_body4(c0 + 1, c1);
+// AST: 		Stmt_for_body4(c0 + 2, c1);
+// AST: 		Stmt_for_body4(c0 + 3, c1);
+// AST: 	}
+// AST:   }
 // AST: else
-// AST:     {  /* original code */ }
+// AST:   {  /* original code */ }
 
 
-// TRANS-LABEL: @pragma_unrolling
+// TRANS-LABEL: @pragma_unrollingandjam
 // TRANS: store double %p_add
 // TRANS: store double %p_add
 // TRANS: store double %p_add
 // TRANS: store double %p_add
 
 
-// RESULT: (88)
+// RESULT: (86)
