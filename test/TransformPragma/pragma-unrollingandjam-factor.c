@@ -5,7 +5,6 @@
 // RUN: %clang -DMAIN -std=c99 -disable-legacy-loop-transformations -O3 -mllvm -polly -mllvm -polly-process-unprofitable %s -o %t_pragma_pack%exeext
 // RUN: %t_pragma_pack%exeext | FileCheck --check-prefix=RESULT %s
 
-// XFAIL: *
 
 __attribute__((noinline))
 void pragma_unrollingandjam(double C[const restrict static 256], double A[const restrict static 256]) {
@@ -39,12 +38,14 @@ int main() {
 
 
 // IR-LABEL: define dso_local void @pragma_unrollingandjam(double* noalias dereferenceable(2048) %C, double* noalias dereferenceable(2048) %A) #0 {
-// IR:         br label %for.cond, !llvm.loop !2
+// IR:         br label %for.cond1, !llvm.loop !2
+// IR:         br label %for.cond, !llvm.loop !4
 //
-// IR: !2 = distinct !{!2, !3, !4, !5}
+// IR: !2 = distinct !{!2, !3}
 // IR: !3 = !{!"llvm.loop.disable_nonforced"}
-// IR: !4 = !{!"llvm.loop.unroll.enable", i1 true}
-// IR: !5 = !{!"llvm.loop.unroll.count", i4 4}
+// IR: !4 = distinct !{!4, !3, !5, !6}
+// IR: !5 = !{!"llvm.loop.unroll_and_jam.enable", i1 true}
+// IR: !6 = !{!"llvm.loop.unroll_and_jam.count", i4 4}
 
 
 // AST: if (1)
