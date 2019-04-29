@@ -3086,13 +3086,13 @@ def LoopInterchange : Attr {
 
 
 def Pack : Attr {
-  // #pragma clang loop           pack array(arrayname) [allocate(malloc)]
-  // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)]
+  // #pragma clang loop           pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
+  // #pragma clang loop(loopname) pack array(arrayname) [allocate(malloc)] [isl_size("isl map")] [isl_redirect("isl map")]
 
   let Spellings = [Pragma<"", "pack">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">];
+  let Args = [StringArgument<"ApplyOn">, ExprArgument<"Array">, BoolArgument<"OnHeap">, StringArgument<"IslSize">, StringArgument<"IslRedirect">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -3112,6 +3112,14 @@ def Pack : Attr {
 
 				if (getOnHeap()) {
 					OS << " allocate(malloc)";
+				}
+
+				if (!getIslSize().empty()) {
+					OS << " isl_size(\"" << getIslSize() << "\")";
+				}
+
+				if (!getIslRedirect().empty()) {
+					OS << " isl_redirect(\"" << getIslRedirect() << "\")";
 				}
 		}
   }];

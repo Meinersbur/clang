@@ -71,6 +71,8 @@ struct LoopTransformation {
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
   bool OnHeap = false;
+  llvm::StringRef IslSize;
+  llvm::StringRef IslRedirect;
 
   int64_t Factor = -1;
   bool Full = false;
@@ -161,7 +163,7 @@ struct LoopTransformation {
   static LoopTransformation createPack(llvm::DebugLoc BeginLoc,
                                        llvm::DebugLoc EndLoc,
                                        llvm::StringRef ApplyOn,
-                                       clang::DeclRefExpr *Array, bool OnHeap) {
+                                       clang::DeclRefExpr *Array, bool OnHeap, llvm::StringRef IslSize, llvm::StringRef IslRedirect) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
@@ -170,6 +172,8 @@ struct LoopTransformation {
       Result.ApplyOns.push_back(ApplyOn);
     Result.Array = Array;
     Result.OnHeap = OnHeap;
+	Result.IslSize = IslSize;
+	Result.IslRedirect = IslRedirect;
     return Result;
   }
 

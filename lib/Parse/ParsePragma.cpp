@@ -1156,6 +1156,86 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
   return true;
 }
 
+
+static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
+	ArrayRef<Token> Toks, int &Count,
+	bool ExpectComma) {
+	// TODO: Use BalancedDelimiterTracker
+	auto NumOpenParens = 0;
+	int i = 0;
+	while (true) {
+		if (i >= Toks.size())
+			break;
+		auto &Tok = Toks[i];
+		if (Tok.is(tok::l_paren))
+			NumOpenParens += 1;
+		else if (Tok.is(tok::r_paren)) {
+			if (NumOpenParens <= 0)
+				break;
+			NumOpenParens -= 1;
+		} else if (ExpectComma && Tok.is(tok::comma))
+			break;
+		i += 1;
+	}
+	Count += i;
+
+	auto ClauseValue = Toks.slice(0, i);
+
+	// Token Annotation;
+	// PP.Lex(Annotation);
+
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+
+	SourceLocation AfterEndLoc;
+	if (i < Toks.size()) {
+		AfterEndLoc = Toks[i].getLocation();
+	} else {
+		Token AfterAnnotation;
+		PP.Lex(AfterAnnotation);
+		AfterEndLoc = AfterAnnotation.getLocation();
+		PP.EnterTokenStream(AfterAnnotation, false);
+	}
+
+	// Push back end marker that does not get accidentally consumed.
+	Token Eof;
+	Eof.startToken();
+	Eof.setKind(tok::eod);
+	Eof.setLocation(AfterEndLoc);
+	PP.EnterTokenStream(Eof, true);
+
+	// Push back the tokens on the stack so we can parse them.
+	PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/false);
+
+	// Save current Parser.Tok to restore later.
+	Token Annotation = Tok;
+
+	// ParseConstantExpression() takes Parser.Tok as first token.
+	PP.Lex(Tok);
+
+	ExprResult R = Parse.ParseConstantExpression();
+
+	// Restore state
+	if (Tok.isNot(tok::eod))
+		PP.DiscardUntilEndOfDirective();
+	Tok = Annotation;
+#if 0
+	Token MyToks[4];
+	for (int j = 0; j < 4; j+=1)
+		PP.Lex(MyToks[j]);
+	PP.EnterTokenStream(MyToks, true);
+#endif
+	return R;
+}
+
 enum class TransformClauseKind {
   None,
   ReversedId,  // reverse
@@ -1165,6 +1245,8 @@ enum class TransformClauseKind {
   FloorIds,    // tile
   TileIds,     // tile
   Allocate,    // pack
+  IslSize,     // pack
+  IslRedirect, // pack
   Factor,      // unrolling, unrollingandjam
   Full,        // unrolling, unrollingandjam
 };
@@ -1189,6 +1271,8 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("floor_ids", TransformClauseKind::FloorIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
                   .Case("allocate", TransformClauseKind::Allocate)
+	  .Case("isl_size", TransformClauseKind::IslSize)
+	  .Case("isl_redirect", TransformClauseKind::IslRedirect)
                   .Case("factor", TransformClauseKind::Factor)
                   .Case("full", TransformClauseKind::Full)
                   .Default(TransformClauseKind::None);
@@ -1274,7 +1358,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
         i += 1;
         break;
       }
-      llvm_unreachable("unexpexted token");
+      llvm_unreachable("unexpected token");
     }
     return Kind;
   } break;
@@ -1286,7 +1370,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     auto ClauseSlice = Toks.slice(i, 4);
     i += 4;
 
-    // Push identifer on main stack to be parsed
+    // Push identifier on main stack to be parsed
     PP.EnterTokenStream(ClauseSlice.slice(2), /*DisableMacroExpansion=*/false);
 
     // Push an end marker to the token stream
@@ -1316,11 +1400,29 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     auto OptionInfo = Toks[i + 2].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
     assert(OptionStr == "malloc");
-    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(),
-                                         Toks[i].getLocation(), OptionInfo));
+    Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
 
     i += 4;
     return TransformClauseKind::Allocate;
+  } break;
+
+  case TransformClauseKind::IslSize:
+  case TransformClauseKind::IslRedirect: {
+	  i += 1;
+	  assert(Toks[i].is(tok::l_paren));
+	  i += 1;
+	  int Count =0;
+	  auto Expr = parseExpression(PP, Parse, Tok, Toks.slice(i), Count, false);
+	  assert(Expr.isUsable());
+	  //assert(Expr.get()->getType().isConstant());
+	 
+	  i += Count;
+	  assert(Toks[i].is(tok::r_paren));
+
+	  Args.push_back(Expr.get());
+
+	  i += 1;
+	  return Kind;
   } break;
 
   case TransformClauseKind::Factor: {
@@ -1375,84 +1477,6 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
   llvm_unreachable("Unknown clause");
 }
 
-static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
-                                  ArrayRef<Token> Toks, int &Count,
-                                  bool ExpectComma) {
-  // TODO: Use BalancedDelimiterTracker
-  auto NumOpenParens = 0;
-  int i = 0;
-  while (true) {
-    if (i >= Toks.size())
-      break;
-    auto &Tok = Toks[i];
-    if (Tok.is(tok::l_paren))
-      NumOpenParens += 1;
-    else if (Tok.is(tok::r_paren)) {
-      if (NumOpenParens <= 0)
-        break;
-      NumOpenParens -= 1;
-    } else if (ExpectComma && Tok.is(tok::comma))
-      break;
-    i += 1;
-  }
-  Count += i;
-
-  auto ClauseValue = Toks.slice(0, i);
-
-  // Token Annotation;
-  // PP.Lex(Annotation);
-
-#if 0
-	Token MyToks[4];
-	for (int j = 0; j < 4; j+=1)
-		PP.Lex(MyToks[j]);
-	PP.EnterTokenStream(MyToks, true);
-
-	for (int j = 0; j < 4; j+=1)
-		PP.Lex(MyToks[j]);
-	PP.EnterTokenStream(MyToks, true);
-#endif
-
-  SourceLocation AfterEndLoc;
-  if (i < Toks.size()) {
-    AfterEndLoc = Toks[i].getLocation();
-  } else {
-    Token AfterAnnotation;
-    PP.Lex(AfterAnnotation);
-    AfterEndLoc = AfterAnnotation.getLocation();
-    PP.EnterTokenStream(AfterAnnotation, false);
-  }
-
-  // Push back end marker that does not get accidentally consumed.
-  Token Eof;
-  Eof.startToken();
-  Eof.setKind(tok::eod);
-  Eof.setLocation(AfterEndLoc);
-  PP.EnterTokenStream(Eof, true);
-
-  // Push back the tokens on the stack so we can parse them.
-  PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/false);
-
-  // Save current Parser.Tok to restore later.
-  Token Annotation = Tok;
-
-  // ParseConstantExpression() takes Parser.Tok as first token.
-  PP.Lex(Tok);
-
-  ExprResult R = Parse.ParseConstantExpression();
-
-  // Restore state
-  if (Tok.isNot(tok::eod))
-    PP.DiscardUntilEndOfDirective();
-  Tok = Annotation;
-#if 0
-	Token MyToks[4];
-	for (int j = 0; j < 4; j+=1)
-		PP.Lex(MyToks[j]);
-	PP.EnterTokenStream(MyToks, true);
-#endif
-  return R;
-}
 
 bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
                                        SourceRange &Range,
@@ -1703,6 +1727,8 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
 
     DeclRefExpr *Array = nullptr;
     ArgsUnion OnHeap = (IdentifierLoc *)nullptr;
+	Expr *IslSize = nullptr;
+	Expr *IslRedirect = nullptr;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -1721,11 +1747,23 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         assert(!Array);
         Array = cast<DeclRefExpr>(ClauseArgs[0].get<Expr *>());
         break;
+	  case TransformClauseKind::IslSize:
+		  assert(ClauseArgs.size() == 1);
+		  assert(!IslSize);
+		  IslSize = ClauseArgs[0].get<Expr *>();
+		  break;
+	  case TransformClauseKind::IslRedirect:
+		  assert(ClauseArgs.size() == 1);
+		  assert(!IslRedirect);
+		  IslRedirect = ClauseArgs[0].get<Expr *>();
+		  break;
       }
     }
 
     ArgHints.push_back(Array);
     ArgHints.push_back(OnHeap);
+	ArgHints.push_back(IslSize);
+	ArgHints.push_back(IslRedirect);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));
