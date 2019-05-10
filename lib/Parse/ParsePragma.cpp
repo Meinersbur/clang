@@ -1244,6 +1244,7 @@ enum class TransformClauseKind {
   Array,       // pack
   FloorIds,    // tile
   TileIds,     // tile
+  Peel,        // tile
   Allocate,    // pack
   IslSize,     // pack
   IslRedirect, // pack
@@ -1270,9 +1271,10 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
                   .Case("array", TransformClauseKind::Array)
                   .Case("floor_ids", TransformClauseKind::FloorIds)
                   .Case("tile_ids", TransformClauseKind::TileIds)
+                  .Case("peel", TransformClauseKind::Peel)
                   .Case("allocate", TransformClauseKind::Allocate)
-	  .Case("isl_size", TransformClauseKind::IslSize)
-	  .Case("isl_redirect", TransformClauseKind::IslRedirect)
+                  .Case("isl_size", TransformClauseKind::IslSize)
+	              .Case("isl_redirect", TransformClauseKind::IslRedirect)
                   .Case("factor", TransformClauseKind::Factor)
                   .Case("full", TransformClauseKind::Full)
                   .Default(TransformClauseKind::None);
@@ -1392,19 +1394,21 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     return TransformClauseKind::Array;
   } break;
 
-  case TransformClauseKind::Allocate: {
+  case TransformClauseKind::Allocate: 
+  case TransformClauseKind::Peel: {
     assert(Toks[i + 1].is(tok::l_paren));
     assert(Toks[i + 2].is(tok::identifier));
     assert(Toks[i + 3].is(tok::r_paren));
 
     auto OptionInfo = Toks[i + 2].getIdentifierInfo();
     auto OptionStr = OptionInfo->getName();
-    assert(OptionStr == "malloc");
+    //assert(OptionStr == "malloc");
     Args.push_back(IdentifierLoc::create(Parse.getActions().getASTContext(), Toks[i].getLocation(), OptionInfo));
 
     i += 4;
-    return TransformClauseKind::Allocate;
+    return Kind;
   } break;
+
 
   case TransformClauseKind::IslSize:
   case TransformClauseKind::IslRedirect: {
@@ -1629,6 +1633,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     SmallVector<ArgsUnion, 4> TileSizes;
     SmallVector<ArgsUnion, 4> FloorIds;
     SmallVector<ArgsUnion, 4> TileIds;
+	ArgsUnion Peel = (IdentifierLoc *)nullptr;
     while (true) {
       SmallVector<ArgsUnion, 4> ClauseArgs;
       auto Kind = parseNextClause(PP, *this, Tok, Toks, i, ClauseArgs);
@@ -1652,6 +1657,10 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
         assert(TileIds.empty());
         TileIds = std::move(ClauseArgs);
         break;
+	  case TransformClauseKind::Peel:
+		  assert(ClauseArgs.size()==1);
+			Peel = ClauseArgs[0];
+		  break;
       }
     }
 
@@ -1664,6 +1673,7 @@ bool Parser::HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
     for (auto TileId : TileIds)
       ArgHints.push_back(TileId);
     ArgHints.push_back((IdentifierLoc *)nullptr);
+	ArgHints.push_back(Peel);
 
     auto &EofTok = Toks[i];
     assert(EofTok.is(tok::eof));

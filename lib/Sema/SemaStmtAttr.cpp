@@ -161,6 +161,9 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     TileIdNames.push_back(Id->Ident->getName());
   }
 
+  auto Peel = A.getArgAsIdent(i);
+  i += 1;
+
   assert(i == NumArgs && "Must consume all args");
 
   if (ApplyOns.empty()) {
@@ -171,14 +174,14 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
     return LoopTilingAttr::CreateImplicit(
         S.Context, nullptr, 0, ApplyOnDepth, Sizes.data(), Sizes.size(),
         PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
-        TileIdNames.size(), A.getRange());
+        TileIdNames.size(), Peel->Ident->getName(), A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());
   return LoopTilingAttr::CreateImplicit(
       S.Context, ApplyOns.data(), ApplyOns.size(), ApplyOnDepth, Sizes.data(),
       Sizes.size(), PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
-      TileIdNames.size(), A.getRange());
+      TileIdNames.size(), Peel ? Peel->Ident->getName() : StringRef(), A.getRange());
 }
 
 static Attr *handleLoopInterchange(Sema &S, Stmt *St, const ParsedAttr &A,

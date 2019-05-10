@@ -61,12 +61,13 @@ struct LoopTransformation {
   // TODO: If ApplyOn is set, should not appear in the transformation stack
   // TODO: Make a union or class hierarchy
   llvm::SmallVector<llvm::StringRef, 4> ApplyOns;
-
+    
   llvm::StringRef Name;
   llvm::StringRef FollowupName;
   llvm::SmallVector<int64_t, 4> TileSizes;
   llvm::SmallVector<llvm::StringRef, 4> TileFloorIds;
   llvm::SmallVector<llvm::StringRef, 4> TileTileIds;
+  llvm::StringRef TilePeel;
 
   llvm::SmallVector<llvm::StringRef, 4> Permutation;
   clang::DeclRefExpr *Array;
@@ -126,7 +127,7 @@ struct LoopTransformation {
                llvm::ArrayRef<llvm::StringRef> ApplyOns,
                llvm::ArrayRef<int64_t> TileSizes,
                llvm::ArrayRef<StringRef> FloorIds,
-               llvm::ArrayRef<StringRef> TileIds) {
+               llvm::ArrayRef<StringRef> TileIds, llvm::StringRef Peel) {
     LoopTransformation Result;
     Result.BeginLoc = BeginLoc;
     Result.EndLoc = EndLoc;
@@ -140,6 +141,7 @@ struct LoopTransformation {
       Result.TileFloorIds.push_back(PitId);
     for (auto TileId : TileIds)
       Result.TileTileIds.push_back(TileId);
+	Result.TilePeel = Peel;
 
     return Result;
   }

@@ -544,6 +544,8 @@ LoopInfoStack::applyTiling(const LoopTransformation &Transform,
   On[0]->addTransformMD(MDNode::get(
       Ctx, {MDString::get(Ctx, "llvm.loop.tile.depth"),
             ConstantAsMetadata::get(ConstantInt::get(Ctx, APInt(32, N)))}));
+  if (!Transform.TilePeel.empty())
+	 On[0]->addTransformMD(MDNode::get(Ctx, {MDString::get(Ctx, "llvm.loop.tile.peel"), MDString::get(Ctx, Transform.TilePeel )  }));
   addDebugLoc(Ctx, "llvm.loop.tile.loc", Transform, On[0]);
 
   for (auto i = 0; i < N; i += 1) {
@@ -783,8 +785,8 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform, llvm::A
 	assert(OrigIntermediateLoops.front() == Orig);
 	assert(OrigIntermediateLoops.back() == OrigInner);
 
-	auto Result = new VirtualLoopInfo();
-	auto ResultInner = new VirtualLoopInfo();
+	auto Result = new VirtualLoopInfo(Orig->Name);
+	auto ResultInner = new VirtualLoopInfo(OrigInner->Name);
 
 	// Inherit all attributes.
 	for (auto X : Orig->Attributes)
@@ -816,8 +818,11 @@ LoopInfoStack::applyUnrollingAndJam(const LoopTransformation &Transform, llvm::A
 	OrigInner->markNondefault();
 	Orig->markDisableHeuristic();
 	OrigInner->markDisableHeuristic();
+
 	invalidateVirtualLoop(Orig);
 	invalidateVirtualLoop(OrigInner);
+	NamedLoopMap[Result->Name] = Result;
+	NamedLoopMap[ResultInner->Name] = ResultInner;
 
 	if (!Transform.FollowupName.empty()) {
 		assert(!NamedLoopMap.count(Transform.FollowupName));
@@ -868,7 +873,7 @@ LoopInfoStack::applyPack(const LoopTransformation &Transform,
     ArrayId = MDNode::getDistinct(Ctx, MDString::get(Ctx, ArrayName));
   AccessesToTrack.push_back({Addr, ArrayId});
 
-  auto Result = new VirtualLoopInfo();
+  auto Result = new VirtualLoopInfo(Orig->Name );
 
   // Inherit all attributes.
   for (auto X : Orig->Attributes)
@@ -902,6 +907,7 @@ LoopInfoStack::applyPack(const LoopTransformation &Transform,
   Orig->markNondefault();
 
   invalidateVirtualLoop(Orig);
+  NamedLoopMap[Result->Name] = Result;
 
   return Result;
 }
@@ -1122,7 +1128,9 @@ void LoopInfoStack::push(BasicBlock *Header, Function *F,
           makeArrayRef(LTiling->applyOn_begin(), LTiling->applyOn_size()),
           TileSizes,
           makeArrayRef(LTiling->floorIds_begin(), LTiling->floorIds_size()),
-          makeArrayRef(LTiling->tileIds_begin(), LTiling->tileIds_size())));
+          makeArrayRef(LTiling->tileIds_begin(), LTiling->tileIds_size()),
+		  LTiling->getPeel()
+		  ));
       continue;
     }
 

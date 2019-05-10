@@ -2972,7 +2972,7 @@ def LoopTiling : Attr {
   let Spellings = [Pragma<"", "tile">];
   let PrettyPrintSpelling = 0;
 
-  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">];
+  let Args = [VariadicStringArgument<"ApplyOn">, ExprArgument<"ApplyOnDepth">, VariadicExprArgument<"TileSizes">, VariadicStringArgument<"FloorIds">, VariadicStringArgument<"TileIds">, StringArgument<"Peel">];
 
   let AdditionalMembers = [{
 		void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
@@ -2988,8 +2988,10 @@ def LoopTiling : Attr {
 						First = false;
 					}
 				OS << ")";
-			} else if (getApplyOnDepth() > 0) {
-				OS << "(" << getApplyOnDepth() << ")";
+			} else if (getApplyOnDepth()) {
+				OS << "(" ;
+				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+				OS << ")";
 			}
 
 			OS << " tile";
@@ -3032,6 +3034,10 @@ def LoopTiling : Attr {
 				}
 				OS << ")";
 			}
+
+			if (getPeelLength()) {
+					OS << " peel(\"" << getPeel() << "\")";
+			}
 		}
   }];
 
@@ -3061,8 +3067,10 @@ def LoopInterchange : Attr {
 						First = false;
 					}
 				OS << ")";
-			} else if (getApplyOnDepth() > 0) {
-				OS << "(" << getApplyOnDepth() << ")";
+			} else if (getApplyOnDepth() ) {
+				OS << "(" ;
+				getApplyOnDepth()->printPretty(OS, nullptr, Policy);
+				OS << ")";
 			}
 
 			OS << " interchange";
