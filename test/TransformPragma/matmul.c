@@ -70,7 +70,7 @@ int main() {
 // AST:         for (int c1 = 0; c1 <= floord(K - 1, 256); c1 += 1) {
 // AST:           for (int c4 = 0; c4 <= min(2047, N - 2048 * c0 - 1); c4 += 1)
 // AST:             for (int c5 = 0; c5 <= min(255, K - 256 * c1 - 1); c5 += 1)
-// AST:               CopyStmt_2(c0, c1, c4, c5);
+// AST:               CopyStmt_1(c0, c1, c4, c5);
 // AST:           for (int c2 = 0; c2 <= floord(M - 1, 96); c2 += 1) {
 // AST:             for (int c6 = 0; c6 <= min(95, M - 96 * c2 - 1); c6 += 1)
 // AST:               for (int c7 = 0; c7 <= min(255, K - 256 * c1 - 1); c7 += 1)
@@ -90,9 +90,9 @@ int main() {
 
 
 // TRANS: %malloccall = tail call i8* @malloc(i64 196608)
-// TRANS: %malloccall87 = tail call i8* @malloc(i64 4194304)
+// TRANS: %malloccall89 = tail call i8* @malloc(i64 4194304)
 // TRANS: tail call void @free(i8* %malloccall)
-// TRANS: tail call void @free(i8* %malloccall87)
+// TRANS: tail call void @free(i8* %malloccall89)
 // TRANS-DAG: Packed_MemRef_A
 // TRANS-DAG: Packed_MemRef_B
 
