@@ -168,13 +168,13 @@ static Attr *handleLoopTiling(Sema &S, Stmt *St, const ParsedAttr &A,
 
   if (ApplyOns.empty()) {
     // Apply on following loop
-    // support only one loop in this case (stripmining)
+    // support only one loop in this case (strip-mining)
     // TODO: Support arbitrary many nested (vertical) loops
     assert(Sizes.size() <= 1);
-    return LoopTilingAttr::CreateImplicit(
-        S.Context, nullptr, 0, ApplyOnDepth, Sizes.data(), Sizes.size(),
-        PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
-        TileIdNames.size(), Peel->Ident->getName(), A.getRange());
+	return LoopTilingAttr::CreateImplicit(
+		S.Context, nullptr, 0, ApplyOnDepth, Sizes.data(), Sizes.size(),
+		PitIdNames.data(), PitIdNames.size(), TileIdNames.data(),
+		TileIdNames.size(), Peel ? Peel->Ident->getName() : StringRef() , A.getRange());
   }
 
   assert(ApplyOns.size() == Sizes.size());

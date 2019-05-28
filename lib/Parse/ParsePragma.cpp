@@ -218,9 +218,9 @@ struct PragmaLoopHintHandler : public PragmaHandler {
   void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
                     Token &FirstToken) override;
 
-  void HandleLegacySyntax(Preprocessor &PP, PragmaIntroducerKind Introducer,
+  void HandleLegacySyntax(Preprocessor &PP, PragmaIntroducer Introducer,
                           Token &FirstToken);
-  void HandleOmpSyntax(Preprocessor &PP, PragmaIntroducerKind Introducer,
+  void HandleOmpSyntax(Preprocessor &PP, PragmaIntroducer Introducer,
                        Token &FirstToken);
 };
 
@@ -232,7 +232,7 @@ struct PragmaUnrollHintHandler : public PragmaHandler {
 
 struct PragmaTransformHandler : public PragmaHandler {
 	PragmaTransformHandler() : PragmaHandler("transform") {}
-	void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &FirstToken) override;
+	void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer, Token &FirstToken) override;
 };
 
 struct PragmaMSRuntimeChecksHandler : public EmptyPragmaHandler {
@@ -1209,7 +1209,7 @@ static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
 		Token AfterAnnotation;
 		PP.Lex(AfterAnnotation);
 		AfterEndLoc = AfterAnnotation.getLocation();
-		PP.EnterTokenStream(AfterAnnotation, false);
+		PP.EnterTokenStream(AfterAnnotation, true,  /*IsReinject=*/true);
 	}
 
 	// Push back end marker that does not get accidentally consumed.
@@ -1217,10 +1217,10 @@ static ExprResult parseExpression(Preprocessor &PP, Parser &Parse, Token &Tok,
 	Eof.startToken();
 	Eof.setKind(tok::eod);
 	Eof.setLocation(AfterEndLoc);
-	PP.EnterTokenStream(Eof, true);
+	PP.EnterTokenStream(Eof, true, /*IsReinject=*/false);
 
 	// Push back the tokens on the stack so we can parse them.
-	PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/false);
+	PP.EnterTokenStream(ClauseValue, /*DisableMacroExpansion=*/true,/*IsReinject*/true);
 
 	// Save current Parser.Tok to restore later.
 	Token Annotation = Tok;
@@ -1324,7 +1324,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
 
     // Push back the tokens on the stack so we can parse them
-    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/false);
+    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/true, /*IsReinject=*/true);
 
     // Update token stream; current token could be an annotation token or a
     // closing paren.
@@ -1380,7 +1380,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     i += 4;
 
     // Push identifier on main stack to be parsed
-    PP.EnterTokenStream(ClauseSlice.slice(2), /*DisableMacroExpansion=*/false);
+    PP.EnterTokenStream(ClauseSlice.slice(2), /*DisableMacroExpansion=*/true, /*IsReinject=*/true);
 
     // Push an end marker to the token stream
     // Token EndMarker;
@@ -1456,7 +1456,7 @@ static TransformClauseKind parseNextClause(Preprocessor &PP, Parser &Parse,
     auto ClauseValue = Toks.slice(StartInner, i - StartInner - 1);
 
     // Push back the tokens on the stack so we can parse them
-    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/false);
+    PP.EnterTokenStream(ClauseParens.slice(1), /*DisableMacroExpansion=*/true, /*IsReinject=*/true);
 
     // Update token stream; current token could be an annotation token or a
     // closing paren.
@@ -3028,9 +3028,7 @@ void PragmaOpenMPHandler::HandlePragma(Preprocessor &PP,
   std::copy(Pragma.begin(), Pragma.end(), Toks.get());
   PP.EnterTokenStream(std::move(Toks), Pragma.size(),
                       /*DisableMacroExpansion=*/false, /*IsReinject=*/false); 
-                      // Isn't adding a single
-  // tok::annot_pragma_openmp token with
-  // setAnnotationValue preferable?
+                      // Isn't adding a single tok::annot_pragma_openmp token with setAnnotationValue preferable?
 }
 
 /// Handle '#pragma pointers_to_members'
@@ -3601,7 +3599,7 @@ static bool ParseLoopHintValue(Preprocessor &PP, Token &Tok, Token PragmaName,
 }
 
 void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
-                                         PragmaIntroducerKind Introducer,
+                                         PragmaIntroducer Introducer,
                                          Token &Tok) {
   // Identify the legacy syntax
   // Matches one of:
@@ -3619,7 +3617,7 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
   if (HintToken.is(tok::l_paren)) {
     // New Syntax:
     // #pragma clang loop(loopname) ...
-    PP.EnterTokenStream(HintToken, true);
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
     return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
 
@@ -3631,9 +3629,9 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
                   "unrollandjam", "unrollandjam_count", "badkeyword", true)
            .Cases("pipeline", "pipeline_initiation_interval", true)
            .Default(false))) {
-    // Know legacy keywords, not (yet) supported by new syntax
+    // Known legacy keywords, not (yet) supported by new syntax
     // #pragma clang loop <keyword>(<option>)
-    PP.EnterTokenStream(HintToken, true);
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
     return HandleLegacySyntax(PP, Introducer, Tok);
   }
 
@@ -3641,7 +3639,7 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
       HintToken.getIdentifierInfo()->getName() == "id") {
     // New keyword
     // #pragma clang loop id(loopname)
-    PP.EnterTokenStream(HintToken, true);
+    PP.EnterTokenStream(HintToken, true, /*IsReinject=*/true);
     return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
 
@@ -3650,11 +3648,11 @@ void PragmaLoopHintHandler::HandlePragma(Preprocessor &PP,
 
   if (!LParToken.is(tok::l_paren)) {
     // New syntax has no direct option after <keyword>
-    PP.EnterTokenStream({HintToken, LParToken}, true);
+    PP.EnterTokenStream({HintToken, LParToken}, true, /*IsReinject=*/true);
     return HandleOmpSyntax(PP, Introducer, KeywordLoopToken);
   }
 
-  PP.EnterTokenStream({HintToken, LParToken}, true);
+  PP.EnterTokenStream({HintToken, LParToken}, true, /*IsReinject=*/true);
   return HandleLegacySyntax(PP, Introducer, Tok);
 }
 
@@ -3778,7 +3776,7 @@ void PragmaLoopHintHandler::HandleLegacySyntax(Preprocessor &PP,
 }
 
 void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP,
-                                            PragmaIntroducerKind Introducer,
+                                            PragmaIntroducer Introducer,
                                             Token &Tok) {
   // New #pragma clang loop syntax, one hint per line.
 
@@ -3814,7 +3812,7 @@ void PragmaLoopHintHandler::HandleOmpSyntax(Preprocessor &PP,
   LoopHintTok.setAnnotationValue(static_cast<void *>(Info));
 
   PP.EnterTokenStream(std::move(TokenArray), 1,
-                      /*DisableMacroExpansion=*/false);
+                      /*DisableMacroExpansion=*/false, /*IsReinject=*/false);
 }
 
 /// Handle the loop unroll optimization pragmas.
@@ -3895,7 +3893,7 @@ void PragmaUnrollHintHandler::HandlePragma(Preprocessor &PP,
 /// Handle pragmas:
 ///   #pragma clang transform reverse
 ///
-void PragmaTransformHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer, Token &FirstTok) {
+void PragmaTransformHandler::HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer, Token &FirstTok) {
 	// "clang" token is not passed
 	// "transform" is FirstTok
 	// Everything up until tok::eod (or tok::eof) is wrapped between tok::annot_pragma_transform and tok::annot_pragma_transform_end, and pushed-back into the token stream. The tok::eod/eof is consumed as well:
@@ -3939,7 +3937,7 @@ void PragmaTransformHandler::HandlePragma(Preprocessor &PP, PragmaIntroducerKind
 	Pragma.push_back(EndTok);
 
 	// Handle in parser
-	PP.EnterTokenStream(Pragma, /*DisableMacroExpansion=*/false );
+	PP.EnterTokenStream(Pragma, /*DisableMacroExpansion=*/false , /*IsReinject=*/false);
 }
 
 

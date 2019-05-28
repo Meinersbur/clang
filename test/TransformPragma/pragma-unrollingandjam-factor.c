@@ -7,37 +7,37 @@
 
 
 __attribute__((noinline))
-void pragma_unrollingandjam(double C[const restrict static 256], double A[const restrict static 256]) {
+void pragma_unrollingandjam(double C[const restrict static 128][128], double A[const restrict static 256]) {
   #pragma clang loop unrollingandjam factor(4)
   for (int i = 0; i < 128; i += 1)
     for (int j = 0; j < 128; j += 1)
-      C[i+j] += A[i+j] + i + j;
+      C[i][j] = A[i+j] + i + j;
 }
 
 #ifdef MAIN
 #include <stdio.h>
 #include <string.h>
 int main() {
-  double C[256];
+  double C[128][128];
   double A[256];
   memset(A, 0, sizeof(A));
-  A[1] = 42;
+  A[2] = 42;
   pragma_unrollingandjam(C,A);
-  // C[1] = C[0+1] + C[1+0] = (A[0+1] + 0 + 1) + (A[1+0] + 1 + 0) = (42 + 0 + 1) + (42 + 0 + 1) = 43 + 43 = 86
-  printf("(%0.0f)\n", C[1]);
+  // C[1][1] = A[1+1] + 1 + 1 = 42 + 1 + 1 = 44
+  printf("(%0.0f)\n", C[1][1]);
   return 0;
 }
 #endif
 
-// PRINT-LABEL: void pragma_unrollingandjam(double C[const restrict static 256], double A[const restrict static 256]) __attribute__((noinline)) {
+// PRINT-LABEL: void pragma_unrollingandjam(double C[const restrict static 128][128], double A[const restrict static 256]) __attribute__((noinline)) {
 // PRINT-NEXT:  #pragma clang loop unrollingandjam factor(4)
 // PRINT-NEXT:  for (int i = 0; i < 128; i += 1)
 // PRINT-NEXT:  	for (int j = 0; j < 128; j += 1)
-// PRINT-NEXT:  		C[i + j] += A[i + j] + i + j;
+// PRINT-NEXT:  		C[i][j] = A[i + j] + i + j;
 // PRINT-NEXT:  }
 
 
-// IR-LABEL: define dso_local void @pragma_unrollingandjam(double* noalias dereferenceable(2048) %C, double* noalias dereferenceable(2048) %A) #0 {
+// IR-LABEL: define dso_local void @pragma_unrollingandjam([128 x double]* noalias dereferenceable(131072) %C, double* noalias dereferenceable(2048) %A) #0 {
 // IR:         br label %for.cond1, !llvm.loop !2
 // IR:         br label %for.cond, !llvm.loop !4
 //
@@ -68,4 +68,4 @@ int main() {
 // TRANS: store double %p_add
 
 
-// RESULT: (86)
+// RESULT: (44)
