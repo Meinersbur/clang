@@ -821,6 +821,10 @@ ANNOTATION(pragma_openmp_end)
 // The lexer produces these so that they only take effect when the parser
 // handles #pragma loop ... directives.
 ANNOTATION(pragma_loop_hint)
+ANNOTATION(pragma_loop_transform)
+
+ANNOTATION(pragma_transform)
+ANNOTATION(pragma_transform_end)
 
 ANNOTATION(pragma_fp)
 

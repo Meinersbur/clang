@@ -54,6 +54,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TinyPtrVector.h"
+#include "clang/Basic/TransformKinds.h"
 #include <deque>
 #include <memory>
 #include <string>
@@ -11125,6 +11126,9 @@ public:
     ConstructorDestructor,
     BuiltinFunction
   };
+
+  // TODO: Clauses
+  StmtResult ActOnLoopTransformDirective(TransformDirectiveKind Kind, Stmt *AStmt,  SourceRange Loc);
 };
 
 /// RAII object that enters a new expression evaluation context.

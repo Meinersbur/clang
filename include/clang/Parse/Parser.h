@@ -195,6 +195,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> NoUnrollHintHandler;
   std::unique_ptr<PragmaHandler> UnrollAndJamHintHandler;
   std::unique_ptr<PragmaHandler> NoUnrollAndJamHintHandler;
+  std::unique_ptr<PragmaHandler> TransformHandler;
   std::unique_ptr<PragmaHandler> FPHandler;
   std::unique_ptr<PragmaHandler> STDCFENVHandler;
   std::unique_ptr<PragmaHandler> STDCCXLIMITHandler;
@@ -730,6 +731,10 @@ private:
   /// Handle the annotation token produced for
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
+
+  bool HandlePragmaLoopTransform(IdentifierLoc *&PragmaNameLoc,
+                                 SourceRange &Range,
+                                 SmallVectorImpl<ArgsUnion> &ArgHints);
 
   bool ParsePragmaAttributeSubjectMatchRuleSet(
       attr::ParsedSubjectMatchRuleSet &SubjectMatchRules,
@@ -1958,6 +1963,8 @@ private:
                                  ParsedStmtContext StmtCtx,
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
+
+  StmtResult ParsePragmaTransform(ParsedStmtContext StmtCtx);
 
   /// Describes the behavior that should be taken for an __if_exists
   /// block.

@@ -2226,3 +2226,12 @@ bool Sema::checkOpenCLDisabledDecl(const NamedDecl &D, const Expr &E) {
   return checkOpenCLDisabledTypeOrDecl(&D, E.getBeginLoc(), FnName,
                                        OpenCLDeclExtMap, 1, D.getSourceRange());
 }
+
+
+
+StmtResult Sema::ActOnLoopTransformDirective(TransformDirectiveKind Kind, Stmt *AStmt, SourceRange Loc) {
+	llvm_unreachable("unimplemented");
+}
+
+
+

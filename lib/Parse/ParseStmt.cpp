@@ -20,6 +20,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/TypoCorrection.h"
+#include "clang/Basic/TransformKinds.h"
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -381,8 +382,13 @@ Retry:
     return StmtEmpty();
 
   case tok::annot_pragma_loop_hint:
+  case tok::annot_pragma_loop_transform:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, StmtCtx, TrailingElseLoc, Attrs);
+
+ case tok::annot_pragma_transform:
+    ProhibitAttributes(Attrs);
+    return ParsePragmaTransform(StmtCtx);
 
   case tok::annot_pragma_dump:
     HandlePragmaDump();
@@ -2029,16 +2035,34 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
   ParsedAttributesWithRange TempAttrs(AttrFactory);
 
   // Get loop hints and consume annotated token.
-  while (Tok.is(tok::annot_pragma_loop_hint)) {
-    LoopHint Hint;
-    if (!HandlePragmaLoopHint(Hint))
-      continue;
+  while (true) {
+    if (Tok.is(tok::annot_pragma_loop_hint)) {
+      LoopHint Hint;
+      if (!HandlePragmaLoopHint(Hint))
+        continue;
 
-    ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
-                            ArgsUnion(Hint.ValueExpr)};
-    TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
-                     Hint.PragmaNameLoc->Loc, ArgHints, 4,
-                     ParsedAttr::AS_Pragma);
+      ArgsUnion ArgHints[] = {Hint.PragmaNameLoc, Hint.OptionLoc, Hint.StateLoc,
+                              ArgsUnion(Hint.ValueExpr)};
+      TempAttrs.addNew(Hint.PragmaNameLoc->Ident, Hint.Range, nullptr,
+                       Hint.PragmaNameLoc->Loc, ArgHints, 4,
+                       ParsedAttr::AS_Pragma);
+
+      continue;
+    }
+
+    if (Tok.is(tok::annot_pragma_loop_transform)) {
+      IdentifierLoc *PragmaNameLoc;
+      SourceRange Range;
+      SmallVector<ArgsUnion, 8> ArgHints;
+      if (!HandlePragmaLoopTransform(PragmaNameLoc, Range, ArgHints))
+        continue;
+
+      TempAttrs.addNew(PragmaNameLoc->Ident, Range, nullptr, SourceLocation(),
+                       ArgHints.data(), ArgHints.size(), ParsedAttr::AS_Pragma);
+      continue;
+    }
+
+    break;
   }
 
   // Get the next statement.
@@ -2049,6 +2073,42 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts,
 
   Attrs.takeAllFrom(TempAttrs);
   return S;
+}
+
+/// Parse: #pragma clang transform ...
+///   ... transform reverse
+StmtResult Parser:: ParsePragmaTransform(ParsedStmtContext StmtCtx) {
+	assert(Tok.is(tok::annot_pragma_transform) && "Not a transform directive!");
+	ParenBraceBracketBalancer BalancerRAIIObj(*this);
+
+	// ... Tok=tok::annot_pragma_transform | <transform> <...> tok::annot_pragma_transform_end ...
+	SourceLocation BeginLoc = ConsumeAnnotationToken();
+
+	// ... Tok=<transform> | <...> tok::annot_pragma_transform_end ...
+	auto DirectiveStr = PP.getSpelling(Tok);
+	auto DirectiveKind = getTransformDirectiveKind(DirectiveStr);
+
+
+
+	switch (DirectiveKind)	{
+	case TransformDirectiveKind::reverse:
+		break;
+	default:
+		Diag(Tok, diag::err_pragma_transform_unknown_directive);
+		SkipUntil(tok::annot_pragma_transform_end);
+		return {};
+	}
+
+	SourceLocation EndLoc = ConsumeAnnotationToken();
+
+	StmtResult AssociatedStmt;
+	{
+		Sema::CompoundScopeRAII CompoundStmt(Actions);
+		AssociatedStmt = ParseStatement();
+	}
+	auto Result = Actions.ActOnLoopTransformDirective(DirectiveKind, AssociatedStmt.get(), { BeginLoc, EndLoc });
+
+	return Result;
 }
 
 Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {

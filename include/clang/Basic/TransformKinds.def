@@ -1,0 +1,11 @@
+
+
+#ifndef TRANSFORM_DIRECTIVE
+#  define TRANSFORM_DIRECTIVE(Name)
+#endif
+
+TRANSFORM_DIRECTIVE(reverse)
+
+
+
+#undef TRANSFORM_DIRECTIVE
