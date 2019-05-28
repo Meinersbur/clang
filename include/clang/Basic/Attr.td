@@ -3039,7 +3039,7 @@ def LoopTiling : Attr {
 			}
 
 			if (getPeelLength()) {
-					OS << " peel(\"" << getPeel() << "\")";
+					OS << " peel(" << getPeel() << ")";
 			}
 		}
   }];
