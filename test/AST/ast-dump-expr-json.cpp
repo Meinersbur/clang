@@ -3854,31 +3854,6 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                  "inner": [
 // CHECK-NEXT:                   {
 // CHECK-NEXT:                    "id": "0x{{.*}}",
-// CHECK-NEXT:                    "kind": "FieldDecl",
-// CHECK-NEXT:                    "loc": {
-// CHECK-NEXT:                     "col": 8,
-// CHECK-NEXT:                     "file": "{{.*}}",
-// CHECK-NEXT:                     "line": 98
-// CHECK-NEXT:                    },
-// CHECK-NEXT:                    "range": {
-// CHECK-NEXT:                     "begin": {
-// CHECK-NEXT:                      "col": 8,
-// CHECK-NEXT:                      "file": "{{.*}}",
-// CHECK-NEXT:                      "line": 98
-// CHECK-NEXT:                     },
-// CHECK-NEXT:                     "end": {
-// CHECK-NEXT:                      "col": 8,
-// CHECK-NEXT:                      "file": "{{.*}}",
-// CHECK-NEXT:                      "line": 98
-// CHECK-NEXT:                     }
-// CHECK-NEXT:                    },
-// CHECK-NEXT:                    "isImplicit": true,
-// CHECK-NEXT:                    "type": {
-// CHECK-NEXT:                     "qualType": "V *"
-// CHECK-NEXT:                    }
-// CHECK-NEXT:                   },
-// CHECK-NEXT:                   {
-// CHECK-NEXT:                    "id": "0x{{.*}}",
 // CHECK-NEXT:                    "kind": "CXXMethodDecl",
 // CHECK-NEXT:                    "loc": {
 // CHECK-NEXT:                     "col": 7,
@@ -3920,6 +3895,31 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                      }
 // CHECK-NEXT:                     }
 // CHECK-NEXT:                    ]
+// CHECK-NEXT:                   },
+// CHECK-NEXT:                   {
+// CHECK-NEXT:                    "id": "0x{{.*}}",
+// CHECK-NEXT:                    "kind": "FieldDecl",
+// CHECK-NEXT:                    "loc": {
+// CHECK-NEXT:                     "col": 8,
+// CHECK-NEXT:                     "file": "{{.*}}",
+// CHECK-NEXT:                     "line": 98
+// CHECK-NEXT:                    },
+// CHECK-NEXT:                    "range": {
+// CHECK-NEXT:                     "begin": {
+// CHECK-NEXT:                      "col": 8,
+// CHECK-NEXT:                      "file": "{{.*}}",
+// CHECK-NEXT:                      "line": 98
+// CHECK-NEXT:                     },
+// CHECK-NEXT:                     "end": {
+// CHECK-NEXT:                      "col": 8,
+// CHECK-NEXT:                      "file": "{{.*}}",
+// CHECK-NEXT:                      "line": 98
+// CHECK-NEXT:                     }
+// CHECK-NEXT:                    },
+// CHECK-NEXT:                    "isImplicit": true,
+// CHECK-NEXT:                    "type": {
+// CHECK-NEXT:                     "qualType": "V *"
+// CHECK-NEXT:                    }
 // CHECK-NEXT:                   }
 // CHECK-NEXT:                  ]
 // CHECK-NEXT:                 },
@@ -3941,8 +3941,7 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                  "type": {
 // CHECK-NEXT:                   "qualType": "V *"
 // CHECK-NEXT:                  },
-// CHECK-NEXT:                  "valueCategory": "rvalue",
-// CHECK-NEXT:                  "implicit": true
+// CHECK-NEXT:                  "valueCategory": "rvalue"
 // CHECK-NEXT:                 },
 // CHECK-NEXT:                 {
 // CHECK-NEXT:                  "id": "0x{{.*}}",
@@ -4043,31 +4042,6 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                  "inner": [
 // CHECK-NEXT:                   {
 // CHECK-NEXT:                    "id": "0x{{.*}}",
-// CHECK-NEXT:                    "kind": "FieldDecl",
-// CHECK-NEXT:                    "loc": {
-// CHECK-NEXT:                     "col": 8,
-// CHECK-NEXT:                     "file": "{{.*}}",
-// CHECK-NEXT:                     "line": 99
-// CHECK-NEXT:                    },
-// CHECK-NEXT:                    "range": {
-// CHECK-NEXT:                     "begin": {
-// CHECK-NEXT:                      "col": 8,
-// CHECK-NEXT:                      "file": "{{.*}}",
-// CHECK-NEXT:                      "line": 99
-// CHECK-NEXT:                     },
-// CHECK-NEXT:                     "end": {
-// CHECK-NEXT:                      "col": 8,
-// CHECK-NEXT:                      "file": "{{.*}}",
-// CHECK-NEXT:                      "line": 99
-// CHECK-NEXT:                     }
-// CHECK-NEXT:                    },
-// CHECK-NEXT:                    "isImplicit": true,
-// CHECK-NEXT:                    "type": {
-// CHECK-NEXT:                     "qualType": "V"
-// CHECK-NEXT:                    }
-// CHECK-NEXT:                   },
-// CHECK-NEXT:                   {
-// CHECK-NEXT:                    "id": "0x{{.*}}",
 // CHECK-NEXT:                    "kind": "CXXMethodDecl",
 // CHECK-NEXT:                    "loc": {
 // CHECK-NEXT:                     "col": 7,
@@ -4109,6 +4083,31 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                      }
 // CHECK-NEXT:                     }
 // CHECK-NEXT:                    ]
+// CHECK-NEXT:                   },
+// CHECK-NEXT:                   {
+// CHECK-NEXT:                    "id": "0x{{.*}}",
+// CHECK-NEXT:                    "kind": "FieldDecl",
+// CHECK-NEXT:                    "loc": {
+// CHECK-NEXT:                     "col": 8,
+// CHECK-NEXT:                     "file": "{{.*}}",
+// CHECK-NEXT:                     "line": 99
+// CHECK-NEXT:                    },
+// CHECK-NEXT:                    "range": {
+// CHECK-NEXT:                     "begin": {
+// CHECK-NEXT:                      "col": 8,
+// CHECK-NEXT:                      "file": "{{.*}}",
+// CHECK-NEXT:                      "line": 99
+// CHECK-NEXT:                     },
+// CHECK-NEXT:                     "end": {
+// CHECK-NEXT:                      "col": 8,
+// CHECK-NEXT:                      "file": "{{.*}}",
+// CHECK-NEXT:                      "line": 99
+// CHECK-NEXT:                     }
+// CHECK-NEXT:                    },
+// CHECK-NEXT:                    "isImplicit": true,
+// CHECK-NEXT:                    "type": {
+// CHECK-NEXT:                     "qualType": "V"
+// CHECK-NEXT:                    }
 // CHECK-NEXT:                   }
 // CHECK-NEXT:                  ]
 // CHECK-NEXT:                 },
@@ -4173,8 +4172,7 @@ void TestNonADLCall3() {
 // CHECK-NEXT:                      "type": {
 // CHECK-NEXT:                       "qualType": "V *"
 // CHECK-NEXT:                      },
-// CHECK-NEXT:                      "valueCategory": "rvalue",
-// CHECK-NEXT:                      "implicit": true
+// CHECK-NEXT:                      "valueCategory": "rvalue"
 // CHECK-NEXT:                     }
 // CHECK-NEXT:                    ]
 // CHECK-NEXT:                   }
@@ -4811,31 +4809,6 @@ void TestNonADLCall3() {
 // CHECK-NEXT:          "inner": [
 // CHECK-NEXT:           {
 // CHECK-NEXT:            "id": "0x{{.*}}",
-// CHECK-NEXT:            "kind": "FieldDecl",
-// CHECK-NEXT:            "loc": {
-// CHECK-NEXT:             "col": 4,
-// CHECK-NEXT:             "file": "{{.*}}",
-// CHECK-NEXT:             "line": 107
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "range": {
-// CHECK-NEXT:             "begin": {
-// CHECK-NEXT:              "col": 4,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 107
-// CHECK-NEXT:             },
-// CHECK-NEXT:             "end": {
-// CHECK-NEXT:              "col": 4,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 107
-// CHECK-NEXT:             }
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "isImplicit": true,
-// CHECK-NEXT:            "type": {
-// CHECK-NEXT:             "qualType": "Ts..."
-// CHECK-NEXT:            }
-// CHECK-NEXT:           },
-// CHECK-NEXT:           {
-// CHECK-NEXT:            "id": "0x{{.*}}",
 // CHECK-NEXT:            "kind": "CXXMethodDecl",
 // CHECK-NEXT:            "loc": {
 // CHECK-NEXT:             "col": 3,
@@ -4877,6 +4850,31 @@ void TestNonADLCall3() {
 // CHECK-NEXT:              }
 // CHECK-NEXT:             }
 // CHECK-NEXT:            ]
+// CHECK-NEXT:           },
+// CHECK-NEXT:           {
+// CHECK-NEXT:            "id": "0x{{.*}}",
+// CHECK-NEXT:            "kind": "FieldDecl",
+// CHECK-NEXT:            "loc": {
+// CHECK-NEXT:             "col": 4,
+// CHECK-NEXT:             "file": "{{.*}}",
+// CHECK-NEXT:             "line": 107
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "range": {
+// CHECK-NEXT:             "begin": {
+// CHECK-NEXT:              "col": 4,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 107
+// CHECK-NEXT:             },
+// CHECK-NEXT:             "end": {
+// CHECK-NEXT:              "col": 4,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 107
+// CHECK-NEXT:             }
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "isImplicit": true,
+// CHECK-NEXT:            "type": {
+// CHECK-NEXT:             "qualType": "Ts..."
+// CHECK-NEXT:            }
 // CHECK-NEXT:           }
 // CHECK-NEXT:          ]
 // CHECK-NEXT:         },
@@ -5799,56 +5797,6 @@ void TestNonADLCall3() {
 // CHECK-NEXT:          "inner": [
 // CHECK-NEXT:           {
 // CHECK-NEXT:            "id": "0x{{.*}}",
-// CHECK-NEXT:            "kind": "FieldDecl",
-// CHECK-NEXT:            "loc": {
-// CHECK-NEXT:             "col": 4,
-// CHECK-NEXT:             "file": "{{.*}}",
-// CHECK-NEXT:             "line": 112
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "range": {
-// CHECK-NEXT:             "begin": {
-// CHECK-NEXT:              "col": 4,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 112
-// CHECK-NEXT:             },
-// CHECK-NEXT:             "end": {
-// CHECK-NEXT:              "col": 4,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 112
-// CHECK-NEXT:             }
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "isImplicit": true,
-// CHECK-NEXT:            "type": {
-// CHECK-NEXT:             "qualType": "int"
-// CHECK-NEXT:            }
-// CHECK-NEXT:           },
-// CHECK-NEXT:           {
-// CHECK-NEXT:            "id": "0x{{.*}}",
-// CHECK-NEXT:            "kind": "FieldDecl",
-// CHECK-NEXT:            "loc": {
-// CHECK-NEXT:             "col": 8,
-// CHECK-NEXT:             "file": "{{.*}}",
-// CHECK-NEXT:             "line": 112
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "range": {
-// CHECK-NEXT:             "begin": {
-// CHECK-NEXT:              "col": 8,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 112
-// CHECK-NEXT:             },
-// CHECK-NEXT:             "end": {
-// CHECK-NEXT:              "col": 8,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 112
-// CHECK-NEXT:             }
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "isImplicit": true,
-// CHECK-NEXT:            "type": {
-// CHECK-NEXT:             "qualType": "int &"
-// CHECK-NEXT:            }
-// CHECK-NEXT:           },
-// CHECK-NEXT:           {
-// CHECK-NEXT:            "id": "0x{{.*}}",
 // CHECK-NEXT:            "kind": "CXXMethodDecl",
 // CHECK-NEXT:            "loc": {
 // CHECK-NEXT:             "col": 3,
@@ -6035,6 +5983,56 @@ void TestNonADLCall3() {
 // CHECK-NEXT:              ]
 // CHECK-NEXT:             }
 // CHECK-NEXT:            ]
+// CHECK-NEXT:           },
+// CHECK-NEXT:           {
+// CHECK-NEXT:            "id": "0x{{.*}}",
+// CHECK-NEXT:            "kind": "FieldDecl",
+// CHECK-NEXT:            "loc": {
+// CHECK-NEXT:             "col": 4,
+// CHECK-NEXT:             "file": "{{.*}}",
+// CHECK-NEXT:             "line": 112
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "range": {
+// CHECK-NEXT:             "begin": {
+// CHECK-NEXT:              "col": 4,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 112
+// CHECK-NEXT:             },
+// CHECK-NEXT:             "end": {
+// CHECK-NEXT:              "col": 4,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 112
+// CHECK-NEXT:             }
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "isImplicit": true,
+// CHECK-NEXT:            "type": {
+// CHECK-NEXT:             "qualType": "int"
+// CHECK-NEXT:            }
+// CHECK-NEXT:           },
+// CHECK-NEXT:           {
+// CHECK-NEXT:            "id": "0x{{.*}}",
+// CHECK-NEXT:            "kind": "FieldDecl",
+// CHECK-NEXT:            "loc": {
+// CHECK-NEXT:             "col": 8,
+// CHECK-NEXT:             "file": "{{.*}}",
+// CHECK-NEXT:             "line": 112
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "range": {
+// CHECK-NEXT:             "begin": {
+// CHECK-NEXT:              "col": 8,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 112
+// CHECK-NEXT:             },
+// CHECK-NEXT:             "end": {
+// CHECK-NEXT:              "col": 8,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 112
+// CHECK-NEXT:             }
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "isImplicit": true,
+// CHECK-NEXT:            "type": {
+// CHECK-NEXT:             "qualType": "int &"
+// CHECK-NEXT:            }
 // CHECK-NEXT:           }
 // CHECK-NEXT:          ]
 // CHECK-NEXT:         },
@@ -6359,6 +6357,50 @@ void TestNonADLCall3() {
 // CHECK-NEXT:          "inner": [
 // CHECK-NEXT:           {
 // CHECK-NEXT:            "id": "0x{{.*}}",
+// CHECK-NEXT:            "kind": "CXXMethodDecl",
+// CHECK-NEXT:            "loc": {
+// CHECK-NEXT:             "col": 3,
+// CHECK-NEXT:             "file": "{{.*}}",
+// CHECK-NEXT:             "line": 113
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "range": {
+// CHECK-NEXT:             "begin": {
+// CHECK-NEXT:              "col": 16,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 113
+// CHECK-NEXT:             },
+// CHECK-NEXT:             "end": {
+// CHECK-NEXT:              "col": 18,
+// CHECK-NEXT:              "file": "{{.*}}",
+// CHECK-NEXT:              "line": 113
+// CHECK-NEXT:             }
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "name": "operator()",
+// CHECK-NEXT:            "type": {
+// CHECK-NEXT:             "qualType": "auto () const -> auto"
+// CHECK-NEXT:            },
+// CHECK-NEXT:            "inline": true,
+// CHECK-NEXT:            "inner": [
+// CHECK-NEXT:             {
+// CHECK-NEXT:              "id": "0x{{.*}}",
+// CHECK-NEXT:              "kind": "CompoundStmt",
+// CHECK-NEXT:              "range": {
+// CHECK-NEXT:               "begin": {
+// CHECK-NEXT:                "col": 17,
+// CHECK-NEXT:                "file": "{{.*}}",
+// CHECK-NEXT:                "line": 113
+// CHECK-NEXT:               },
+// CHECK-NEXT:               "end": {
+// CHECK-NEXT:                "col": 18,
+// CHECK-NEXT:                "file": "{{.*}}",
+// CHECK-NEXT:                "line": 113
+// CHECK-NEXT:               }
+// CHECK-NEXT:              }
+// CHECK-NEXT:             }
+// CHECK-NEXT:            ]
+// CHECK-NEXT:           },
+// CHECK-NEXT:           {
+// CHECK-NEXT:            "id": "0x{{.*}}",
 // CHECK-NEXT:            "kind": "FieldDecl",
 // CHECK-NEXT:            "loc": {
 // CHECK-NEXT:             "col": 4,
@@ -6407,50 +6449,6 @@ void TestNonADLCall3() {
 // CHECK-NEXT:             "desugaredQualType": "int",
 // CHECK-NEXT:             "qualType": "int"
 // CHECK-NEXT:            }
-// CHECK-NEXT:           },
-// CHECK-NEXT:           {
-// CHECK-NEXT:            "id": "0x{{.*}}",
-// CHECK-NEXT:            "kind": "CXXMethodDecl",
-// CHECK-NEXT:            "loc": {
-// CHECK-NEXT:             "col": 3,
-// CHECK-NEXT:             "file": "{{.*}}",
-// CHECK-NEXT:             "line": 113
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "range": {
-// CHECK-NEXT:             "begin": {
-// CHECK-NEXT:              "col": 16,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 113
-// CHECK-NEXT:             },
-// CHECK-NEXT:             "end": {
-// CHECK-NEXT:              "col": 18,
-// CHECK-NEXT:              "file": "{{.*}}",
-// CHECK-NEXT:              "line": 113
-// CHECK-NEXT:             }
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "name": "operator()",
-// CHECK-NEXT:            "type": {
-// CHECK-NEXT:             "qualType": "auto () const -> auto"
-// CHECK-NEXT:            },
-// CHECK-NEXT:            "inline": true,
-// CHECK-NEXT:            "inner": [
-// CHECK-NEXT:             {
-// CHECK-NEXT:              "id": "0x{{.*}}",
-// CHECK-NEXT:              "kind": "CompoundStmt",
-// CHECK-NEXT:              "range": {
-// CHECK-NEXT:               "begin": {
-// CHECK-NEXT:                "col": 17,
-// CHECK-NEXT:                "file": "{{.*}}",
-// CHECK-NEXT:                "line": 113
-// CHECK-NEXT:               },
-// CHECK-NEXT:               "end": {
-// CHECK-NEXT:                "col": 18,
-// CHECK-NEXT:                "file": "{{.*}}",
-// CHECK-NEXT:                "line": 113
-// CHECK-NEXT:               }
-// CHECK-NEXT:              }
-// CHECK-NEXT:             }
-// CHECK-NEXT:            ]
 // CHECK-NEXT:           }
 // CHECK-NEXT:          ]
 // CHECK-NEXT:         },
